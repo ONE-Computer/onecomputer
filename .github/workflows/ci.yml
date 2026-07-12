@@ -107,3 +107,20 @@ jobs:
             --exit-code; EXIT_CODE=$?
           docker rm -f shadow-db
           exit $EXIT_CODE
+
+  installer:
+    name: OSS installer smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check shell syntax
+        run: |
+          sh -n scripts/install.sh
+          sh -n scripts/onecomputer/setup.sh
+
+      - name: Check non-mutating plans
+        run: |
+          ./scripts/install.sh --dry-run --no-start --dir /tmp/onecomputer-ci
+          ./scripts/onecomputer/setup.sh --dry-run --no-start --source-dir .

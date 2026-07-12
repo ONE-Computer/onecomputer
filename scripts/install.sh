@@ -1,200 +1,125 @@
 #!/bin/sh
-
-# OneCLI - Open-Source Credential Vault for AI Agents
-# Source: https://github.com/onecli/onecli
-# License: See repository for license details
+# ONEComputer OSS installer.
 #
-# Usage: curl -fsSL https://onecli.sh/install | sh
+# One-line install:
+#   curl -fsSL https://raw.githubusercontent.com/ONE-Computer/onecomputer/main/scripts/install.sh | sh
 #
-# Custom bind host:
-#   export ONECLI_BIND_HOST=192.168.1.50
-#   curl -fsSL https://onecli.sh/install | sh
-#
-# Custom PostgreSQL port (if 5432 is already in use):
-#   export POSTGRES_PORT=5433
-#   curl -fsSL https://onecli.sh/install | sh
-#
-# Custom app/gateway ports (e.g. for multi-user hosts):
-#   export ONECLI_APP_PORT=11254
-#   export ONECLI_GATEWAY_PORT=11255
-#   curl -fsSL https://onecli.sh/install | sh
-#
-# Pin a specific version:
-#   export ONECLI_VERSION=1.2.0
-#   curl -fsSL https://onecli.sh/install | sh
-#
-# This script checks for Docker, downloads the docker-compose.yml,
-# and starts OneCLI (app + PostgreSQL) on ports 10254 and 10255 by default.
+# The installer bootstraps a source checkout and delegates environment setup
+# to scripts/onecomputer/setup.sh. It never reads, prints, or uploads
+# credentials, and it never destroys an existing checkout or database volume.
 
-INSTALL_DIR="$HOME/.onecli"
-COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
-COMPOSE_URL="https://raw.githubusercontent.com/onecli/onecli/main/docker/docker-compose.yml"
-PROJECT_NAME="onecli"
+set -eu
 
-# Detect the correct bind host for Docker port bindings.
-# Never 0.0.0.0 — that would expose services to the network.
-detect_bind_host() {
-  # 1. Explicit env var — user knows best
-  if [ -n "$ONECLI_BIND_HOST" ]; then
-    echo "$ONECLI_BIND_HOST"
-    return
-  fi
+REPO_SLUG="ONE-Computer/onecomputer"
+REPO_URL="https://github.com/${REPO_SLUG}.git"
+REF="${ONECOMPUTER_REF:-main}"
+INSTALL_ROOT="${ONECOMPUTER_HOME:-$HOME/.onecomputer}"
+SOURCE_DIR="${ONECOMPUTER_SOURCE_DIR:-}"
+START=1
+SKIP_DEPS=0
+DRY_RUN=0
 
-  # 2. macOS — Docker Desktop, loopback works
-  if [ "$(uname -s)" = "Darwin" ]; then
-    echo "127.0.0.1"
-    return
-  fi
-
-  # 3. WSL — same VM routing as macOS (check /proc, not env vars)
-  if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
-    echo "127.0.0.1"
-    return
-  fi
-
-  # 4. Bare-metal Linux — bind to docker0 bridge IP
-  if command -v ip >/dev/null 2>&1; then
-    DOCKER0_IP=$(ip -4 addr show docker0 2>/dev/null | awk '/inet / {split($2, a, "/"); print a[1]; exit}')
-    if [ -n "$DOCKER0_IP" ]; then
-      echo "$DOCKER0_IP"
-      return
-    fi
-  fi
-
-  # 5. Cannot determine safely
-  echo ""
+die() {
+  echo "onecomputer: error: $*" >&2
+  exit 1
 }
 
-main() {
+usage() {
+  cat <<'EOF'
+Usage: install.sh [options]
+
+Clone or reuse a ONEComputer checkout, then prepare it for local development.
+
+Options:
+  --no-start                 Prepare the checkout without starting pnpm dev.
+  --skip-deps                Do not run pnpm install or Prisma generation.
+  --dry-run                  Print the plan without cloning or changing files.
+  --dir PATH                 Use PATH as the install root (default ~/.onecomputer).
+  --source-dir PATH          Use an existing checkout instead of cloning.
+  --ref REF                  Clone a branch or tag (default main).
+  --help                     Show this help.
+EOF
+}
+
+detect_local_checkout() {
+  case "$0" in
+    */scripts/install.sh|scripts/install.sh)
+      local_dir=$(CDPATH= cd -- "$(dirname "$0")/.." 2>/dev/null && pwd) || true
+      if [ -f "$local_dir/package.json" ] && [ -f "$local_dir/scripts/onecomputer/setup.sh" ]; then
+        echo "$local_dir"
+      fi
+      ;;
+  esac
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --no-start) START=0; shift ;;
+    --skip-deps) SKIP_DEPS=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --dir)
+      [ "$#" -ge 2 ] || die "--dir requires a path"
+      INSTALL_ROOT=$2
+      shift 2
+      ;;
+    --source-dir)
+      [ "$#" -ge 2 ] || die "--source-dir requires a path"
+      SOURCE_DIR=$2
+      shift 2
+      ;;
+    --ref)
+      [ "$#" -ge 2 ] || die "--ref requires a branch or tag"
+      REF=$2
+      shift 2
+      ;;
+    --help|-h) usage; exit 0 ;;
+    *) die "unknown option '$1' (use --help)" ;;
+  esac
+done
+
+if [ -z "$SOURCE_DIR" ]; then
+  SOURCE_DIR=$(detect_local_checkout || true)
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "ONEComputer OSS setup plan"
+  echo "  source: $([ -n "$SOURCE_DIR" ] && echo "$SOURCE_DIR" || echo "$INSTALL_ROOT/src")"
+  echo "  ref:    $REF"
+  echo "  start:  $([ "$START" -eq 1 ] && echo yes || echo no)"
+  echo "  deps:   $([ "$SKIP_DEPS" -eq 1 ] && echo skip || echo install)"
+  echo "  data:   Docker Compose PostgreSQL"
   echo ""
-  echo "  OneCLI: give your agents access, not your secrets."
-  echo ""
+  echo "No files will be cloned, changed, or started."
+  exit 0
+fi
 
-  # ── Prerequisites ──
+command -v git >/dev/null 2>&1 || die "git is required; install it from https://git-scm.com/downloads"
 
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "Error: Docker is not installed." >&2
-    echo "" >&2
-    echo "Install Docker first: https://docs.docker.com/get-docker/" >&2
-    exit 1
+if [ -z "$SOURCE_DIR" ]; then
+  SOURCE_DIR="$INSTALL_ROOT/src"
+  if [ -e "$SOURCE_DIR" ] && [ ! -d "$SOURCE_DIR/.git" ]; then
+    die "$SOURCE_DIR exists but is not a Git checkout; choose another --dir"
   fi
-
-  if ! docker info >/dev/null 2>&1; then
-    echo "Error: Docker daemon is not running." >&2
-    echo "Please start Docker and try again." >&2
-    exit 1
-  fi
-
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "Error: Docker Compose is not available." >&2
-    echo "Please install Docker Compose: https://docs.docker.com/compose/install/" >&2
-    exit 1
-  fi
-
-  # ── Detect bind host ──
-
-  ONECLI_BIND_HOST=$(detect_bind_host)
-  if [ -z "$ONECLI_BIND_HOST" ]; then
-    echo "Error: Could not safely determine a bind address for OneCLI." >&2
-    echo "" >&2
-    echo "Please set ONECLI_BIND_HOST and try again:" >&2
-    echo "  export ONECLI_BIND_HOST=<your-ip>" >&2
-    echo "  curl -fsSL https://onecli.sh/install | sh" >&2
-    exit 1
-  fi
-  export ONECLI_BIND_HOST
-  echo "  Bind host: $ONECLI_BIND_HOST"
-
-  # ── Resolve version ──
-
-  ONECLI_VERSION="${ONECLI_VERSION:-latest}"
-  export ONECLI_VERSION
-  echo "  Version:   $ONECLI_VERSION"
-
-  # ── Download docker-compose.yml ──
-
-  if ! mkdir -p "$INSTALL_DIR"; then
-    echo "Error: Failed to create $INSTALL_DIR" >&2
-    exit 1
-  fi
-  echo "  Downloading docker-compose.yml..."
-  if command -v curl >/dev/null 2>&1; then
-    if ! curl -fsSL "$COMPOSE_URL" -o "$COMPOSE_FILE"; then
-      echo "Error: Failed to download docker-compose.yml from $COMPOSE_URL" >&2
-      exit 1
-    fi
-  elif command -v wget >/dev/null 2>&1; then
-    if ! wget -qO "$COMPOSE_FILE" "$COMPOSE_URL"; then
-      echo "Error: Failed to download docker-compose.yml from $COMPOSE_URL" >&2
-      exit 1
-    fi
+  if [ -d "$SOURCE_DIR/.git" ]; then
+    echo "  Using existing checkout: $SOURCE_DIR"
   else
-    echo "Error: curl or wget is required." >&2
-    exit 1
+    mkdir -p "$INSTALL_ROOT"
+    echo "  Cloning $REPO_SLUG ($REF)..."
+    git clone --branch "$REF" --depth 1 "$REPO_URL" "$SOURCE_DIR"
   fi
+else
+  SOURCE_DIR=$(CDPATH= cd -- "$SOURCE_DIR" 2>/dev/null && pwd) || die "source directory not found: $SOURCE_DIR"
+  [ -f "$SOURCE_DIR/package.json" ] || die "$SOURCE_DIR is not a ONEComputer checkout"
+fi
 
-  # ── Stop existing services ──
+[ -f "$SOURCE_DIR/scripts/onecomputer/setup.sh" ] || die "setup script is missing from $SOURCE_DIR"
 
-  if docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" ps -q 2>/dev/null | grep -q .; then
-    echo "  Stopping existing OneCLI services..."
-    if ! docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" down; then
-      echo "Error: Failed to stop existing OneCLI services." >&2
-      exit 1
-    fi
-  fi
+echo ""
+echo "  Preparing ONEComputer from $SOURCE_DIR"
+echo ""
 
-  # ── Check for port conflicts ──
-
-  PG_PORT="${POSTGRES_PORT:-5432}"
-  if command -v lsof >/dev/null 2>&1; then
-    if lsof -iTCP:"$PG_PORT" -sTCP:LISTEN -P -n >/dev/null 2>&1; then
-      echo "Error: Port $PG_PORT is already in use (probably a local PostgreSQL)." >&2
-      echo "" >&2
-      echo "Pick a free port for OneCLI's database:" >&2
-      echo "  export POSTGRES_PORT=5433" >&2
-      echo "  curl -fsSL https://onecli.sh/install | sh" >&2
-      exit 1
-    fi
-  elif command -v ss >/dev/null 2>&1; then
-    if ss -tlnp "sport = :$PG_PORT" 2>/dev/null | grep -q LISTEN; then
-      echo "Error: Port $PG_PORT is already in use (probably a local PostgreSQL)." >&2
-      echo "" >&2
-      echo "Pick a free port for OneCLI's database:" >&2
-      echo "  export POSTGRES_PORT=5433" >&2
-      echo "  curl -fsSL https://onecli.sh/install | sh" >&2
-      exit 1
-    fi
-  fi
-
-  # ── Pull and start ──
-
-  echo "  Pulling latest images..."
-  if ! docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" pull; then
-    echo "Error: Failed to pull OneCLI images. Check your network connection." >&2
-    exit 1
-  fi
-
-  echo "  Starting OneCLI..."
-  if ! docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait; then
-    echo "" >&2
-    echo "Error: Failed to start OneCLI." >&2
-    exit 1
-  fi
-
-  # ── Success ──
-
-  echo ""
-  echo "  OneCLI is running!"
-  echo "  ONECLI_URL:  http://$ONECLI_BIND_HOST:${ONECLI_APP_PORT:-10254}"
-  echo ""
-  echo "  Dashboard:  http://$ONECLI_BIND_HOST:${ONECLI_APP_PORT:-10254}"
-  echo "  Gateway:    http://$ONECLI_BIND_HOST:${ONECLI_GATEWAY_PORT:-10255}"
-  echo ""
-  echo "  Compose file: $COMPOSE_FILE"
-  echo ""
-  echo "  To stop:   docker compose -p $PROJECT_NAME -f $COMPOSE_FILE down"
-  echo "  To update: curl -fsSL https://onecli.sh/install | sh"
-  echo ""
-}
-
-main
+set -- --source-dir "$SOURCE_DIR"
+[ "$START" -eq 1 ] && set -- "$@" --start || set -- "$@" --no-start
+[ "$SKIP_DEPS" -eq 1 ] && set -- "$@" --skip-deps
+export ONECOMPUTER_HOME="$INSTALL_ROOT"
+exec sh "$SOURCE_DIR/scripts/onecomputer/setup.sh" "$@"

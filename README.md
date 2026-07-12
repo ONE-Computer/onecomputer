@@ -44,6 +44,36 @@ vendored into this application.
 
 ## Local development
 
+For a fresh macOS, Linux, or WSL checkout, the recommended OSS path is:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ONE-Computer/onecomputer/main/scripts/install.sh | sh
+```
+
+The installer clones the public repository into `~/.onecomputer/src`, creates a
+mode-600 `.env` with local-only secrets, installs locked JavaScript
+dependencies, starts PostgreSQL with Docker Compose, applies migrations, and
+starts the web/gateway development processes. It is safe to rerun and never
+deletes database volumes or overwrites an existing `.env` secret.
+
+To prepare without starting the dev server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ONE-Computer/onecomputer/main/scripts/install.sh | sh -s -- --no-start
+```
+
+For a checkout you already cloned:
+
+```bash
+./scripts/install.sh --source-dir .
+```
+
+See [`docs/onecomputer/installation.md`](docs/onecomputer/installation.md)
+for supported options, prerequisites, security behavior, and the distinction
+between the OSS source path and the Azure deployment path.
+
+### Manual local development
+
 Requirements: Node.js 18+, pnpm 9+, Docker, and Rust for the gateway.
 
 ```bash

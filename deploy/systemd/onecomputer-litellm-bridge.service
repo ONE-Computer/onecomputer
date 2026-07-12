@@ -1,0 +1,17 @@
+[Unit]
+Description=ONEComputer Docker bridge to host LiteLLM
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# LiteLLM deliberately listens only on the host loopback interface. Expose it
+# only on the Docker bridge so Kasm containers can use host.docker.internal;
+# do not bind it to the public VM interface.
+ExecStart=/usr/bin/socat TCP-LISTEN:47821,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:47821
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

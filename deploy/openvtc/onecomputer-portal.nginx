@@ -1,0 +1,64 @@
+server {
+    server_name onecomputer-openvtc.eastus2.cloudapp.azure.com;
+
+    client_max_body_size 64m;
+
+    # OpenVTC VTA REST surface. It is loopback-only on the VM and is not the
+    # manager approval UI; approvals remain in the separate wallet process.
+    location ^~ /vta/ {
+        # Strip the public /vta/ prefix because the VTA routes are rooted at
+        # /health, /auth, /trust-tasks, etc.
+        proxy_pass http://127.0.0.1:18110/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # OpenVTC DIDComm mediator API and WebSocket endpoint. The mediator stays
+    # bound to loopback; TLS is terminated by this public reverse proxy.
+    location ^~ /mediator/v1/ {
+        proxy_pass http://127.0.0.1:18120;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:10254;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    ssl_certificate /etc/letsencrypt/live/onecomputer-openvtc.eastus2.cloudapp.azure.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/onecomputer-openvtc.eastus2.cloudapp.azure.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name onecomputer-openvtc.eastus2.cloudapp.azure.com;
+    return 301 https://$host$request_uri;
+}

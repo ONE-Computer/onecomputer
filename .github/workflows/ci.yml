@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust:
+              - 'apps/gateway/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Setup Node.js
+        if: steps.changes.outputs.rust == 'true'
+        uses: ./.github/actions/setup-node
+
+      - name: Setup Rust
+        if: steps.changes.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        if: steps.changes.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/gateway -> target
+
+      - name: Clippy
+        if: steps.changes.outputs.rust == 'true'
+        run: pnpm --filter @onecli/gateway check-types
+
+      - name: Format
+        if: steps.changes.outputs.rust == 'true'
+        run: pnpm --filter @onecli/gateway lint
+
+      - name: Test
+        if: steps.changes.outputs.rust == 'true'
+        run: pnpm --filter @onecli/gateway test
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+
+      - name: Lint
+        run: pnpm lint --filter='!@onecli/gateway'
+
+      - name: Format
+        run: pnpm run format:check
+
+  build:
+    name: Build & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+
+      - name: Type check
+        run: pnpm check-types --filter='!@onecli/gateway'
+
+      - name: Build
+        run: pnpm build --filter='!@onecli/gateway'
+
+      - name: Check for Prisma changes
+        id: prisma-changes
+        run: |
+          CHANGED=$(gh pr diff ${{ github.event.pull_request.number }} --name-only | grep -c '^packages/db/prisma/' || true)
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check migration drift
+        if: steps.prisma-changes.outputs.changed != '0'
+        run: |
+          docker run -d --name shadow-db -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=shadow -p 5433:5432 postgres:18-alpine
+          until docker exec shadow-db pg_isready; do sleep 1; done
+          pnpm --filter @onecli/db exec prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url postgresql://ci:ci@localhost:5433/shadow \
+            --exit-code; EXIT_CODE=$?
+          docker rm -f shadow-db
+          exit $EXIT_CODE

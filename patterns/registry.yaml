@@ -1,0 +1,14 @@
+patterns:
+  - id: vti-95-builder
+    name: OneComputer VTI 95 Readiness Builder
+    cadence: 20m while active
+    level: L2-assisted
+    state: .onecomputer/background/vti95-state.json
+    human_gate: security, secrets, production infra, auto-merge, broad IAM
+    verifier: review-gate docs plus loop-verifier skill
+  - id: runtime-partner-scout
+    name: Runtime Partner Scout
+    cadence: ad hoc
+    level: L1-report
+    state: STATE.md
+    human_gate: any adapter implementation

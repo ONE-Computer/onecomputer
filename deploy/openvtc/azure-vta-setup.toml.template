@@ -1,0 +1,37 @@
+# Dev/staging VTA setup for the ONEComputer OpenVTC E2E.
+# __MEDIATOR_DID__ is materialized from the provisioned mediator config at
+# deployment time. Plaintext seed storage is temporary until Azure Key Vault
+# write access is granted to the VM identity.
+
+config_path = "/var/lib/openvtc/vta/config.toml"
+data_dir = "/var/lib/openvtc/vta/data"
+vta_name = "onecomputer-vta-e2e"
+public_url = "https://onecomputer-openvtc.eastus2.cloudapp.azure.com/vta"
+
+[services]
+rest = true
+didcomm = true
+webauthn = false
+tsp = false
+
+[server]
+host = "127.0.0.1"
+port = 18110
+
+[log]
+level = "info"
+format = "text"
+
+[secrets]
+backend = "plaintext"
+
+[messaging]
+kind = "existing"
+did = "__MEDIATOR_DID__"
+
+[vta_did]
+kind = "create_did_key"
+
+# The manager DID is imported and granted admin access in a separate
+# operator step after setup, so rerunning this recipe cannot silently replace
+# the manager wallet identity.

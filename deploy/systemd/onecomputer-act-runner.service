@@ -1,0 +1,19 @@
+[Unit]
+Description=ONEComputer Gitea Actions runner
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+User=onecomputer-runner
+Group=onecomputer-runner
+WorkingDirectory=/opt/onecomputer-act-runner
+Environment=HOME=/opt/onecomputer-act-runner
+ExecStart=/opt/onecomputer-act-runner/act_runner daemon --config /opt/onecomputer-act-runner/config.yaml
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

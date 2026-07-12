@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenVTC VTA for ONEComputer E2E
+After=network-online.target openvtc-mediator.service
+Wants=network-online.target
+Requires=openvtc-mediator.service
+
+[Service]
+Type=simple
+User=azureuser
+Group=azureuser
+WorkingDirectory=/var/lib/openvtc/vta
+Environment=RUST_LOG=info
+ExecStart=/usr/local/lib/openvtc/vta --config /var/lib/openvtc/vta/config.toml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/openvtc/vta
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

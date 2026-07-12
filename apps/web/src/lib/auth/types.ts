@@ -1,0 +1,27 @@
+export interface AuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  // Active project id, returned by /v1/auth/session. Used by client-side
+  // redirects to land on /p/[projectId]/... rather than the unscoped legacy
+  // /overview URL.
+  projectId?: string;
+}
+
+export type EmailOtpStep = "CONFIRM_SIGN_UP" | "CONFIRM_SIGN_IN" | "DONE";
+
+export interface AuthContextValue {
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  user: AuthUser | null;
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+  authMethod?: "openvtc";
+  // Sign in with Microsoft Entra ID (undefined when Entra env vars are absent)
+  signInMicrosoft?: () => Promise<void>;
+  // Email OTP flow (cloud-only, undefined in OSS mode)
+  signUpWithEmail?: (email: string) => Promise<EmailOtpStep>;
+  signInWithEmail?: (email: string) => Promise<EmailOtpStep>;
+  confirmEmailSignUp?: (email: string, code: string) => Promise<boolean>;
+  confirmEmailSignIn?: (code: string) => Promise<boolean>;
+}

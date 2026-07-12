@@ -1,0 +1,51 @@
+{
+  "name": "onecomputer",
+  "private": true,
+  "scripts": {
+    "build": "dotenv -e .env -- turbo run build",
+    "dev": "dotenv -e .env -- turbo run dev --ui stream",
+    "dev:web": "dotenv -e .env -- turbo run dev --filter=@onecli/web --ui stream",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,md,css,json}\" && pnpm --filter @onecli/db prisma format",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,md,css,json}\" && pnpm --filter @onecli/db prisma format --check",
+    "check-types": "turbo run check-types",
+    "check": "turbo run lint check-types && pnpm run format:check",
+    "fix": "turbo run lint:fix && pnpm run format",
+    "db:up": "docker compose -f docker/docker-compose.yml up postgres -d",
+    "db:down": "docker compose -f docker/docker-compose.yml down postgres",
+    "db:nuke": "docker compose -f docker/docker-compose.yml down postgres -v",
+    "redis:up": "docker run -d --name onecomputer-redis -p 6379:6379 redis:7-alpine",
+    "redis:down": "docker stop onecomputer-redis && docker rm -v onecomputer-redis",
+    "db:generate": "pnpm --filter @onecli/db prisma generate",
+    "db:push": "dotenv -e .env -- pnpm --filter @onecli/db prisma db push",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @onecli/db db:migrate",
+    "db:studio": "dotenv -e .env -- pnpm --filter @onecli/db prisma studio",
+    "test": "turbo run test",
+    "prepare": "husky",
+    "onecomputer:deploy": "node scripts/onecomputer/deploy-local-app.mjs",
+    "e2e:local:start": "bash scripts/onecomputer/local-e2e.sh start",
+    "e2e:local:stop": "bash scripts/onecomputer/local-e2e.sh stop",
+    "e2e:local:status": "bash scripts/onecomputer/local-e2e.sh status"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.1",
+    "prettier": "^3.7.4",
+    "prettier-plugin-tailwindcss": "^0.7.2",
+    "turbo": "^2.8.3",
+    "typescript": "5.9.2"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "version": "1.37.0",
+  "license": "Apache-2.0",
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,md,css,json}": [
+      "prettier --write"
+    ]
+  }
+}

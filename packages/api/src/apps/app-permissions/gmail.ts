@@ -1,0 +1,131 @@
+import type { AppPermissionDefinition } from "./types";
+
+export const gmailPermissions: AppPermissionDefinition = {
+  provider: "gmail",
+  groups: [
+    {
+      category: "read",
+      wildcard: {
+        id: "read_all",
+        name: "All read operations",
+        description:
+          "Search, read, and list emails, threads, drafts, labels, and settings",
+        hostPattern: "gmail.googleapis.com",
+        pathPattern: "/gmail/v1/*",
+        method: "GET",
+      },
+      tools: [
+        {
+          id: "search_messages",
+          name: "Search messages",
+          description: "Search and list messages matching a query",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/messages",
+          method: "GET",
+        },
+        {
+          id: "get_message",
+          name: "Read message",
+          description: "Retrieve a specific email message",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/messages/*",
+          method: "GET",
+        },
+        {
+          id: "search_threads",
+          name: "Search threads",
+          description: "Search for threads matching a query",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/threads",
+          method: "GET",
+        },
+        {
+          id: "get_thread",
+          name: "Read thread",
+          description: "Retrieve a specific email thread",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/threads/*",
+          method: "GET",
+        },
+        {
+          id: "list_drafts",
+          name: "List drafts",
+          description: "List and read draft emails",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/drafts",
+          method: "GET",
+        },
+        {
+          id: "list_labels",
+          name: "List labels",
+          description: "List all labels in the mailbox",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/labels",
+          method: "GET",
+        },
+      ],
+    },
+    {
+      category: "write",
+      wildcard: {
+        id: "write_all",
+        name: "All write operations",
+        description:
+          "Send, reply, create drafts, modify labels, and delete emails",
+        hostPattern: "gmail.googleapis.com",
+        pathPattern: "/gmail/v1/*",
+        methods: ["POST", "PUT", "PATCH", "DELETE"],
+      },
+      tools: [
+        {
+          id: "send_email",
+          name: "Send email",
+          description: "Send email on your behalf",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/messages/send",
+          method: "POST",
+        },
+        {
+          id: "create_draft",
+          name: "Create draft",
+          description: "Create a new draft email",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/drafts",
+          method: "POST",
+        },
+        {
+          id: "send_draft",
+          name: "Send draft",
+          description: "Send an existing draft email",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/drafts/send",
+          method: "POST",
+        },
+        {
+          id: "modify_message",
+          name: "Modify message",
+          description: "Add or remove labels on a message",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/messages/*/modify",
+          method: "POST",
+        },
+        {
+          id: "trash_message",
+          name: "Trash message",
+          description: "Move a message to trash",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/messages/*/trash",
+          method: "POST",
+        },
+        {
+          id: "delete_draft",
+          name: "Delete draft",
+          description: "Permanently delete a draft email",
+          hostPattern: "gmail.googleapis.com",
+          pathPattern: "/gmail/v1/users/*/drafts/*",
+          method: "DELETE",
+        },
+      ],
+    },
+  ],
+};

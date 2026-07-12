@@ -1,0 +1,159 @@
+import type { AppDefinition } from "./types";
+
+export const github: AppDefinition = {
+  id: "github",
+  name: "GitHub",
+  icon: "/icons/github.svg",
+  darkIcon: "/icons/github-light.svg",
+  description: "Repositories, issues, pull requests, and GitHub Actions.",
+  connectionMethod: {
+    type: "oauth",
+    defaultScopes: [
+      "repo",
+      "user",
+      "gist",
+      "notifications",
+      "project",
+      "codespace",
+      "workflow",
+    ],
+    permissions: [
+      {
+        scope: "repo",
+        name: "Repositories",
+        description: "Code, issues, and pull requests",
+        access: "write",
+      },
+      {
+        scope: "user",
+        name: "Profile",
+        description: "Email, name, and avatar",
+        access: "read",
+      },
+      {
+        scope: "gist",
+        name: "Gists",
+        description: "Create and manage gists",
+        access: "write",
+      },
+      {
+        scope: "notifications",
+        name: "Notifications",
+        description: "View notifications",
+        access: "read",
+      },
+      {
+        scope: "project",
+        name: "Projects",
+        description: "Manage project boards",
+        access: "write",
+      },
+      {
+        scope: "codespace",
+        name: "Codespaces",
+        description: "Create and manage",
+        access: "write",
+      },
+      {
+        scope: "workflow",
+        name: "Actions",
+        description: "Update workflow files",
+        access: "write",
+      },
+    ],
+    buildAuthUrl: ({ appCredentials, redirectUri, scopes, state }) => {
+      const url = new URL("https://github.com/login/oauth/authorize");
+      url.searchParams.set("client_id", appCredentials.clientId!);
+      url.searchParams.set("redirect_uri", redirectUri);
+      url.searchParams.set("scope", scopes.join(" "));
+      url.searchParams.set("state", state);
+      url.searchParams.set("prompt", "select_account");
+      return url.toString();
+    },
+    exchangeCode: async ({ appCredentials, callbackParams, redirectUri }) => {
+      const tokenRes = await fetch(
+        "https://github.com/login/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            client_id: appCredentials.clientId!,
+            client_secret: appCredentials.clientSecret!,
+            code: callbackParams.code!,
+            redirect_uri: redirectUri,
+          }),
+        },
+      );
+
+      if (!tokenRes.ok) {
+        throw new Error(
+          `GitHub token exchange failed: ${tokenRes.status} ${tokenRes.statusText}`,
+        );
+      }
+
+      const tokenData = (await tokenRes.json()) as {
+        access_token?: string;
+        scope?: string;
+        token_type?: string;
+        error?: string;
+        error_description?: string;
+      };
+
+      if (tokenData.error || !tokenData.access_token) {
+        throw new Error(
+          tokenData.error_description ?? "Failed to exchange code for token",
+        );
+      }
+
+      const credentials: Record<string, unknown> = {
+        access_token: tokenData.access_token,
+        token_type: tokenData.token_type,
+      };
+      const scopes = tokenData.scope?.split(",").filter(Boolean) ?? [];
+
+      let metadata: Record<string, unknown> | undefined;
+      const userRes = await fetch("https://api.github.com/user", {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+
+      if (userRes.ok) {
+        const user = (await userRes.json()) as {
+          login?: string;
+          name?: string;
+          avatar_url?: string;
+        };
+        metadata = {
+          username: user.login,
+          name: user.name,
+          avatarUrl: user.avatar_url,
+        };
+      }
+
+      return { credentials, scopes, metadata };
+    },
+  },
+  available: true,
+  configurable: {
+    hint: "Create an OAuth App under GitHub Developer Settings.",
+    fields: [
+      {
+        name: "clientId",
+        label: "Client ID",
+        placeholder: "Ov23li...",
+      },
+      {
+        name: "clientSecret",
+        label: "Client Secret",
+        placeholder: "secret_...",
+        secret: true,
+      },
+    ],
+    envDefaults: {
+      clientId: "GITHUB_CLIENT_ID",
+      clientSecret: "GITHUB_CLIENT_SECRET",
+    },
+  },
+};

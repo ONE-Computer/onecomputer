@@ -1,0 +1,24 @@
+[Unit]
+Description=ONEComputer OpenVTC DIDComm delivery adapter
+After=network-online.target openvtc-mediator.service openvtc-vta.service
+Wants=network-online.target
+Requires=openvtc-mediator.service
+
+[Service]
+Type=simple
+User=azureuser
+Group=azureuser
+WorkingDirectory=/var/lib/openvtc/bridge
+EnvironmentFile=/etc/openvtc/bridge.env
+ExecStart=/opt/node22/bin/node /usr/local/lib/openvtc/openvtc-didcomm-bridge.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/openvtc/bridge
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

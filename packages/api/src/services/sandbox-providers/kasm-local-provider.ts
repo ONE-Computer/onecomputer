@@ -537,10 +537,7 @@ export async function execInSandbox(
 }
 
 export const kasmLocalProvider: SandboxProvider = {
-  async createSandbox(
-    name: string,
-    options?: SandboxRuntimeOptions,
-  ): Promise<SandboxInfo> {
+  async createSandbox(name: string): Promise<SandboxInfo> {
     const id =
       name
         .toLowerCase()
@@ -576,6 +573,18 @@ export const kasmLocalProvider: SandboxProvider = {
       IMAGE,
     ]);
     await new Promise((r) => setTimeout(r, 4000));
+    const info = normalize(await inspectContainer(id));
+    return {
+      ...info,
+      state: "provisioning",
+      bootstrapped: false,
+      desktopReady: false,
+    };
+  },
+  async bootstrapSandbox(
+    id: string,
+    options?: SandboxRuntimeOptions,
+  ): Promise<SandboxInfo> {
     const install = await installClaudeDesktopAndCode(id);
     await ensureClaudeDesktopGatewayLoopback(id);
     await configureClaudeCodeProxy(id);

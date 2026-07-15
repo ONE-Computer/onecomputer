@@ -21,6 +21,8 @@ const WALLET_SCRIPT =
   "/usr/local/lib/openvtc/openvtc-wallet.mjs";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
 const runCurl = (
   token: string,
@@ -89,7 +91,10 @@ const waitForPendingWalletRecord = async (approvalId: string) => {
       await access(path, constants.R_OK);
       return {
         path,
-        record: JSON.parse(await readFile(path, "utf8")) as Record<string, any>,
+        record: JSON.parse(await readFile(path, "utf8")) as Record<
+          string,
+          unknown
+        >,
       };
     } catch {
       await wait(250);
@@ -225,8 +230,8 @@ const main = async () => {
       const candidateContext = candidate?.context as {
         _vti?: {
           stepUpRequest?: {
-            payload?: Record<string, any>;
-            document?: Record<string, any>;
+            payload?: Record<string, unknown>;
+            document?: Record<string, unknown>;
           };
         };
       } | null;
@@ -248,8 +253,8 @@ const main = async () => {
     const context = approval.context as {
       _vti?: {
         stepUpRequest?: {
-          payload?: Record<string, any>;
-          document?: Record<string, any>;
+          payload?: Record<string, unknown>;
+          document?: Record<string, unknown>;
         };
       };
     };
@@ -289,7 +294,9 @@ const main = async () => {
     const verified = await getApprovalByBridgeId(approval.id);
     const completed = JSON.parse(
       await readFile(pending.path, "utf8"),
-    ) as Record<string, any>;
+    ) as Record<string, unknown>;
+    if (!isRecord(completed.response))
+      throw new Error("wallet completion lacks a structured response");
     const replay = await postWalletDecision(approval.id, completed.response);
 
     const result = {

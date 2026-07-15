@@ -38,6 +38,15 @@ export interface SandboxProvider {
     name: string,
     options?: SandboxRuntimeOptions,
   ): Promise<SandboxInfo>;
+  /**
+   * Optional long-running setup after a stable provider identity has been
+   * persisted. Create must return before this work starts so cancellation can
+   * always address the sandbox by ID.
+   */
+  bootstrapSandbox?(
+    id: string,
+    options?: SandboxRuntimeOptions,
+  ): Promise<SandboxInfo>;
   listSandboxes(): Promise<SandboxInfo[]>;
   getSandbox(id: string): Promise<SandboxInfo>;
   execInSandbox(id: string, command: string): Promise<ExecResult>;

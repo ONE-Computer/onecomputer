@@ -48,7 +48,14 @@ const mergeSandboxInfo = async (row: {
   const provider = getSandboxProvider();
   try {
     const live = await provider.getSandbox(row.id);
-    return { ...live, name: row.name };
+    const pending = row.status === "provisioning" || row.status === "failed";
+    return {
+      ...live,
+      name: row.name,
+      state: pending ? row.status : live.state,
+      bootstrapped: pending ? false : live.bootstrapped,
+      desktopReady: pending ? false : live.desktopReady,
+    };
   } catch {
     // Provider can't find it (stopped/removed) — return the persisted view.
     return {
@@ -88,10 +95,9 @@ export const sandboxRoutes = () => {
     return c.json(sandboxes);
   });
 
-  // POST /sandboxes — create a sandbox from the default snapshot. Body:
-  // { "name": string }. Real call, not a mock: polls until started then runs
-  // the bootstrap that installs the Claude Code CLI. Persists a Sandbox row
-  // with ownerId = auth.userId after the provider creates it.
+  // POST /sandboxes — allocate and persist a sandbox from the default snapshot.
+  // Long desktop/Claude bootstrap runs only after the ownership record exists,
+  // so DELETE can address an in-flight provider resource after a disconnect.
   app.post("/", async (c) => {
     const auth = c.get("auth");
     const ability = c.get("ability");
@@ -106,9 +112,10 @@ export const sandboxRoutes = () => {
       where: { projectId, isDefault: true },
       select: { accessToken: true },
     });
+    const provider = getSandboxProvider();
     const sandbox = await withAudit(
       () =>
-        getSandboxProvider().createSandbox(name, {
+        provider.createSandbox(name, {
           gatewayAgentToken: agent?.accessToken ?? undefined,
         }),
       (result) => ({
@@ -144,6 +151,55 @@ export const sandboxRoutes = () => {
         status: sandbox.state,
       },
     });
+    if (provider.bootstrapSandbox) {
+      void withAudit(
+        () =>
+          provider.bootstrapSandbox!(sandbox.id, {
+            gatewayAgentToken: agent?.accessToken ?? undefined,
+          }),
+        (result) => ({
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          userEmail: auth.userEmail,
+          action: AUDIT_ACTIONS.UPDATE,
+          service: AUDIT_SERVICES.SANDBOX,
+          source: AUDIT_SOURCE.API,
+          metadata: {
+            sandboxId: result.id,
+            state: result.state,
+            operation: "bootstrap",
+          },
+        }),
+      )
+        .then(async (ready) => {
+          await db.sandbox
+            .update({
+              where: { id: sandbox.id },
+              data: { status: ready.state },
+            })
+            .catch(() => undefined);
+        })
+        .catch(async () => {
+          await withAudit(
+            () => provider.deleteSandbox(sandbox.id),
+            () => ({
+              organizationId: auth.organizationId,
+              userId: auth.userId,
+              userEmail: auth.userEmail,
+              action: AUDIT_ACTIONS.DELETE,
+              service: AUDIT_SERVICES.SANDBOX,
+              source: AUDIT_SOURCE.API,
+              metadata: {
+                sandboxId: sandbox.id,
+                operation: "bootstrap-cleanup",
+              },
+            }),
+          ).catch(() => undefined);
+          await db.sandbox
+            .update({ where: { id: sandbox.id }, data: { status: "failed" } })
+            .catch(() => undefined);
+        });
+    }
     return c.json(sandbox, 201);
   });
 

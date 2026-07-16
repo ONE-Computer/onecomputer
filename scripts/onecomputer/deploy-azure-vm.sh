@@ -2,7 +2,12 @@
 set -euo pipefail
 
 REF="${1:-codex/azure-e2e-openvtc}"
+DEPLOY_REMOTE="${ONECOMPUTER_DEPLOY_REMOTE:-origin}"
 ROOT="/home/azureuser/work/onecomputer"
+
+# systemd has an explicit runtime PATH, but non-interactive SSH/CI shells do
+# not. Keep deployment reproducible without relying on a user's shell profile.
+export PATH="/home/azureuser/.cargo/bin:/opt/node22/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
 cd "$ROOT"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
@@ -27,12 +32,12 @@ trap rollback ERR
 
 if [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
   # CD passes the exact merge commit so the deployed source is unambiguous.
-  git fetch origin "$REF"
+  git fetch "$DEPLOY_REMOTE" "$REF"
   git checkout --detach "$REF"
 else
-  git fetch origin "$REF"
-  git switch -C "$REF" --track "origin/$REF" 2>/dev/null || \
-    git reset --hard "origin/$REF"
+  git fetch "$DEPLOY_REMOTE" "$REF"
+  git switch -C "$REF" --track "$DEPLOY_REMOTE/$REF" 2>/dev/null || \
+    git reset --hard "$DEPLOY_REMOTE/$REF"
 fi
 
 if ! command -v socat >/dev/null 2>&1; then

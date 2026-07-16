@@ -221,7 +221,7 @@ async function installClaudeDesktopAndCode(id: string): Promise<ExecResult> {
 
   return execInSandbox(
     id,
-    "set -e; export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH; npm install -g @anthropic-ai/claude-code --prefix /home/kasm-user/.npm-global; grep -q npm-global /home/kasm-user/.bashrc || echo 'export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH' >> /home/kasm-user/.bashrc; claude --version",
+    "set -e; export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH; npm install -g @anthropic-ai/claude-code @anthropic-ai/claude-agent-sdk@0.3.210 pptxgenjs pdf-lib --prefix /home/kasm-user/.npm-global; grep -q npm-global /home/kasm-user/.bashrc || echo 'export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH' >> /home/kasm-user/.bashrc; claude --version; NODE_PATH=/home/kasm-user/.npm-global/lib/node_modules node -e \"require('pptxgenjs'); require('pdf-lib'); const {createRequire}=require('node:module'); createRequire(process.cwd() + '/.onevibe-agent-sdk.mjs').resolve('@anthropic-ai/claude-agent-sdk')\"",
   );
 }
 

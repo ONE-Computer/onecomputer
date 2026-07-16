@@ -48,3 +48,12 @@ rule together prevent duplicate allocation after a timeout.
 This is a lifecycle correctness contract for the current development provider;
 it does not claim hardware-virtualized microVM isolation. That remains the
 separate attestation gate tracked in ONEVibe `ONE-226`.
+
+## Fail-closed production switch
+
+Set `ONECOMPUTER_REQUIRE_ATTESTED_ISOLATION=1` on a control-plane deployment
+only when it must refuse every provider that lacks a signed isolation
+attestation. The current `kasm-local` and `daytona` adapters are deliberately
+rejected under this switch. The default remains unset for the development POC;
+the switch does not manufacture attestation or convert a container into a
+microVM.

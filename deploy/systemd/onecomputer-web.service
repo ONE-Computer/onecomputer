@@ -1,0 +1,20 @@
+[Unit]
+Description=ONEComputer web portal and API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/work/onecomputer/apps/web
+EnvironmentFile=/home/azureuser/work/onecomputer/.env
+Environment=NODE_ENV=production
+Environment=PORT=10254
+Environment=PATH=/opt/node22/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/node22/bin/node /home/azureuser/work/onecomputer/apps/web/node_modules/next/dist/bin/next start
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

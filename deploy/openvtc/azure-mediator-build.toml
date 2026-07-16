@@ -1,0 +1,43 @@
+# Azure dev/staging mediator recipe for the ONEComputer × OpenVTC E2E.
+#
+# This is intentionally an OPEN network posture for the isolated staging VM.
+# The mediator build used here does not implement DIDComm coordinate
+# mediation, so closed mode cannot enroll wallet DIDs and cannot deliver
+# forwarded messages. Production must use a mediator with coordinate
+# mediation or an equivalent explicit ACL/keylist provisioning path.
+#
+# This file contains no private material. The current Azure VM uses the
+# owner-only file backend temporarily because its managed identity has
+# Key Vault Secrets User (read) but not Secrets Officer (write). Promote the
+# backend to azure_keyvault:// after the identity is granted write access.
+
+[deployment]
+type = "server"
+protocols = ["didcomm"]
+use_vta = false
+
+[identity]
+did_method = "did:peer"
+public_url = "https://onecomputer-openvtc.eastus2.cloudapp.azure.com/mediator/v1"
+
+[secrets]
+storage = "file:///var/lib/openvtc/mediator/secrets.json"
+
+[security]
+ssl = "none"
+admin = "generate"
+network_mode = "open"
+cors = "list"
+cors_domains = "https://onecomputer-openvtc.eastus2.cloudapp.azure.com"
+
+[storage]
+backend = "fjall"
+data_dir = "/var/lib/openvtc/mediator/data"
+
+[output]
+config_path = "/var/lib/openvtc/mediator/conf/mediator.toml"
+listen_address = "127.0.0.1:18120"
+api_prefix = "/mediator/v1/"
+
+[install]
+enabled = false

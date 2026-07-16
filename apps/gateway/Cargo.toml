@@ -1,0 +1,167 @@
+[package]
+name = "onecli-gateway"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "onecli-gateway"
+path = "src/main.rs"
+
+[dependencies]
+# Affinidi TDK — resolved from the Gitea-mirrored affinidi-tdk-rs repo (rev f626c57c).
+# This replaces the previous hardcoded macOS path deps
+# (`/Users/ttwj/Project OneComputer/affinidi-tdk-rs/crates/...`) which made the
+# gateway unbuildable on any non-macOS host (e.g. the Azure demo VM). A git dep
+# resolves identically on every platform and removes the sibling-repo path
+# assumption. The Gitea mirror is the canonical source for this repo on the VM.
+# Set `CARGO_NET_GIT_FETCH_WITH_CLI=true` only if cargo's built-in git fetch is
+# blocked; the default works against the local Gitea instance (127.0.0.1:3001).
+affinidi-secrets-resolver = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-data-integrity = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-vc = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-did-resolver-cache-sdk = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-encoding = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body = "1"
+http-body-util = "0.1"
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+# TLS
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"
+
+# WebSocket upstream TLS root certificates
+webpki-roots = "0.26"
+
+# Certificate generation
+rcgen = "0.13"
+
+# Cryptography (AES-256-GCM for secret decryption)
+ring = "0.17"
+
+# HTTP client (for upstream forwarding in MITM mode)
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# JWT validation
+jsonwebtoken = "9"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Concurrent cache
+dashmap = "6"
+
+# Prometheus metrics (/metrics endpoint)
+prometheus = { version = "0.13", features = ["process"] }
+once_cell = "1"
+
+# Base64 (for gateway auth)
+base64 = "0.22"
+multibase = "0.9"
+
+# UUID (for approval IDs)
+uuid = { version = "1", features = ["v4"] }
+
+# Stream combinators
+futures-util = "0.3"
+
+# Regex (for condition_match `regex` operator)
+regex = "1"
+
+# Error handling
+anyhow = "1"
+
+# Time (for certificate validity + RFC 3339 parsing)
+time = { version = "0.3", features = ["parsing"] }
+
+# Direct database access
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres"] }
+
+# Agent Access (Bitwarden vault credential injection)
+ap-client = "0.9.0"
+ap-proxy-client = "0.9.0"
+ap-proxy-protocol = "0.9.0"
+ap-noise = "0.9.0"
+async-trait = "0.1"
+hex = "0.4"
+
+[features]
+cloud = ["dep:aws-sdk-kms", "dep:aws-config", "dep:redis", "dep:aws-sdk-sts"]
+
+[dependencies.aws-sdk-kms]
+version = "1"
+optional = true
+
+[dependencies.aws-config]
+version = "1"
+features = ["behavior-version-latest"]
+optional = true
+
+[dependencies.redis]
+version = "1"
+features = ["tokio-comp", "connection-manager", "tokio-rustls-comp"]
+optional = true
+
+[dependencies.aws-sdk-sts]
+version = "1"
+optional = true
+
+[dependencies.aws-sigv4]
+version = "1"
+
+[dependencies.aws-credential-types]
+version = "1"
+
+[dependencies.percent-encoding]
+version = "2"
+
+[dependencies.form_urlencoded]
+version = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Unify the git-source affinidi TDK crates with their registry versions pulled
+# transitively (e.g. affinidi-data-integrity -> affinidi-secrets-resolver@0.5
+# from crates.io). Without these patches, two copies of `Secret` (one git, one
+# registry) coexist and the `Signer` blanket impl in affinidi-data-integrity
+# does not apply to the git `Secret`, breaking VC signing. The patches point at
+# the same Gitea-mirrored repo + rev as the direct deps above, so the local
+# (git) `Secret` is the only copy in the graph. (Previously these were macOS
+# absolute path deps; same purpose, portable source.)
+[patch.crates-io]
+affinidi-secrets-resolver = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-crypto = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-encoding = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-data-integrity = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-rdf-encoding = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-did-common = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }
+affinidi-did-resolver-cache-sdk = { git = "http://127.0.0.1:3001/onecli/affinidi-tdk-rs.git", rev = "f626c57c5abdf6140fb078d33f6e7c23a13a5686" }

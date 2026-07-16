@@ -1,0 +1,19 @@
+[Unit]
+Description=ONEComputer policy and credential gateway
+After=network-online.target docker.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/work/onecomputer
+EnvironmentFile=/home/azureuser/work/onecomputer/.env
+Environment=ONECOMPUTER_API_BASE=http://127.0.0.1:10254
+Environment=PATH=/home/azureuser/.cargo/bin:/opt/node22/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/azureuser/work/onecomputer/apps/gateway/target/release/onecli-gateway --port 10255 --data-dir /home/azureuser/.local/share/onecomputer/gateway
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

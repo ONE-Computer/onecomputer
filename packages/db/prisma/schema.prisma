@@ -1,0 +1,877 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Organization, Project & User ────────────────────────────────────────
+
+// Cloud-only: an Organization is the billing + collaboration entity. Holds
+// subscription state, Stripe customer, and members. A user may belong to
+// multiple organizations (today: one auto-created on signup; future: invited
+// to others, can create more). Projects under an org share its plan/quotas.
+model Organization {
+  id                 String    @id @default(uuid())
+  name               String
+  slug               String    @unique
+  stripeCustomerId   String?   @unique @map("stripe_customer_id")
+  subscriptionStatus String    @default("free") @map("subscription_status")
+  awsExternalId      String?   @map("aws_external_id")
+  policyMode         String    @default("allow") @map("policy_mode") // "allow" | "deny"
+  // Cloud-only (inert in OSS): set when this org was created by a Partner.
+  partnerId          String?   @map("partner_id")
+  // Cloud-only (inert in OSS): set when the org detaches from its partner —
+  // stops inheriting partner secrets but keeps partnerId for attribution.
+  partnerDetachedAt  DateTime? @map("partner_detached_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  projects                    Project[]
+  members                     OrganizationMember[]
+  invitations                 Invitation[]
+  userProvisions              UserProvision[]
+  secrets                     Secret[]
+  appConnections              AppConnection[]
+  appConfigs                  AppConfig[]
+  policyRules                 PolicyRule[]
+  apiKeys                     ApiKey[]
+  auditLogs                   AuditLog[]
+  sandboxes                   Sandbox[]
+  sandboxAllocationOperations SandboxAllocationOperation[]
+  dlpAlerts                   DlpAlert[]
+  partner                     Partner?                     @relation(fields: [partnerId], references: [id])
+  partnerClaim                PartnerClaim?
+  budgets                     Budget[] // cloud-only: per-secret spend budgets for this org (inert in OSS)
+
+  @@index([partnerId])
+  @@map("organizations")
+}
+
+// Cloud-only: links a User to an Organization with a role.
+model OrganizationMember {
+  organizationId String   @map("organization_id")
+  userId         String   @map("user_id")
+  userEmail      String   @map("user_email")
+  role           String // "owner" | "admin" | "manager" | "member"
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@id([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Invitation {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  email          String
+  role           String // "admin" | "member"
+  token          String   @unique
+  status         String   @default("pending") // "pending" | "accepted" | "cancelled" | "expired"
+  invitedById    String   @map("invited_by_id")
+  invitedByEmail String   @map("invited_by_email")
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  invitedBy    User         @relation("InvitationCreator", fields: [invitedById], references: [id])
+
+  @@unique([organizationId, email])
+  @@index([token])
+  @@map("invitations")
+}
+
+model Project {
+  id                 String   @id @default(uuid())
+  name               String?
+  organizationId     String   @map("organization_id")
+  // URL-friendly slug, unique within an organization (e.g. "default", "production").
+  slug               String?
+  createdByUserId    String?  @map("created_by_user_id")
+  createdByUserEmail String?  @map("created_by_user_email")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  createdByUser               User?                        @relation("ProjectCreator", fields: [createdByUserId], references: [id])
+  organization                Organization                 @relation(fields: [organizationId], references: [id])
+  apiKeys                     ApiKey[]
+  agents                      Agent[]
+  secrets                     Secret[]
+  policyRules                 PolicyRule[]
+  auditLogs                   AuditLog[]
+  vaultConnections            VaultConnection[]
+  onboardingSurvey            OnboardingSurvey?
+  appConnections              AppConnection[]
+  appConfigs                  AppConfig[]
+  budgets                     Budget[] // cloud-only: per-secret spend budgets for this project (inert in OSS)
+  invginiAgents               InvginiAgentPrincipal[]
+  invginiEventLogs            InvginiAgentEventLog[]
+  dlpAlerts                   DlpAlert[]
+  sandboxAllocationOperations SandboxAllocationOperation[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("projects")
+}
+
+model User {
+  id                      String    @id @default(uuid())
+  email                   String    @unique
+  name                    String?
+  externalAuthId          String    @unique @map("external_auth_id")
+  countryCode             String?   @map("country_code")
+  country                 String?   @map("country")
+  lastLoginAt             DateTime? @map("last_login_at")
+  onboardingCompletedAt   DateTime? @map("onboarding_completed_at")
+  approvalDid             String?   @map("approval_did")
+  approvalPublicKeyJwk    Json?     @map("approval_public_key_jwk")
+  approvalKeyRegisteredAt DateTime? @map("approval_key_registered_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  organizationMemberships     OrganizationMember[]
+  sentInvitations             Invitation[]                 @relation("InvitationCreator")
+  apiKeys                     ApiKey[]
+  auditLogs                   AuditLog[]
+  ownedSandboxes              Sandbox[]                    @relation("SandboxOwner")
+  sandboxAllocationOperations SandboxAllocationOperation[] @relation("SandboxAllocationRequester")
+  createdProjects             Project[]                    @relation("ProjectCreator")
+  onboardingSurveys           OnboardingSurvey[]
+  createdAgentSecrets         AgentSecret[]                @relation("AgentSecretCreator")
+  updatedAgentSecrets         AgentSecret[]                @relation("AgentSecretUpdater")
+  provisionedAs               UserProvision?               @relation("ProvisionedUser")
+  createdProvisions           UserProvision[]              @relation("ProvisionCreator")
+  partnerMemberships          PartnerMember[]
+  partnerPlaceholderClaim     PartnerClaim?                @relation("PartnerPlaceholder")
+
+  @@map("users")
+}
+
+// A provisioned sandbox (kasm-local container or daytona instance). Persisted
+// so the API can scope list/get/delete by ownerId for row-level RBAC — the
+// provider's own list endpoint is not auth-aware. `providerSandboxId` is the
+// provider's container/instance id (kasm-local: container name; daytona:
+// sandbox id), used to reconcile rows with provider state. `id` is our PK and
+// is what the API surfaces to clients.
+model Sandbox {
+  id                       String   @id // matches the provider sandbox id used in /v1/sandboxes/:id
+  organizationId           String   @map("organization_id")
+  ownerId                  String   @map("owner_id") // User who created the sandbox; drives member RBAC
+  provider                 String // "kasm-local" | "daytona"
+  providerSandboxId        String   @map("provider_sandbox_id") // container/instance id at the provider
+  name                     String
+  status                   String // "creating" | "started" | "stopped" | "error" | "archived"
+  allocationOperationId    String?  @unique @map("allocation_operation_id")
+  allocationIdempotencyKey String?  @map("allocation_idempotency_key")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  owner        User         @relation("SandboxOwner", fields: [ownerId], references: [id])
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@map("sandboxes")
+}
+
+// Durable control-plane receipt for a sandbox allocation. This row is created
+// before provider dispatch so retries cannot silently create a second sandbox
+// after a timeout or disconnect.
+model SandboxAllocationOperation {
+  id             String   @id // caller-supplied X-Allocation-Operation-Id
+  organizationId String   @map("organization_id")
+  projectId      String   @map("project_id")
+  requesterId    String   @map("requester_id")
+  idempotencyKey String   @map("idempotency_key")
+  requestHash    String   @map("request_hash")
+  name           String
+  status         String // "pending" | "completed" | "unknown"
+  sandboxId      String?  @map("sandbox_id")
+  provider       String?
+  errorCode      String?  @map("error_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  requester    User         @relation("SandboxAllocationRequester", fields: [requesterId], references: [id])
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status])
+  @@index([sandboxId])
+  @@map("sandbox_allocation_operations")
+}
+
+model ApiKey {
+  id             String   @id @default(uuid())
+  scope          String   @default("project") // "project" | "organization"
+  projectId      String?  @map("project_id")
+  organizationId String?  @map("organization_id")
+  userId         String   @map("user_id")
+  userEmail      String   @map("user_email")
+  key            String   @unique // "oc_..." or "oc_org_..." prefix
+  name           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id])
+  project      Project?      @relation(fields: [projectId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([organizationId])
+  @@index([scope])
+  @@map("api_keys")
+}
+
+// ── Workspace data (scoped by projectId) ────────────────────────────────
+
+model Agent {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  name         String
+  identifier   String // user-provided machine-readable ID, unique per project
+  accessToken  String   @unique @map("access_token") // "aoc_..." prefix, used for gateway auth
+  isDefault    Boolean  @default(false) @map("is_default")
+  secretMode   String   @default("all") @map("secret_mode") // "all" or "selective"
+  did          String?  @map("did") // did:web identity provisioned at agent creation
+  didPublicKey String?  @map("did_public_key") // hex-encoded Ed25519 public key (SPKI/DER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  project      Project  @relation(fields: [projectId], references: [id])
+
+  agentSecrets        AgentSecret[]
+  agentAppConnections AgentAppConnection[]
+  policyRules         PolicyRule[]
+
+  @@unique([projectId, identifier])
+  @@index([projectId])
+  @@map("agents")
+}
+
+model InvginiAgentPrincipal {
+  id            String   @id
+  projectId     String   @map("project_id")
+  did           String
+  trustProvider String   @map("trust_provider")
+  subjectType   String   @default("agent") @map("subject_type")
+  status        String
+  displayName   String?  @map("display_name")
+  ownerEmail    String?  @map("owner_email")
+  sourceSystem  String   @default("invgini") @map("source_system")
+  sourceRefType String   @map("source_ref_type")
+  sourceRefId   String   @map("source_ref_id")
+  metadata      Json     @default("{}")
+  lastEventType String   @map("last_event_type")
+  lastSeenAt    DateTime @map("last_seen_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project        Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mandates       InvginiAgentMandate[]
+  resourceGrants InvginiAgentResourceGrant[]
+  actionRequests InvginiAgentActionRequest[]
+  actionReceipts InvginiAgentActionReceipt[]
+  controlActions InvginiAgentControlAction[]
+
+  @@unique([projectId, did])
+  @@index([projectId])
+  @@index([sourceRefType, sourceRefId])
+  @@map("invgini_agent_principals")
+}
+
+model InvginiAgentMandate {
+  id          String   @id
+  principalId String   @map("principal_id")
+  title       String
+  description String
+  constraints Json     @default("{}")
+  status      String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  principal InvginiAgentPrincipal @relation(fields: [principalId], references: [id], onDelete: Cascade)
+
+  @@index([principalId])
+  @@map("invgini_agent_mandates")
+}
+
+model InvginiAgentResourceGrant {
+  id           String    @id
+  principalId  String    @map("principal_id")
+  resourceType String    @map("resource_type")
+  resourceId   String    @map("resource_id")
+  permission   String
+  constraints  Json      @default("{}")
+  status       String
+  expiresAt    DateTime? @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  principal InvginiAgentPrincipal @relation(fields: [principalId], references: [id], onDelete: Cascade)
+
+  @@index([principalId])
+  @@index([resourceType, resourceId])
+  @@map("invgini_agent_resource_grants")
+}
+
+model InvginiAgentActionRequest {
+  id              String    @id
+  principalId     String    @map("principal_id")
+  connector       String
+  action          String
+  resource        Json      @default("{}")
+  riskTier        String    @map("risk_tier")
+  riskScore       Int       @default(0) @map("risk_score")
+  policySignals   Json?     @map("policy_signals")
+  vtiBridge       Json?     @map("vti_bridge")
+  status          String
+  reason          String?
+  decidedByUserId String?   @map("decided_by_user_id")
+  decidedAt       DateTime? @map("decided_at")
+  requestedAt     DateTime  @map("requested_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  principal InvginiAgentPrincipal @relation(fields: [principalId], references: [id], onDelete: Cascade)
+
+  @@index([principalId])
+  @@index([status])
+  @@map("invgini_agent_action_requests")
+}
+
+model InvginiAgentActionReceipt {
+  id          String   @id
+  principalId String   @map("principal_id")
+  requestId   String?  @map("request_id")
+  runId       String?  @map("run_id")
+  connector   String
+  action      String
+  resource    Json     @default("{}")
+  outcome     String
+  receiptHash String?  @map("receipt_hash")
+  details     Json?
+  vtiBridge   Json?    @map("vti_bridge")
+  executedAt  DateTime @map("executed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  principal InvginiAgentPrincipal @relation(fields: [principalId], references: [id], onDelete: Cascade)
+
+  @@index([principalId])
+  @@index([requestId])
+  @@index([runId])
+  @@map("invgini_agent_action_receipts")
+}
+
+model InvginiAgentControlAction {
+  id                String    @id @default(uuid())
+  principalId       String    @map("principal_id")
+  action            String
+  status            String    @default("OPEN")
+  reason            String
+  connector         String?
+  resource          Json      @default("{}")
+  requestedByUserId String    @map("requested_by_user_id")
+  requestedByEmail  String    @map("requested_by_email")
+  expiresAt         DateTime? @map("expires_at")
+  resolvedAt        DateTime? @map("resolved_at")
+  resolvedByUserId  String?   @map("resolved_by_user_id")
+  resolvedByEmail   String?   @map("resolved_by_email")
+  resolutionReason  String?   @map("resolution_reason")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  principal InvginiAgentPrincipal @relation(fields: [principalId], references: [id], onDelete: Cascade)
+
+  @@index([principalId])
+  @@index([action])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("invgini_agent_control_actions")
+}
+
+model InvginiAgentEventLog {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  projectId      String   @map("project_id")
+  principalId    String?  @map("principal_id")
+  principalDid   String   @map("principal_did")
+  eventType      String   @map("event_type")
+  eventHash      String   @map("event_hash")
+  occurredAt     DateTime @map("occurred_at")
+  ingestedAt     DateTime @default(now()) @map("ingested_at")
+  payload        Json
+  vtiBridge      Json?    @map("vti_bridge")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, eventHash])
+  @@index([organizationId, occurredAt])
+  @@index([principalDid, occurredAt])
+  @@index([eventType])
+  @@map("invgini_agent_event_logs")
+}
+
+model Secret {
+  id              String        @id @default(uuid())
+  scope           String        @default("project") // "project" | "organization" | "partner"
+  projectId       String?       @map("project_id")
+  organizationId  String?       @map("organization_id")
+  partnerId       String?       @map("partner_id") // cloud-only: set when scope = "partner"
+  name            String
+  type            String // "anthropic", "generic"
+  // Value source: "inline" (encryptedValue) or "onepassword" (resolved from opRef at request time)
+  valueSource     String        @default("inline") @map("value_source")
+  encryptedValue  String?       @map("encrypted_value") // AES-256-GCM via CryptoService; null when valueSource = "onepassword"
+  opRef           String?       @map("op_ref") // 1Password reference op://vault/item/field (valueSource = "onepassword")
+  hostPattern     String        @map("host_pattern") // "api.anthropic.com" or "*.example.com"
+  pathPattern     String?       @map("path_pattern") // "/v1/*", null = all paths
+  injectionConfig Json?         @map("injection_config") // type-specific config (generic: { headerName, valueFormat })
+  metadata        Json? // type-specific metadata (anthropic: { authMode: "api-key" | "oauth" })
+  isPlatform      Boolean       @default(false) @map("is_platform")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  project         Project?      @relation(fields: [projectId], references: [id])
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  partner         Partner?      @relation(fields: [partnerId], references: [id])
+
+  agentSecrets AgentSecret[]
+  budgets      Budget[] // cloud-only: spend budgets on this secret (inert in OSS)
+
+  @@index([projectId])
+  @@index([organizationId])
+  @@index([partnerId])
+  @@index([scope])
+  @@map("secrets")
+}
+
+model PolicyRule {
+  id              String        @id @default(uuid())
+  scope           String        @default("project") // "project" | "organization" (partner reserved)
+  projectId       String?       @map("project_id")
+  organizationId  String?       @map("organization_id")
+  partnerId       String?       @map("partner_id") // cloud-only, reserved for future partner-level rules (inert)
+  agentId         String?       @map("agent_id") // null = all agents, set = one agent only (project-scoped only)
+  name            String
+  hostPattern     String        @map("host_pattern") // "gmail.googleapis.com" or "*.googleapis.com"
+  pathPattern     String?       @map("path_pattern") // "/gmail/v1/users/me/messages/send" or "/gmail/*"
+  method          String? // "POST", null = all methods
+  action          String // "block" | "rate_limit" | "manual_approval"
+  enabled         Boolean
+  rateLimit       Int?          @map("rate_limit") // max requests per window (only for rate_limit action)
+  rateLimitWindow String?       @map("rate_limit_window") // "minute" | "hour" | "day"
+  metadata        Json?         @map("metadata") // e.g. { source: "app_permission", provider, toolId }
+  conditions      Json?         @map("conditions") // behavioral conditions: [{ target, operator, value, key? }]
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  project         Project?      @relation(fields: [projectId], references: [id])
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  agent           Agent?        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  partner         Partner?      @relation(fields: [partnerId], references: [id])
+
+  @@index([projectId])
+  @@index([organizationId])
+  @@index([partnerId])
+  @@index([scope])
+  @@map("policy_rules")
+}
+
+model AgentSecret {
+  agentId         String   @map("agent_id")
+  secretId        String   @map("secret_id")
+  createdByUserId String?  @map("created_by_user_id")
+  updatedByUserId String?  @map("updated_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  secret          Secret   @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  createdByUser   User?    @relation("AgentSecretCreator", fields: [createdByUserId], references: [id])
+  updatedByUser   User?    @relation("AgentSecretUpdater", fields: [updatedByUserId], references: [id])
+
+  @@id([agentId, secretId])
+  @@map("agent_secrets")
+}
+
+model AuditLog {
+  id             String        @id @default(uuid())
+  projectId      String?       @map("project_id")
+  organizationId String?       @map("organization_id")
+  userId         String        @map("user_id")
+  userEmail      String        @map("user_email")
+  action         String
+  service        String
+  status         String
+  source         String        @default("app")
+  metadata       Json?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  project        Project?      @relation(fields: [projectId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+
+  @@index([projectId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}
+
+// ── Approval requests (manual_approval policy gate) ─────────────────────
+// Created when an agent action requires manager approval (e.g. external email,
+// large data export). The gateway holds the request; the API persists a
+// durable record so the manager persona can see a queue, decide, and get a
+// summary. See packages/api/src/routes/approvals.ts + the internal ingest
+// endpoint that the gateway calls on a ManualApproval PolicyDecision.
+
+model ApprovalRequest {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  projectId       String?  @map("project_id")
+  agentId         String?  @map("agent_id")
+  requestedBy     String   @map("requested_by") // userId or agentId
+  action          String // e.g. "outlook.send_email", "sharepoint.write", "data.export"
+  context         Json? // { recipient, subject, preview } — what the agent wants to do
+  status          String   @default("pending") // "pending" | "approved" | "denied"
+  decidedBy       String?  @map("decided_by")
+  decisionComment String?  @map("decision_comment")
+  expiresAt       DateTime @map("expires_at") // auto-deny if not acted on
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([organizationId, status])
+  @@index([projectId, status])
+  @@index([status, expiresAt])
+  @@index([requestedBy])
+  @@map("approval_requests")
+}
+
+model RequestLog {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  agentId        String   @map("agent_id")
+  method         String
+  host           String
+  path           String
+  provider       String
+  status         Int
+  latencyMs      Int      @map("latency_ms")
+  injectionCount Int      @map("injection_count")
+  extraData      Json?    @map("extra_data")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@map("request_logs")
+}
+
+model DlpAlert {
+  id                  String   @id @default(uuid())
+  organizationId      String   @map("organization_id")
+  projectId           String?  @map("project_id")
+  sandboxId           String?  @map("sandbox_id")
+  agentId             String?  @map("agent_id")
+  approvalId          String?  @map("approval_id")
+  requestLogId        String?  @map("request_log_id")
+  source              String
+  direction           String
+  host                String?
+  path                String?
+  method              String?
+  action              String
+  riskLevel           String   @map("risk_level")
+  entityTypes         Json     @default("[]") @map("entity_types")
+  findingCount        Int      @map("finding_count")
+  redacted            Boolean
+  blocked             Boolean  @default(false)
+  sampleHash          String?  @map("sample_hash")
+  metadata            Json?
+  purviewExportStatus String   @default("pending") @map("purview_export_status")
+  purviewEntityGuid   String?  @map("purview_entity_guid")
+  purviewError        String?  @map("purview_error")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([sandboxId])
+  @@index([agentId])
+  @@index([approvalId])
+  @@index([purviewExportStatus])
+  @@index([riskLevel])
+  @@map("dlp_alerts")
+}
+
+model VaultConnection {
+  id              String    @id @default(uuid())
+  projectId       String    @map("project_id")
+  provider        String
+  name            String?
+  status          String
+  connectionData  Json?     @map("connection_data")
+  lastConnectedAt DateTime? @map("last_connected_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  project         Project   @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, provider])
+  @@map("vault_connections")
+}
+
+model OnboardingSurvey {
+  id         String   @id @default(uuid())
+  projectId  String   @unique @map("project_id")
+  userId     String   @map("user_id")
+  userEmail  String   @map("user_email")
+  useCase    String?  @map("use_case")
+  discovery  String[] @default([])
+  responses  Json     @default("{}")
+  setupState Json?    @map("setup_state")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  project    Project  @relation(fields: [projectId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@map("onboarding_surveys")
+}
+
+// ── App connections ──────────────────────────────────────────────────────
+
+model AppConnection {
+  id                  String               @id @default(uuid())
+  scope               String               @default("project") // "project" | "organization" (partner reserved)
+  projectId           String?              @map("project_id")
+  organizationId      String?              @map("organization_id")
+  partnerId           String?              @map("partner_id") // cloud-only, reserved for future partner-level app connections (inert)
+  provider            String // "github", "gmail", "google-calendar", "google-drive", etc.
+  label               String?              @map("label") // auto-populated from metadata (email/username)
+  status              String               @default("connected")
+  credentials         String?              @map("credentials") // encrypted JSON (access_token, refresh_token, etc.)
+  scopes              String[]             @default([])
+  metadata            Json? // non-secret info (username, org, email)
+  connectedAt         DateTime             @default(now()) @map("connected_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  project             Project?             @relation(fields: [projectId], references: [id])
+  organization        Organization?        @relation(fields: [organizationId], references: [id])
+  partner             Partner?             @relation(fields: [partnerId], references: [id])
+  agentAppConnections AgentAppConnection[]
+
+  @@index([projectId, provider])
+  @@index([organizationId, provider])
+  @@index([partnerId])
+  @@index([scope])
+  @@map("app_connections")
+}
+
+model AgentAppConnection {
+  agentId         String        @map("agent_id")
+  appConnectionId String        @map("app_connection_id")
+  sessionPolicy   Json?         @map("session_policy")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  appConnection   AppConnection @relation(fields: [appConnectionId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, appConnectionId])
+  @@map("agent_app_connections")
+}
+
+model AppConfig {
+  id             String        @id @default(uuid())
+  scope          String        @default("project") // "project" | "organization" (partner reserved)
+  projectId      String?       @map("project_id")
+  organizationId String?       @map("organization_id")
+  partnerId      String?       @map("partner_id") // cloud-only, reserved for future partner-level app config (inert)
+  provider       String // "github", "gmail", "google-calendar", "google-drive"
+  enabled        Boolean       @default(false)
+  credentials    String?       @map("credentials") // encrypted (clientSecret)
+  settings       Json? // plain (clientId, scopes)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  project        Project?      @relation(fields: [projectId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  partner        Partner?      @relation(fields: [partnerId], references: [id])
+
+  @@unique([projectId, provider])
+  @@unique([organizationId, provider])
+  @@index([partnerId])
+  @@index([scope])
+  @@map("app_configs")
+}
+
+// ── Provisioned users ───────────────────────────────────────────────────
+
+model UserProvision {
+  id                 String    @id @default(uuid())
+  organizationId     String    @map("organization_id")
+  userId             String    @unique @map("user_id")
+  projectId          String    @unique @map("project_id")
+  role               String // "admin" | "member"
+  token              String    @unique
+  status             String    @default("pending") // "pending" | "claimed" | "expired"
+  skipOnboarding     Boolean   @default(true) @map("skip_onboarding")
+  provisionedById    String    @map("provisioned_by_id")
+  provisionedByEmail String    @map("provisioned_by_email")
+  expiresAt          DateTime  @map("expires_at")
+  claimedAt          DateTime? @map("claimed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  user          User         @relation("ProvisionedUser", fields: [userId], references: [id])
+  provisionedBy User         @relation("ProvisionCreator", fields: [provisionedById], references: [id])
+
+  @@index([token])
+  @@index([organizationId])
+  @@index([expiresAt, status])
+  @@map("user_provisions")
+}
+
+// ── Partner (cloud-only) ────────────────────────────────────────────────
+// A Partner is a reseller/agency that sits ABOVE Organization. It creates orgs
+// via the Partner API, provides inherited (lowest-priority) partner secrets, and
+// hands out claim links. Cloud-only behaviour; these tables/columns are inert in
+// OSS (no OSS code reads or writes them), mirroring CliAuthSession/UserProvision.
+
+model Partner {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  apiKey    String   @unique @map("api_key") // "oc_partner_" + 32 hex
+  status    String   @default("active") // "active" | "suspended"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members        PartnerMember[]
+  organizations  Organization[]
+  secrets        Secret[]
+  appConnections AppConnection[]
+  appConfigs     AppConfig[]
+  policyRules    PolicyRule[]
+  partnerClaims  PartnerClaim[]
+
+  @@map("partners")
+}
+
+// Links a Cognito user (User row) to a Partner for partner-portal access.
+// Mirrors OrganizationMember; supports multiple staff per partner.
+model PartnerMember {
+  partnerId String   @map("partner_id")
+  userId    String   @map("user_id")
+  userEmail String   @map("user_email")
+  role      String   @default("owner") // "owner" | "admin" | "member" (partner-staff role)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@id([partnerId, userId])
+  // A user belongs to at most one partner (the portal / API-key resolution is
+  // single-partner). Unique — not just an index — enforces that at the DB level.
+  @@unique([userId])
+  @@map("partner_members")
+}
+
+// Claim record for a partner-pre-created (unclaimed) organization. Mirrors
+// UserProvision: a placeholder OWNER holds the org+project until a real Cognito
+// user claims it via the token and is promoted to OWNER.
+model PartnerClaim {
+  id                String    @id @default(uuid())
+  partnerId         String    @map("partner_id")
+  organizationId    String    @unique @map("organization_id")
+  projectId         String    @map("project_id")
+  placeholderUserId String?   @unique @map("placeholder_user_id")
+  token             String    @unique
+  status            String    @default("pending") // "pending" | "claimed" | "expired"
+  expiresAt         DateTime? @map("expires_at") // null = never expires (partner orgs are long-lived)
+  claimedAt         DateTime? @map("claimed_at")
+  claimedByUserId   String?   @map("claimed_by_user_id")
+  claimedByEmail    String?   @map("claimed_by_email")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  partner      Partner      @relation(fields: [partnerId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  placeholder  User?        @relation("PartnerPlaceholder", fields: [placeholderUserId], references: [id], onDelete: SetNull)
+
+  @@index([token])
+  @@index([partnerId])
+  @@index([status])
+  @@map("partner_claims")
+}
+
+// Cloud-only (inert in OSS): a spend budget on a secret for a consuming scope.
+// Scope-agnostic — partner-ness is implied by the bound secret's scope, so the
+// same model serves a future non-partner flow (org/project capping its own key).
+// Now: secretId = a partner secret, organizationId = the consuming org.
+model Budget {
+  id             String   @id @default(uuid())
+  secretId       String   @map("secret_id")
+  organizationId String?  @map("organization_id")
+  projectId      String?  @map("project_id") // future non-partner scoping
+  limitCents     Int      @map("limit_cents")
+  period         String   @default("monthly") // "monthly" | "total"
+  createdBy      String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  secret       Secret        @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  project      Project?      @relation(fields: [projectId], references: [id])
+
+  @@unique([secretId, organizationId]) // one budget per (secret, consuming org)
+  @@index([secretId])
+  @@index([organizationId])
+  @@map("budgets")
+}
+
+// Cloud-only (inert in OSS): durable accumulated spend, period-windowed to match
+// the gateway's Redis hot counter key. The Redis counter is the hot enforcement
+// source of truth; this is the durable floor (rehydrated into Redis on cache miss
+// so a flush can't silently refill a budget). `spentNanos` = nano-dollars (1e-9).
+model BudgetSpend {
+  secretId       String   @map("secret_id")
+  organizationId String   @map("organization_id")
+  period         String // "m:YYYY-MM" (monthly window) | "total"
+  spentNanos     BigInt   @default(0) @map("spent_nanos")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@id([secretId, organizationId, period])
+  @@map("budget_spends")
+}
+
+// ── Standalone (no project scoping) ─────────────────────────────────────
+
+model ResendBadEmail {
+  id        String   @id @default(uuid())
+  email     String
+  eventType String   @map("event_type") // "email.bounced" or "email.complained"
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@map("resend_bad_emails")
+}
+
+model ResendWebhook {
+  id           String   @id @default(uuid())
+  eventType    String   @map("event_type") // "email.sent", "email.bounced", "email.complained", etc.
+  emailSubject String?  @map("email_subject")
+  emailFrom    String?  @map("email_from")
+  emailTo      String?  @map("email_to")
+  eventData    Json?    @map("event_data")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("resend_webhooks")
+}
+
+model CliAuthSession {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  status    String   @default("pending") // "pending" | "confirmed" | "expired"
+  apiKey    String?  @map("api_key")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("cli_auth_sessions")
+}

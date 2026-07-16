@@ -1,0 +1,323 @@
+{
+  "program": "OneComputer Personal Connectors + M365 Native 95 Readiness Builder",
+  "createdAt": "2026-06-22T07:58:00+08:00",
+  "timezone": "Asia/Singapore",
+  "owner": "Terence Tan",
+  "status": "complete",
+  "workRemaining": false,
+  "readiness": {
+    "currentEnterpriseCisoScore": 95,
+    "nextTarget": 95,
+    "finalTarget": 95,
+    "resetReason": "Terence customer-tested readiness reset: controlled-pilot score was too optimistic; customers want native Teams/Outlook plus safe personal third-party context."
+  },
+  "currentPhase": {
+    "id": "P7",
+    "name": "Red-Team and Pilot Hardening",
+    "status": "completed",
+    "targetScore": 95,
+    "currentSubphase": "P7.2 Pilot evidence pack and CISO scorecard closeout"
+  },
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Roadmap reset and master plan",
+      "status": "completed",
+      "targetScore": 35,
+      "exitCriteria": [
+        "Readiness reset from 95 controlled-demo to 30 customer-tested reality is documented",
+        "Roadmap places personal read-only third-party connectors before M365 native polish",
+        "Messaging app is demoted to internal/debug surface",
+        "Review gates and recurring runner are active"
+      ],
+      "completedAt": "2026-06-22T23:43:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p0-personal-connectors-roadmap-reset-2026-06-22.md"
+    },
+    {
+      "id": "P1",
+      "name": "Protective Guardrails Engine",
+      "status": "completed",
+      "targetScore": 50,
+      "exitCriteria": [
+        "Action taxonomy covers email, file, secret, connector, runtime, policy, and external-share actions",
+        "Strictest-wins merge supports global cyber floor + personal stricter policy + agent mandate",
+        "Quota/threshold controls and negative-path tests exist",
+        "Policy simulator explains allow/block/step-up decisions"
+      ],
+      "startedAt": "2026-06-22T23:43:00+08:00",
+      "progressScore": 50,
+      "currentSubphase": "P1.3 Enforcement fixture pack and P1 closeout",
+      "subphases": [
+        {
+          "id": "P1.1",
+          "name": "Action taxonomy and strictest-wins guardrail engine",
+          "status": "completed",
+          "completedAt": "2026-06-23T06:40:00+08:00",
+          "observedScore": 40,
+          "evidence": "docs/onecomputer/review-gates/p1-1-protective-guardrails-engine-slice-2026-06-23.md"
+        },
+        {
+          "id": "P1.2",
+          "name": "Guardrail simulator API and evidence preview",
+          "status": "completed",
+          "completedAt": "2026-06-23T06:55:00+08:00",
+          "observedScore": 45,
+          "evidence": "docs/onecomputer/review-gates/p1-2-guardrail-simulator-api-evidence-2026-06-23.md"
+        },
+        {
+          "id": "P1.3",
+          "name": "Enforcement fixture pack and P1 closeout",
+          "status": "completed",
+          "completedAt": "2026-06-23T07:02:00+08:00",
+          "observedScore": 50,
+          "evidence": "docs/onecomputer/review-gates/p1-3-enforcement-fixtures-final-2026-06-23.md"
+        }
+      ],
+      "completedAt": "2026-06-23T07:02:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p1-3-enforcement-fixtures-final-2026-06-23.md"
+    },
+    {
+      "id": "P2",
+      "name": "Personal Read-Only Connector Broker",
+      "status": "completed",
+      "targetScore": 65,
+      "exitCriteria": [
+        "Connector broker interface prevents credentials from entering agent runtime",
+        "Read-only connector grants support purpose, scope, TTL, quota, and revocation",
+        "Personal data retrieval returns filtered snippets with evidence, not raw unlimited dumps",
+        "User privacy console MVP shows connectors, active grants, data used, pause/revoke"
+      ],
+      "startedAt": "2026-06-23T07:02:00+08:00",
+      "progressScore": 65,
+      "currentSubphase": "P2.3 P2 closeout",
+      "subphases": [
+        {
+          "id": "P2.1",
+          "name": "Personal read-only connector broker seam",
+          "status": "completed",
+          "completedAt": "2026-06-23T07:15:00+08:00",
+          "observedScore": 55,
+          "evidence": "docs/onecomputer/review-gates/p2-1-personal-connector-broker-seam-2026-06-23.md"
+        },
+        {
+          "id": "P2.2",
+          "name": "Personal connector grant registry/API preview",
+          "status": "completed",
+          "completedAt": "2026-06-23T07:30:00+08:00",
+          "observedScore": 60,
+          "evidence": "docs/onecomputer/review-gates/p2-2-personal-connector-registry-api-preview-2026-06-23.md"
+        },
+        {
+          "id": "P2.3",
+          "name": "Personal connector broker closeout",
+          "status": "completed",
+          "completedAt": "2026-06-23T07:45:00+08:00",
+          "observedScore": 65,
+          "evidence": "docs/onecomputer/review-gates/p2-3-personal-connector-closeout-2026-06-23.md"
+        }
+      ],
+      "completedAt": "2026-06-23T07:45:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p2-3-personal-connector-closeout-2026-06-23.md"
+    },
+    {
+      "id": "P3",
+      "name": "VTI Consent and Step-Up Approval",
+      "status": "completed",
+      "targetScore": 75,
+      "exitCriteria": [
+        "Personal connector access maps to VTI/OpenVTC consent and step-up Trust Tasks",
+        "Approval proof is bound to purpose, connector, scope, TTL, and action digest",
+        "VTI unavailable fails closed for sensitive actions",
+        "No DIY crypto beyond adapter seams"
+      ],
+      "startedAt": "2026-06-23T07:45:00+08:00",
+      "progressScore": 75,
+      "currentSubphase": "P3.2 Step-up response and retrieval gate",
+      "subphases": [
+        {
+          "id": "P3.1",
+          "name": "VTI consent Trust Task seam",
+          "status": "completed",
+          "completedAt": "2026-06-23T08:00:00+08:00",
+          "observedScore": 70,
+          "evidence": "docs/onecomputer/review-gates/p3-1-vti-consent-trust-task-seam-2026-06-23.md"
+        },
+        {
+          "id": "P3.2",
+          "name": "Step-up response and retrieval gate",
+          "status": "completed",
+          "completedAt": "2026-06-23T08:02:00+08:00",
+          "observedScore": 75,
+          "evidence": "docs/onecomputer/review-gates/p3-2-vti-stepup-retrieval-gate-2026-06-23.md"
+        }
+      ],
+      "completedAt": "2026-06-23T08:02:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p3-2-vti-stepup-retrieval-gate-2026-06-23.md"
+    },
+    {
+      "id": "P4",
+      "name": "Microsoft 365 Agent Directory + Mailroom",
+      "status": "completed",
+      "targetScore": 82,
+      "exitCriteria": [
+        "Agent Passport projects to Outlook/GAL contact or equivalent object",
+        "Agent email alias routes through Exchange/EOP/Defender to OneComputer Mailroom",
+        "Inbound email normalizes into Trust Task and passes guardrails before any action",
+        "Teams bot/message-extension path is specified or prototyped"
+      ],
+      "startedAt": "2026-06-23T08:02:00+08:00",
+      "progressScore": 82,
+      "currentSubphase": "P4.3 Mailroom evidence and revoked-route closeout",
+      "subphases": [
+        {
+          "id": "P4.1",
+          "name": "Agent Directory projection and mailroom contract",
+          "status": "completed",
+          "completedAt": "2026-06-23T08:16:00+08:00",
+          "observedScore": 78,
+          "evidence": "docs/onecomputer/review-gates/p4-1-m365-agent-directory-mailroom-contract-2026-06-23.md"
+        },
+        {
+          "id": "P4.2",
+          "name": "Directory/mailroom API preview and sample payload",
+          "status": "completed",
+          "completedAt": "2026-06-23T08:31:00+08:00",
+          "observedScore": 80,
+          "evidence": "docs/onecomputer/review-gates/p4-2-m365-directory-mailroom-api-preview-2026-06-23.md"
+        },
+        {
+          "id": "P4.3",
+          "name": "Mailroom evidence and revoked-route closeout",
+          "status": "completed",
+          "completedAt": "2026-06-23T08:46:00+08:00",
+          "observedScore": 82,
+          "evidence": "docs/onecomputer/review-gates/p4-3-m365-mailroom-evidence-closeout-2026-06-23.md"
+        }
+      ],
+      "completedAt": "2026-06-23T08:46:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p4-3-m365-mailroom-evidence-closeout-2026-06-23.md"
+    },
+    {
+      "id": "P5",
+      "name": "Golden Customer Workflows",
+      "status": "completed",
+      "targetScore": 88,
+      "exitCriteria": [
+        "Legal MFA reviewer workflow demonstrates SharePoint read/copy/annotate/email approval",
+        "Executive briefing workflow demonstrates corporate + personal context with boundary controls",
+        "Unsafe actions are blocked before touching Graph/SharePoint/email/personal connectors"
+      ],
+      "startedAt": "2026-06-23T08:46:00+08:00",
+      "progressScore": 88,
+      "currentSubphase": "P5.3 Golden workflow API/evidence closeout",
+      "subphases": [
+        {
+          "id": "P5.1",
+          "name": "Legal MFA reviewer golden workflow contract",
+          "status": "completed",
+          "completedAt": "2026-06-23T09:02:00+08:00",
+          "observedScore": 84,
+          "evidence": "docs/onecomputer/review-gates/p5-1-legal-mfa-workflow-contract-2026-06-23.md"
+        },
+        {
+          "id": "P5.2",
+          "name": "Executive briefing workflow with personal context boundary controls",
+          "status": "completed",
+          "completedAt": "2026-06-23T09:16:00+08:00",
+          "observedScore": 86,
+          "evidence": "docs/onecomputer/review-gates/p5-2-executive-briefing-personal-context-2026-06-23.md"
+        },
+        {
+          "id": "P5.3",
+          "name": "Golden workflow API/evidence closeout",
+          "status": "completed",
+          "completedAt": "2026-06-23T09:31:00+08:00",
+          "observedScore": 88,
+          "evidence": "docs/onecomputer/review-gates/p5-3-golden-workflow-api-evidence-closeout-2026-06-23.md"
+        }
+      ],
+      "completedAt": "2026-06-23T09:31:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p5-3-golden-workflow-api-evidence-closeout-2026-06-23.md"
+    },
+    {
+      "id": "P6",
+      "name": "CISO and User Privacy Console",
+      "status": "completed",
+      "targetScore": 92,
+      "exitCriteria": [
+        "CISO can inspect agent owner, mandate, connector classes, risk, approvals, evidence, revoke",
+        "User can inspect personal connectors, grants, exact data used, revoke/pause",
+        "Admin cannot casually read raw personal content; only metadata/risk/evidence unless incident process applies",
+        "Screenshots captured for frontend updates"
+      ],
+      "startedAt": "2026-06-23T09:31:00+08:00",
+      "progressScore": 92,
+      "currentSubphase": "P6.2 Screenshot-backed CISO/User Privacy Console UX",
+      "subphases": [
+        {
+          "id": "P6.1",
+          "name": "CISO/User Privacy Console data contract",
+          "status": "completed",
+          "completedAt": "2026-06-23T09:46:00+08:00",
+          "observedScore": 90,
+          "evidence": "docs/onecomputer/review-gates/p6-1-ciso-user-privacy-console-contract-2026-06-23.md"
+        },
+        {
+          "id": "P6.2",
+          "name": "Screenshot-backed CISO/User Privacy Console UX",
+          "status": "completed",
+          "completedAt": "2026-06-23T10:10:00+08:00",
+          "observedScore": 92,
+          "evidence": "docs/onecomputer/review-gates/p6-2-ciso-user-privacy-console-ux-2026-06-23.md",
+          "screenshots": [
+            "/workspace/agent/reports/screenshots/onecomputer/p6-2-ciso-privacy-console-2026-06-23/console-preview-desktop.png",
+            "/workspace/agent/reports/screenshots/onecomputer/p6-2-ciso-privacy-console-2026-06-23/console-preview-mobile.png"
+          ]
+        }
+      ],
+      "completedAt": "2026-06-23T10:10:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p6-2-ciso-user-privacy-console-ux-2026-06-23.md"
+    },
+    {
+      "id": "P7",
+      "name": "Red-Team and Pilot Hardening",
+      "status": "completed",
+      "targetScore": 95,
+      "exitCriteria": [
+        "Prompt injection from personal connector is blocked",
+        "Corporate-to-personal exfiltration attempts are blocked",
+        "Revoked connector cannot be accessed",
+        "Approval replay fails",
+        "Threat model, demo script, rollback plan, evidence pack, and CISO scorecard complete"
+      ],
+      "startedAt": "2026-06-23T10:10:00+08:00",
+      "progressScore": 95,
+      "currentSubphase": "P7.2 Pilot evidence pack and CISO scorecard closeout",
+      "subphases": [
+        {
+          "id": "P7.1",
+          "name": "Red-team fixture pack",
+          "status": "completed",
+          "completedAt": "2026-06-23T10:25:00+08:00",
+          "observedScore": 93,
+          "evidence": "docs/onecomputer/review-gates/p7-1-red-team-fixture-pack-2026-06-23.md"
+        },
+        {
+          "id": "P7.2",
+          "name": "Pilot evidence pack and CISO scorecard closeout",
+          "status": "completed",
+          "completedAt": "2026-06-23T10:45:00+08:00",
+          "observedScore": 95,
+          "evidence": "docs/onecomputer/review-gates/p7-2-pilot-evidence-pack-ciso-scorecard-closeout-2026-06-23.md",
+          "scorecard": "docs/onecomputer/pilot/personal-connectors-95-final-scorecard-2026-06-23.md"
+        }
+      ],
+      "completedAt": "2026-06-23T10:45:00+08:00",
+      "evidence": "docs/onecomputer/review-gates/p7-2-pilot-evidence-pack-ciso-scorecard-closeout-2026-06-23.md"
+    }
+  ],
+  "lastUpdate": {
+    "at": "2026-06-23T10:45:00+08:00",
+    "summary": "Scheduled simplified loop completed P7.2 pilot evidence pack and CISO scorecard closeout. Readiness moved to 95/100. Personal Connectors + M365 Native loop is complete for controlled pilot."
+  }
+}

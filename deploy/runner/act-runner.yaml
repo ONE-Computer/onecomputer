@@ -1,0 +1,19 @@
+log:
+  level: info
+
+runner:
+  file: .runner
+  capacity: 1
+  timeout: 3h
+  shutdown_timeout: 0s
+  insecure: false
+  labels:
+    - "onecomputer-ci:docker://node:22-bookworm"
+    - "onecomputer-deploy:host"
+
+cache:
+  enabled: true
+
+container:
+  options: "--add-host=host.docker.internal:host-gateway"
+  force_pull: true

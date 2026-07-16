@@ -1,0 +1,56 @@
+/**
+ * Matches `/p/<projectId>` at the start of a pathname and captures the id.
+ * Shared across sidebar, header, and navigation helpers so the pattern stays
+ * consistent.
+ */
+export const PROJECT_PATH_RE = /^\/p\/([^/]+)(?=\/|$)/;
+
+/**
+ * Prefix an absolute dashboard path with `/p/<projectId>` if the current
+ * pathname is already inside a project scope. Used by shared dashboard
+ * components (connections tabs, overview cards, app detail) so a "Secrets"
+ * tab click inside `/p/<id>/connections` keeps the project prefix instead of
+ * jumping to the OSS top-level `/connections/secrets`.
+ *
+ * In OSS the regex never matches (no `/p/<id>/` URLs exist) so the input
+ * path is returned unchanged — this is a no-op for self-hosted users.
+ */
+export const ORG_PATH_RE = /^\/org\/([^/]+)(?=\/|$)/;
+
+export const withProjectPrefix = (
+  currentPathname: string,
+  targetPath: string,
+): string => {
+  const match = currentPathname.match(PROJECT_PATH_RE);
+  if (!match) return targetPath;
+  return `/p/${match[1]}${targetPath}`;
+};
+
+export const withOrgPrefix = (
+  currentPathname: string,
+  targetPath: string,
+): string => {
+  const match = currentPathname.match(ORG_PATH_RE);
+  if (!match) return targetPath;
+  return `/org/${match[1]}${targetPath}`;
+};
+
+/**
+ * Resolve a path inside the connections section, scoped to the current edition
+ * and page. Single source of truth so callers never hardcode the bare OSS
+ * `/connections...` path (which 404s in the cloud edition under `/p` or `/org`).
+ *
+ * - OSS:           `/connections{sub}`
+ * - Cloud project: `/p/<id>/connections{sub}`   (derived from `pathname`)
+ * - Cloud org:     `<basePath>{sub}`            (basePath = `/org/<id>/global-connections`)
+ *
+ * `sub` is the path under the connections root, e.g. "" (root),
+ * `/apps/<provider>`, or `/vaults/<provider>`.
+ */
+export const connectionsPath = (
+  { pathname, basePath }: { pathname: string; basePath?: string },
+  sub = "",
+): string =>
+  basePath
+    ? `${basePath}${sub}`
+    : withProjectPrefix(pathname, `/connections${sub}`);

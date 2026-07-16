@@ -1,0 +1,14 @@
+{
+  "name": "onecomputer-access-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "@aws-sdk/client-dynamodb": "^3.828.0",
+    "@aws-sdk/util-dynamodb": "^3.828.0"
+  }
+}

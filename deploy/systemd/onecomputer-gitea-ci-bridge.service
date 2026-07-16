@@ -1,0 +1,13 @@
+[Unit]
+Description=ONEComputer Gitea bridge for CI containers
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:3301,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:3001
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

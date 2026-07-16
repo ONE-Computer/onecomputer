@@ -1,0 +1,3 @@
+# The deploy wrapper validates its single argument and is root-owned on Azure.
+# Keep this permission limited to the dedicated merge-to-main runner.
+onecomputer-runner ALL=(root) NOPASSWD: /usr/local/sbin/onecomputer-deploy *

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "OneComputer web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@onecli/web", "dev"],
+      "port": 10254,
+      "autoPort": false
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "events": [
+    {
+      "eventType": "AgentRegistered",
+      "occurredAt": "2026-06-20T00:00:00.000Z",
+      "principal": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "did": "did:invgini:agent:00000000000040008000000000000001",
+        "trustProvider": "local-stub",
+        "subjectType": "agent",
+        "status": "ACTIVE",
+        "displayName": "Legal MFA reviewer",
+        "ownerEmail": "owner@example.com",
+        "sourceSystem": "invgini",
+        "sourceRefType": "project_agent",
+        "sourceRefId": "00000000-0000-4000-8000-000000000101",
+        "metadata": {
+          "identity_version": 1,
+          "affinidi_status": "not_issued",
+          "affinidi_credential_type": "InvGiniAgentAuthorityCredential",
+          "created_by": "invgini-backend-service"
+        }
+      },
+      "mandates": [
+        {
+          "id": "00000000-0000-4000-8000-000000000201",
+          "title": "Project coworker mandate",
+          "description": "Read the source project and request approval before risky actions.",
+          "constraints": {
+            "external_send_requires_approval": true
+          },
+          "status": "ACTIVE"
+        }
+      ],
+      "resourceGrants": [
+        {
+          "id": "00000000-0000-4000-8000-000000000301",
+          "resourceType": "invgini_project",
+          "resourceId": "00000000-0000-4000-8000-000000000101",
+          "permission": "read",
+          "constraints": {
+            "scope": "source_project"
+          },
+          "status": "ACTIVE",
+          "expiresAt": null
+        }
+      ]
+    },
+    {
+      "eventType": "ActionDecided",
+      "occurredAt": "2026-06-20T00:05:00.000Z",
+      "principal": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "did": "did:invgini:agent:00000000000040008000000000000001",
+        "trustProvider": "local-stub",
+        "subjectType": "agent",
+        "status": "ACTIVE",
+        "displayName": "Legal MFA reviewer",
+        "ownerEmail": "owner@example.com",
+        "sourceSystem": "invgini",
+        "sourceRefType": "project_agent",
+        "sourceRefId": "00000000-0000-4000-8000-000000000101",
+        "metadata": {
+          "identity_version": 1,
+          "affinidi_status": "not_issued",
+          "affinidi_credential_type": "InvGiniAgentAuthorityCredential",
+          "created_by": "invgini-backend-service"
+        }
+      },
+      "mandates": [],
+      "resourceGrants": [],
+      "actionRequest": {
+        "id": "00000000-0000-4000-8000-000000000401",
+        "connector": "telegram",
+        "action": "send_document",
+        "resource": {
+          "opaqueHandle": "oph:telegram:legal-mfa-review",
+          "displayName": "Legal MFA review channel",
+          "resourceType": "chat_channel"
+        },
+        "riskTier": "HIGH",
+        "status": "APPROVED",
+        "reason": "Manual approval required for risky autonomous action",
+        "decidedByUserId": "00000000-0000-4000-8000-000000000501",
+        "decidedAt": "2026-06-20T00:04:59.000Z",
+        "createdAt": "2026-06-20T00:03:00.000Z",
+        "riskScore": 90,
+        "policySignals": {
+          "riskScore": 90,
+          "riskTier": "HIGH",
+          "disposition": "APPROVAL_REQUIRED",
+          "signals": [
+            {
+              "ruleId": "connector.external_send",
+              "severity": "high",
+              "disposition": "APPROVAL_REQUIRED",
+              "weight": 45,
+              "message": "External or chat/message sends need owner approval before execution."
+            },
+            {
+              "ruleId": "intrinsic.write_action",
+              "severity": "medium",
+              "disposition": "ALLOW",
+              "weight": 15,
+              "message": "Write action telemetry retained for audit."
+            }
+          ],
+          "vtiBridge": {
+            "trustTaskId": "tt-invgini-action-request-000401",
+            "trustTaskType": "https://trusttasks.org/spec/invgini/agent/action-request/0.1",
+            "trustTaskThreadId": "thread-invgini-legal-mfa-0001",
+            "issuerDid": "did:invgini:agent:00000000000040008000000000000001",
+            "recipientDid": "did:webvh:vta.example:invgini",
+            "policyArtifactId": "policy-vta-legal-mfa-send-001",
+            "consentArtifactId": "consent-vc-legal-mfa-channel-001",
+            "connectorCustodyMode": "opaque_handle",
+            "rawConnectorIdPresent": false,
+            "opaqueHandle": {
+              "id": "oph:telegram:legal-mfa-review",
+              "kind": "chat_channel",
+              "gateway": "vti-message-bridge",
+              "displayName": "Legal MFA review channel"
+            },
+            "consentState": "granted",
+            "deliveryState": "held_by_approval_gate"
+          }
+        },
+        "vtiBridge": {
+          "trustTaskId": "tt-invgini-action-request-000401",
+          "trustTaskType": "https://trusttasks.org/spec/invgini/agent/action-request/0.1",
+          "trustTaskThreadId": "thread-invgini-legal-mfa-0001",
+          "issuerDid": "did:invgini:agent:00000000000040008000000000000001",
+          "recipientDid": "did:webvh:vta.example:invgini",
+          "policyArtifactId": "policy-vta-legal-mfa-send-001",
+          "consentArtifactId": "consent-vc-legal-mfa-channel-001",
+          "connectorCustodyMode": "opaque_handle",
+          "rawConnectorIdPresent": false,
+          "opaqueHandle": {
+            "id": "oph:telegram:legal-mfa-review",
+            "kind": "chat_channel",
+            "gateway": "vti-message-bridge",
+            "displayName": "Legal MFA review channel"
+          },
+          "consentState": "granted",
+          "deliveryState": "held_by_approval_gate"
+        }
+      }
+    },
+    {
+      "eventType": "ReceiptCreated",
+      "occurredAt": "2026-06-20T00:06:00.000Z",
+      "principal": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "did": "did:invgini:agent:00000000000040008000000000000001",
+        "trustProvider": "local-stub",
+        "subjectType": "agent",
+        "status": "ACTIVE",
+        "displayName": "Legal MFA reviewer",
+        "ownerEmail": "owner@example.com",
+        "sourceSystem": "invgini",
+        "sourceRefType": "project_agent",
+        "sourceRefId": "00000000-0000-4000-8000-000000000101",
+        "metadata": {
+          "identity_version": 1,
+          "affinidi_status": "not_issued",
+          "affinidi_credential_type": "InvGiniAgentAuthorityCredential",
+          "created_by": "invgini-backend-service"
+        }
+      },
+      "mandates": [],
+      "resourceGrants": [],
+      "receipt": {
+        "id": "00000000-0000-4000-8000-000000000601",
+        "connector": "telegram",
+        "action": "send_document",
+        "resource": {
+          "opaqueHandle": "oph:telegram:legal-mfa-review",
+          "displayName": "Legal MFA review channel",
+          "resourceType": "chat_channel"
+        },
+        "outcome": "SUCCESS",
+        "requestId": "00000000-0000-4000-8000-000000000401",
+        "runId": "00000000-0000-4000-8000-000000000701",
+        "receiptHash": "sha256:example-invgini-agent-receipt",
+        "details": {
+          "opaqueMessageHandle": "oph:telegram-message:legal-mfa-review:000601",
+          "vtiBridge": {
+            "trustTaskId": "tt-invgini-action-receipt-000601",
+            "trustTaskType": "https://trusttasks.org/spec/invgini/agent/action-receipt/0.1",
+            "trustTaskThreadId": "thread-invgini-legal-mfa-0001",
+            "issuerDid": "did:invgini:agent:00000000000040008000000000000001",
+            "recipientDid": "did:webvh:vta.example:invgini",
+            "policyArtifactId": "policy-vta-legal-mfa-send-001",
+            "consentArtifactId": "consent-vc-legal-mfa-channel-001",
+            "connectorCustodyMode": "opaque_handle",
+            "rawConnectorIdPresent": false,
+            "opaqueHandle": {
+              "id": "oph:telegram:legal-mfa-review",
+              "kind": "chat_channel",
+              "gateway": "vti-message-bridge",
+              "displayName": "Legal MFA review channel"
+            },
+            "consentState": "granted",
+            "deliveryState": "receipt_anchored",
+            "bridgeReceiptHash": "sha256:vti-bridge-receipt-000601",
+            "previousReceiptHash": "sha256:vti-bridge-request-000401"
+          }
+        },
+        "createdAt": "2026-06-20T00:06:00.000Z",
+        "vtiBridge": {
+          "trustTaskId": "tt-invgini-action-receipt-000601",
+          "trustTaskType": "https://trusttasks.org/spec/invgini/agent/action-receipt/0.1",
+          "trustTaskThreadId": "thread-invgini-legal-mfa-0001",
+          "issuerDid": "did:invgini:agent:00000000000040008000000000000001",
+          "recipientDid": "did:webvh:vta.example:invgini",
+          "policyArtifactId": "policy-vta-legal-mfa-send-001",
+          "consentArtifactId": "consent-vc-legal-mfa-channel-001",
+          "connectorCustodyMode": "opaque_handle",
+          "rawConnectorIdPresent": false,
+          "opaqueHandle": {
+            "id": "oph:telegram:legal-mfa-review",
+            "kind": "chat_channel",
+            "gateway": "vti-message-bridge",
+            "displayName": "Legal MFA review channel"
+          },
+          "consentState": "granted",
+          "deliveryState": "receipt_anchored",
+          "bridgeReceiptHash": "sha256:vti-bridge-receipt-000601",
+          "previousReceiptHash": "sha256:vti-bridge-request-000401"
+        }
+      }
+    }
+  ]
+}

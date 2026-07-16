@@ -1,0 +1,39 @@
+# Production starting point for the ONEComputer × OpenVTC mediator.
+#
+# Do not deploy this file unchanged. Before promotion, provision explicit ACL
+# entries for the bridge and manager wallet through the mediator's supported
+# admin Trust Task/keylist flow, validate the exact recipient DIDs, and use a
+# managed secret backend. The current Azure staging mediator build does not
+# implement coordinate mediation, so this closed posture is intentionally not
+# used by the staging E2E.
+
+[deployment]
+type = "server"
+protocols = ["didcomm"]
+use_vta = true
+
+[identity]
+did_method = "did:peer"
+public_url = "https://onecomputer-openvtc.eastus2.cloudapp.azure.com/mediator/v1"
+
+[secrets]
+storage = "azure_keyvault://onecomputer-openvtc"
+
+[security]
+ssl = "none"
+admin = "provided"
+network_mode = "closed"
+cors = "list"
+cors_domains = "https://onecomputer-openvtc.eastus2.cloudapp.azure.com"
+
+[storage]
+backend = "fjall"
+data_dir = "/var/lib/openvtc/mediator/data"
+
+[output]
+config_path = "/var/lib/openvtc/mediator/conf/mediator.toml"
+listen_address = "127.0.0.1:18120"
+api_prefix = "/mediator/v1/"
+
+[install]
+enabled = false

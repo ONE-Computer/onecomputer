@@ -1,0 +1,70 @@
+import { notFound } from "next/navigation";
+import { getApp } from "@onecli/api/apps/registry";
+import { checkAppConfigExists } from "@/lib/actions/app-config";
+import { ConnectFlow } from "../_components/connect-flow";
+
+interface Props {
+  params: Promise<{ provider: string }>;
+  searchParams: Promise<{
+    status?: string;
+    message?: string;
+    connectionId?: string;
+    agent_name?: string;
+    projectId?: string;
+    orgId?: string;
+  }>;
+}
+
+export default async function ConnectPage({ params, searchParams }: Props) {
+  const { provider } = await params;
+  const { status, message, connectionId, agent_name, projectId, orgId } =
+    await searchParams;
+
+  const app = getApp(provider);
+  if (!app || !app.available) notFound();
+
+  // Check if platform defaults are available (server-only env var check)
+  let hasEnvDefaults = false;
+  if (app.configurable) {
+    const defaults = Object.values(app.configurable.envDefaults ?? {});
+    hasEnvDefaults =
+      defaults.length > 0 && defaults.every((envVar) => !!process.env[envVar]);
+  }
+
+  // Check if user has custom AppConfig
+  let hasAppConfig = false;
+  try {
+    hasAppConfig = await checkAppConfigExists(provider);
+  } catch {
+    // Auth may not be resolved; treat as false
+  }
+
+  return (
+    <ConnectFlow
+      app={{
+        id: app.id,
+        name: app.name,
+        icon: app.icon,
+        darkIcon: app.darkIcon,
+        connectionType: app.connectionMethod.type,
+        labelHint: app.labelHint,
+        fields:
+          app.connectionMethod.type === "api_key" ||
+          app.connectionMethod.type === "credentials_import"
+            ? app.connectionMethod.fields
+            : undefined,
+        fileImport:
+          app.connectionMethod.type === "credentials_import"
+            ? app.connectionMethod.fileImport
+            : undefined,
+      }}
+      hasDefaults={hasEnvDefaults || hasAppConfig}
+      status={status === "success" || status === "error" ? status : undefined}
+      errorMessage={message}
+      connectionId={connectionId}
+      agentName={agent_name}
+      projectId={projectId}
+      orgId={orgId}
+    />
+  );
+}

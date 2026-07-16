@@ -1,0 +1,67 @@
+name: ONEComputer Azure CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: onecomputer-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: [onecomputer-ci]
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: onecomputer
+          POSTGRES_PASSWORD: onecomputer
+          POSTGRES_DB: onecomputer
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://onecomputer:onecomputer@127.0.0.1:5432/onecomputer
+      SECRET_ENCRYPTION_KEY: uYbX9y3ui/3PYVEdM/a9giI2iMIybK+aSmjWVALfHVc=
+      ONECLI_GATEWAY_SIGNING_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+      ONECLI_GATEWAY_PUBLIC_URL: http://localhost:10255
+      ONECOMPUTER_ENV: test
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reach the VM-local Gitea dependency mirror
+        run: git config --global url."http://host.docker.internal:3301/".insteadOf "http://127.0.0.1:3001/"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm --filter @onecli/db prisma migrate deploy
+      - run: pnpm check
+      - run: pnpm --filter @onecli/api test
+      - run: cargo test --manifest-path apps/gateway/Cargo.toml
+      - run: cargo build --release --manifest-path apps/gateway/Cargo.toml
+      - run: pnpm --filter @onecli/web build
+
+  deploy:
+    name: Deploy exact merge commit to Azure
+    needs: verify
+    runs-on: [onecomputer-deploy]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy through the host allowlist
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_SHA"
+          sudo -n /usr/local/sbin/onecomputer-deploy "$RELEASE_SHA"

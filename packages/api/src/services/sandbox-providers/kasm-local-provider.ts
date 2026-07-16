@@ -225,13 +225,6 @@ async function installClaudeDesktopAndCode(id: string): Promise<ExecResult> {
   );
 }
 
-async function installClaudeDesktop(id: string): Promise<ExecResult> {
-  return execInSandboxAsRoot(
-    id,
-    "set -e; . /etc/os-release; case ${VERSION_ID%%.*} in 22|23|24) ;; *) exit 20 ;; esac; apt-get update; apt-get install -y curl ca-certificates gpg; curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc https://downloads.claude.ai/claude-desktop/key.asc; echo 'deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main' > /etc/apt/sources.list.d/claude-desktop.list; apt-get update; apt-get install -y claude-desktop",
-  );
-}
-
 async function configureClaudeDesktop3p(id: string): Promise<ExecResult> {
   const managedSettings = JSON.stringify({
     inferenceProvider: "gateway",

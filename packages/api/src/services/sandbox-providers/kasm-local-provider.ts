@@ -221,7 +221,14 @@ async function installClaudeDesktopAndCode(id: string): Promise<ExecResult> {
 
   return execInSandbox(
     id,
-    "set -e; export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH; npm install -g @anthropic-ai/claude-code --prefix /home/kasm-user/.npm-global; grep -q npm-global /home/kasm-user/.bashrc || echo 'export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH' >> /home/kasm-user/.bashrc; claude --version",
+    "set -e; export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH; npm install -g @anthropic-ai/claude-code @anthropic-ai/claude-agent-sdk@0.3.210 pptxgenjs pdf-lib --prefix /home/kasm-user/.npm-global; grep -q npm-global /home/kasm-user/.bashrc || echo 'export PATH=/opt/node22/bin:/home/kasm-user/.npm-global/bin:$PATH' >> /home/kasm-user/.bashrc; claude --version; NODE_PATH=/home/kasm-user/.npm-global/lib/node_modules node -e \"require('pptxgenjs'); require('pdf-lib'); const {createRequire}=require('node:module'); createRequire(process.cwd() + '/.onevibe-agent-sdk.mjs').resolve('@anthropic-ai/claude-agent-sdk')\"",
+  );
+}
+
+async function installClaudeDesktop(id: string): Promise<ExecResult> {
+  return execInSandboxAsRoot(
+    id,
+    "set -e; . /etc/os-release; case ${VERSION_ID%%.*} in 22|23|24) ;; *) exit 20 ;; esac; apt-get update; apt-get install -y curl ca-certificates gpg; curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc https://downloads.claude.ai/claude-desktop/key.asc; echo 'deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main' > /etc/apt/sources.list.d/claude-desktop.list; apt-get update; apt-get install -y claude-desktop",
   );
 }
 

@@ -51,6 +51,7 @@ import { goldenWorkflowRoutes } from "./routes/golden-workflows";
 import { consoleRoutes } from "./routes/console";
 import { consoleLiveRoutes } from "./routes/console-live";
 import { sandboxRoutes } from "./routes/sandboxes";
+import { sandboxOperationRoutes } from "./routes/sandbox-operations";
 import { approvalRoutes } from "./routes/approvals";
 import { openVtcApprovalRoutes } from "./routes/openvtc-approvals";
 import { auditRoutes } from "./routes/audit";
@@ -130,6 +131,7 @@ export const createApiApp = (
   app.route("/console", consoleRoutes());
   app.route("/console-live", consoleLiveRoutes());
   app.route("/sandboxes", sandboxRoutes());
+  app.route("/sandbox-operations", sandboxOperationRoutes());
   app.route("/approvals", approvalRoutes());
   app.route("/openvtc-approvals", openVtcApprovalRoutes());
   app.route("/audit", auditRoutes());

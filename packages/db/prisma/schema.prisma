@@ -29,21 +29,22 @@ model Organization {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  projects       Project[]
-  members        OrganizationMember[]
-  invitations    Invitation[]
-  userProvisions UserProvision[]
-  secrets        Secret[]
-  appConnections AppConnection[]
-  appConfigs     AppConfig[]
-  policyRules    PolicyRule[]
-  apiKeys        ApiKey[]
-  auditLogs      AuditLog[]
-  sandboxes      Sandbox[]
-  dlpAlerts      DlpAlert[]
-  partner        Partner?             @relation(fields: [partnerId], references: [id])
-  partnerClaim   PartnerClaim?
-  budgets        Budget[] // cloud-only: per-secret spend budgets for this org (inert in OSS)
+  projects                    Project[]
+  members                     OrganizationMember[]
+  invitations                 Invitation[]
+  userProvisions              UserProvision[]
+  secrets                     Secret[]
+  appConnections              AppConnection[]
+  appConfigs                  AppConfig[]
+  policyRules                 PolicyRule[]
+  apiKeys                     ApiKey[]
+  auditLogs                   AuditLog[]
+  sandboxes                   Sandbox[]
+  sandboxAllocationOperations SandboxAllocationOperation[]
+  dlpAlerts                   DlpAlert[]
+  partner                     Partner?                     @relation(fields: [partnerId], references: [id])
+  partnerClaim                PartnerClaim?
+  budgets                     Budget[] // cloud-only: per-secret spend budgets for this org (inert in OSS)
 
   @@index([partnerId])
   @@map("organizations")
@@ -96,21 +97,22 @@ model Project {
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
-  createdByUser    User?                   @relation("ProjectCreator", fields: [createdByUserId], references: [id])
-  organization     Organization            @relation(fields: [organizationId], references: [id])
-  apiKeys          ApiKey[]
-  agents           Agent[]
-  secrets          Secret[]
-  policyRules      PolicyRule[]
-  auditLogs        AuditLog[]
-  vaultConnections VaultConnection[]
-  onboardingSurvey OnboardingSurvey?
-  appConnections   AppConnection[]
-  appConfigs       AppConfig[]
-  budgets          Budget[] // cloud-only: per-secret spend budgets for this project (inert in OSS)
-  invginiAgents    InvginiAgentPrincipal[]
-  invginiEventLogs InvginiAgentEventLog[]
-  dlpAlerts        DlpAlert[]
+  createdByUser               User?                        @relation("ProjectCreator", fields: [createdByUserId], references: [id])
+  organization                Organization                 @relation(fields: [organizationId], references: [id])
+  apiKeys                     ApiKey[]
+  agents                      Agent[]
+  secrets                     Secret[]
+  policyRules                 PolicyRule[]
+  auditLogs                   AuditLog[]
+  vaultConnections            VaultConnection[]
+  onboardingSurvey            OnboardingSurvey?
+  appConnections              AppConnection[]
+  appConfigs                  AppConfig[]
+  budgets                     Budget[] // cloud-only: per-secret spend budgets for this project (inert in OSS)
+  invginiAgents               InvginiAgentPrincipal[]
+  invginiEventLogs            InvginiAgentEventLog[]
+  dlpAlerts                   DlpAlert[]
+  sandboxAllocationOperations SandboxAllocationOperation[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -132,19 +134,20 @@ model User {
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
-  organizationMemberships OrganizationMember[]
-  sentInvitations         Invitation[]         @relation("InvitationCreator")
-  apiKeys                 ApiKey[]
-  auditLogs               AuditLog[]
-  ownedSandboxes          Sandbox[]            @relation("SandboxOwner")
-  createdProjects         Project[]            @relation("ProjectCreator")
-  onboardingSurveys       OnboardingSurvey[]
-  createdAgentSecrets     AgentSecret[]        @relation("AgentSecretCreator")
-  updatedAgentSecrets     AgentSecret[]        @relation("AgentSecretUpdater")
-  provisionedAs           UserProvision?       @relation("ProvisionedUser")
-  createdProvisions       UserProvision[]      @relation("ProvisionCreator")
-  partnerMemberships      PartnerMember[]
-  partnerPlaceholderClaim PartnerClaim?        @relation("PartnerPlaceholder")
+  organizationMemberships     OrganizationMember[]
+  sentInvitations             Invitation[]                 @relation("InvitationCreator")
+  apiKeys                     ApiKey[]
+  auditLogs                   AuditLog[]
+  ownedSandboxes              Sandbox[]                    @relation("SandboxOwner")
+  sandboxAllocationOperations SandboxAllocationOperation[] @relation("SandboxAllocationRequester")
+  createdProjects             Project[]                    @relation("ProjectCreator")
+  onboardingSurveys           OnboardingSurvey[]
+  createdAgentSecrets         AgentSecret[]                @relation("AgentSecretCreator")
+  updatedAgentSecrets         AgentSecret[]                @relation("AgentSecretUpdater")
+  provisionedAs               UserProvision?               @relation("ProvisionedUser")
+  createdProvisions           UserProvision[]              @relation("ProvisionCreator")
+  partnerMemberships          PartnerMember[]
+  partnerPlaceholderClaim     PartnerClaim?                @relation("PartnerPlaceholder")
 
   @@map("users")
 }
@@ -156,14 +159,16 @@ model User {
 // sandbox id), used to reconcile rows with provider state. `id` is our PK and
 // is what the API surfaces to clients.
 model Sandbox {
-  id                String   @id // matches the provider sandbox id used in /v1/sandboxes/:id
-  organizationId    String   @map("organization_id")
-  ownerId           String   @map("owner_id") // User who created the sandbox; drives member RBAC
-  provider          String // "kasm-local" | "daytona"
-  providerSandboxId String   @map("provider_sandbox_id") // container/instance id at the provider
-  name              String
-  status            String // "creating" | "started" | "stopped" | "error" | "archived"
-  createdAt         DateTime @default(now()) @map("created_at")
+  id                       String   @id // matches the provider sandbox id used in /v1/sandboxes/:id
+  organizationId           String   @map("organization_id")
+  ownerId                  String   @map("owner_id") // User who created the sandbox; drives member RBAC
+  provider                 String // "kasm-local" | "daytona"
+  providerSandboxId        String   @map("provider_sandbox_id") // container/instance id at the provider
+  name                     String
+  status                   String // "creating" | "started" | "stopped" | "error" | "archived"
+  allocationOperationId    String?  @unique @map("allocation_operation_id")
+  allocationIdempotencyKey String?  @map("allocation_idempotency_key")
+  createdAt                DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   owner        User         @relation("SandboxOwner", fields: [ownerId], references: [id])
@@ -171,6 +176,34 @@ model Sandbox {
   @@index([organizationId])
   @@index([ownerId])
   @@map("sandboxes")
+}
+
+// Durable control-plane receipt for a sandbox allocation. This row is created
+// before provider dispatch so retries cannot silently create a second sandbox
+// after a timeout or disconnect.
+model SandboxAllocationOperation {
+  id             String   @id // caller-supplied X-Allocation-Operation-Id
+  organizationId String   @map("organization_id")
+  projectId      String   @map("project_id")
+  requesterId    String   @map("requester_id")
+  idempotencyKey String   @map("idempotency_key")
+  requestHash    String   @map("request_hash")
+  name           String
+  status         String // "pending" | "completed" | "unknown"
+  sandboxId      String?  @map("sandbox_id")
+  provider       String?
+  errorCode      String?  @map("error_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  requester    User         @relation("SandboxAllocationRequester", fields: [requesterId], references: [id])
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status])
+  @@index([sandboxId])
+  @@map("sandbox_allocation_operations")
 }
 
 model ApiKey {

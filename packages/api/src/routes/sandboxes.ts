@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { db } from "@onecli/db";
 import { getSandboxProvider } from "../services/sandbox-providers";
@@ -34,6 +35,23 @@ import type { AuthContext } from "../providers";
 
 // Member roles that see all sandboxes in their org (not just their own).
 const ORG_WIDE_ROLES = new Set(["owner", "admin", "manager"]);
+const ALLOCATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/;
+
+const allocationId = (value: string | undefined, label: string): string => {
+  const candidate = value?.trim() || `legacy_${randomUUID()}`;
+  if (!ALLOCATION_ID_PATTERN.test(candidate)) {
+    throw new ServiceError("BAD_REQUEST", `${label} is invalid`);
+  }
+  return candidate;
+};
+
+const allocationRequestHash = (input: {
+  organizationId: string;
+  projectId: string;
+  requesterId: string;
+  name: string;
+}): string =>
+  `sha256:${createHash("sha256").update(JSON.stringify(input)).digest("hex")}`;
 
 // Merge a persisted Sandbox row with live provider state where available.
 // Provider state (desktopUrl, health, claudeVersion) is best-effort: if the
@@ -44,6 +62,8 @@ const mergeSandboxInfo = async (row: {
   name: string;
   provider: string;
   status: string;
+  allocationOperationId?: string | null;
+  allocationIdempotencyKey?: string | null;
 }): Promise<SandboxInfo> => {
   const provider = getSandboxProvider();
   try {
@@ -52,6 +72,8 @@ const mergeSandboxInfo = async (row: {
     return {
       ...live,
       name: row.name,
+      allocationOperationId: row.allocationOperationId ?? undefined,
+      allocationIdempotencyKey: row.allocationIdempotencyKey ?? undefined,
       state: pending ? row.status : live.state,
       bootstrapped: pending ? false : live.bootstrapped,
       desktopReady: pending ? false : live.desktopReady,
@@ -64,6 +86,8 @@ const mergeSandboxInfo = async (row: {
       state: row.status,
       provider: row.provider as SandboxInfo["provider"],
       bootstrapped: false,
+      allocationOperationId: row.allocationOperationId ?? undefined,
+      allocationIdempotencyKey: row.allocationIdempotencyKey ?? undefined,
     };
   }
 };
@@ -108,49 +132,198 @@ export const sandboxRoutes = () => {
       return c.json({ error: "name is required" }, 400);
     }
     const projectId = requireProjectId(auth);
+    const idempotencyKey = allocationId(
+      c.req.header("Idempotency-Key"),
+      "Idempotency-Key",
+    );
+    const operationId = allocationId(
+      c.req.header("X-Allocation-Operation-Id"),
+      "X-Allocation-Operation-Id",
+    );
+    const requestHash = allocationRequestHash({
+      organizationId: auth.organizationId,
+      projectId,
+      requesterId: auth.userId,
+      name,
+    });
+
+    const existing = await db.sandboxAllocationOperation.findUnique({
+      where: {
+        organizationId_idempotencyKey: {
+          organizationId: auth.organizationId,
+          idempotencyKey,
+        },
+      },
+    });
+    if (existing) {
+      if (
+        existing.requestHash !== requestHash ||
+        existing.projectId !== projectId ||
+        existing.requesterId !== auth.userId ||
+        existing.id !== operationId
+      ) {
+        throw new ServiceError(
+          "CONFLICT",
+          "Allocation idempotency key is already bound to a different request",
+        );
+      }
+      if (existing.sandboxId) {
+        const row = await db.sandbox.findFirst({
+          where: {
+            id: existing.sandboxId,
+            organizationId: auth.organizationId,
+          },
+        });
+        if (row) {
+          return c.json(await mergeSandboxInfo(row), 200);
+        }
+      }
+      return c.json(
+        {
+          operationId: existing.id,
+          idempotencyKey: existing.idempotencyKey,
+          status: existing.status,
+          sandboxId: existing.sandboxId ?? undefined,
+        },
+        202,
+      );
+    }
+
+    try {
+      await db.sandboxAllocationOperation.create({
+        data: {
+          id: operationId,
+          organizationId: auth.organizationId,
+          projectId,
+          requesterId: auth.userId,
+          idempotencyKey,
+          requestHash,
+          name,
+          status: "pending",
+        },
+      });
+    } catch {
+      // A concurrent request may have won the compound unique constraint.
+      // Re-read it and apply the exact same request-fingerprint checks rather
+      // than dispatching a second provider allocation.
+      const raced = await db.sandboxAllocationOperation.findUnique({
+        where: {
+          organizationId_idempotencyKey: {
+            organizationId: auth.organizationId,
+            idempotencyKey,
+          },
+        },
+      });
+      if (!raced)
+        throw new ServiceError(
+          "INTERNAL",
+          "Allocation operation could not be persisted",
+        );
+      if (raced.requestHash !== requestHash || raced.id !== operationId) {
+        throw new ServiceError(
+          "CONFLICT",
+          "Allocation idempotency key is already bound to a different request",
+        );
+      }
+      return c.json(
+        {
+          operationId: raced.id,
+          idempotencyKey: raced.idempotencyKey,
+          status: raced.status,
+          sandboxId: raced.sandboxId ?? undefined,
+        },
+        202,
+      );
+    }
     const agent = await db.agent.findFirst({
       where: { projectId, isDefault: true },
       select: { accessToken: true },
     });
     const provider = getSandboxProvider();
-    const sandbox = await withAudit(
-      () =>
-        provider.createSandbox(name, {
-          gatewayAgentToken: agent?.accessToken ?? undefined,
+    let sandbox: SandboxInfo;
+    try {
+      sandbox = await withAudit(
+        () =>
+          provider.createSandbox(name, {
+            gatewayAgentToken: agent?.accessToken ?? undefined,
+            allocationOperationId: operationId,
+            allocationIdempotencyKey: idempotencyKey,
+          }),
+        (result) => ({
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          userEmail: auth.userEmail,
+          action: AUDIT_ACTIONS.CREATE,
+          service: AUDIT_SERVICES.SANDBOX,
+          source: AUDIT_SOURCE.API,
+          metadata: {
+            sandboxId: result.id,
+            name,
+            allocationOperationId: operationId,
+          },
         }),
-      (result) => ({
-        organizationId: auth.organizationId,
-        userId: auth.userId,
-        userEmail: auth.userEmail,
-        action: AUDIT_ACTIONS.CREATE,
-        service: AUDIT_SERVICES.SANDBOX,
-        source: AUDIT_SOURCE.API,
-        metadata: { sandboxId: result.id, name },
-      }),
-    );
+      );
+    } catch (error) {
+      await db.sandboxAllocationOperation
+        .update({
+          where: { id: operationId },
+          data: { status: "unknown", errorCode: "ALLOCATION_OUTCOME_UNKNOWN" },
+        })
+        .catch(() => undefined);
+      throw error;
+    }
     // Persist the ownership record. `id` is the provider sandbox id used in
     // all subsequent /v1/sandboxes/:id calls; providerSandboxId mirrors it
-    // (the provider's own identifier for the container/instance).
-    await db.sandbox.upsert({
-      where: { id: sandbox.id },
-      create: {
-        id: sandbox.id,
-        organizationId: auth.organizationId,
-        ownerId: auth.userId,
-        provider: sandbox.provider,
-        providerSandboxId: sandbox.id,
-        name,
-        status: sandbox.state,
-      },
-      update: {
-        organizationId: auth.organizationId,
-        ownerId: auth.userId,
-        provider: sandbox.provider,
-        providerSandboxId: sandbox.id,
-        name,
-        status: sandbox.state,
-      },
-    });
+    // (the provider's own identifier for the container/instance). If this
+    // persistence step fails after provider success, retain an `unknown`
+    // receipt rather than claiming the allocation completed.
+    try {
+      await db.sandbox.upsert({
+        where: { id: sandbox.id },
+        create: {
+          id: sandbox.id,
+          organizationId: auth.organizationId,
+          ownerId: auth.userId,
+          provider: sandbox.provider,
+          providerSandboxId: sandbox.id,
+          name,
+          status: sandbox.state,
+          allocationOperationId: operationId,
+          allocationIdempotencyKey: idempotencyKey,
+        },
+        update: {
+          organizationId: auth.organizationId,
+          ownerId: auth.userId,
+          provider: sandbox.provider,
+          providerSandboxId: sandbox.id,
+          name,
+          status: sandbox.state,
+          allocationOperationId: operationId,
+          allocationIdempotencyKey: idempotencyKey,
+        },
+      });
+      await db.sandboxAllocationOperation.update({
+        where: { id: operationId },
+        data: {
+          status: "completed",
+          sandboxId: sandbox.id,
+          provider: sandbox.provider,
+        },
+      });
+    } catch (error) {
+      await db.sandboxAllocationOperation
+        .update({
+          where: { id: operationId },
+          data: {
+            status: "unknown",
+            sandboxId: sandbox.id,
+            provider: sandbox.provider,
+            errorCode: "PERSISTENCE_OUTCOME_UNKNOWN",
+          },
+        })
+        .catch(() => undefined);
+      throw error;
+    }
     if (provider.bootstrapSandbox) {
       void withAudit(
         () =>
@@ -200,7 +373,14 @@ export const sandboxRoutes = () => {
             .catch(() => undefined);
         });
     }
-    return c.json(sandbox, 201);
+    return c.json(
+      {
+        ...sandbox,
+        allocationOperationId: operationId,
+        allocationIdempotencyKey: idempotencyKey,
+      },
+      201,
+    );
   });
 
   // GET /sandboxes/:id/desktop — fetch desktop/noVNC health and URL.
@@ -263,7 +443,18 @@ export const sandboxRoutes = () => {
     const ownerId = await assertSandboxOwner(auth, id);
     requireAbility(ability, "read", subject("Sandbox", { id, ownerId }));
     const sandbox = await getSandboxProvider().getSandbox(id);
-    return c.json(sandbox);
+    const row = await db.sandbox.findFirst({
+      where: { id, organizationId: auth.organizationId },
+      select: {
+        allocationOperationId: true,
+        allocationIdempotencyKey: true,
+      },
+    });
+    return c.json({
+      ...sandbox,
+      allocationOperationId: row?.allocationOperationId ?? undefined,
+      allocationIdempotencyKey: row?.allocationIdempotencyKey ?? undefined,
+    });
   });
 
   // POST /sandboxes/:id/exec — run a command in the sandbox via the toolbox

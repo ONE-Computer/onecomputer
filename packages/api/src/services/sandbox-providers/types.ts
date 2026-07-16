@@ -16,6 +16,8 @@ export interface SandboxInfo {
   desktopHealth?: DesktopHealth;
   bootLogTail?: string;
   createdAt?: string;
+  allocationOperationId?: string;
+  allocationIdempotencyKey?: string;
 }
 
 export interface ExecResult {
@@ -26,6 +28,9 @@ export interface ExecResult {
 export interface SandboxRuntimeOptions {
   /** Agent proxy credential held by the gateway; never expose in the UI. */
   gatewayAgentToken?: string;
+  /** Stable caller-owned identity for safe provider retries/reconciliation. */
+  allocationOperationId?: string;
+  allocationIdempotencyKey?: string;
 }
 
 export type SandboxDesktopInfo = DesktopStatus & {

@@ -45,6 +45,12 @@ const mocks = vi.hoisted(() => {
       findFirst: vi.fn(),
       delete: vi.fn(),
     },
+    sandboxAllocationOperation: {
+      findUnique: vi.fn(async () => undefined),
+      findFirst: vi.fn(async () => undefined),
+      create: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+    },
   };
   return { auditOrder, provider, db };
 });
@@ -146,5 +152,78 @@ describe("sandbox provisioning lifecycle", () => {
         data: { status: "failed" },
       }),
     );
+  });
+
+  it("persists allocation identity and replays a completed idempotent request", async () => {
+    const { sandboxRoutes } = await import("./sandboxes");
+    const app = new Hono();
+    app.route("/v1/sandboxes", sandboxRoutes());
+    const headers = {
+      "content-type": "application/json",
+      "Idempotency-Key": "conversation-1-generation-1",
+      "X-Allocation-Operation-Id": "allocate-1",
+    };
+
+    const first = await app.request("/v1/sandboxes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Replay proof" }),
+    });
+    expect(first.status).toBe(201);
+    expect(mocks.provider.createSandbox).toHaveBeenCalledWith(
+      "Replay proof",
+      expect.objectContaining({
+        allocationOperationId: "allocate-1",
+        allocationIdempotencyKey: "conversation-1-generation-1",
+      }),
+    );
+    const operationData = (
+      mocks.db.sandboxAllocationOperation.create as unknown as {
+        mock: { calls: Array<Array<{ data: Record<string, unknown> }>> };
+      }
+    ).mock.calls[0]?.[0]?.data;
+    expect(operationData).toMatchObject({
+      id: "allocate-1",
+      idempotencyKey: "conversation-1-generation-1",
+      status: "pending",
+    });
+
+    (
+      mocks.db.sandboxAllocationOperation.findUnique as unknown as {
+        mockResolvedValueOnce(value: unknown): void;
+      }
+    ).mockResolvedValueOnce({
+      ...operationData,
+      status: "completed",
+      sandboxId: "sandbox-provisioning",
+      provider: "kasm-local",
+    });
+    mocks.db.sandbox.findFirst.mockResolvedValueOnce({
+      id: "sandbox-provisioning",
+      organizationId: "org-1",
+      ownerId: "user-1",
+      provider: "kasm-local",
+      providerSandboxId: "sandbox-provisioning",
+      name: "Replay proof",
+      status: "provisioning",
+      allocationOperationId: "allocate-1",
+      allocationIdempotencyKey: "conversation-1-generation-1",
+    });
+    mocks.provider.getSandbox.mockRejectedValueOnce(
+      new Error("provider lookup unavailable"),
+    );
+
+    const replay = await app.request("/v1/sandboxes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Replay proof" }),
+    });
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      id: "sandbox-provisioning",
+      allocationOperationId: "allocate-1",
+      allocationIdempotencyKey: "conversation-1-generation-1",
+    });
+    expect(mocks.provider.createSandbox).toHaveBeenCalledOnce();
   });
 });

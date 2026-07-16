@@ -92,9 +92,14 @@ vi.mock("../services/governed-action-service", () => ({
   triggerGovernedAction: vi.fn(),
 }));
 
-afterEach(() => {
+afterEach(async () => {
   mocks.auditOrder.splice(0);
   vi.clearAllMocks();
+  delete process.env.ONECOMPUTER_TEST_MODE;
+  delete process.env.ONECOMPUTER_TEST_INJECT_ALLOCATION_RESPONSE_FAILURE_ONCE;
+  const { resetAllocationResponseFailureForTests } =
+    await import("../services/allocation-failure-injection");
+  resetAllocationResponseFailureForTests();
 });
 
 describe("sandbox provisioning lifecycle", () => {
@@ -225,5 +230,42 @@ describe("sandbox provisioning lifecycle", () => {
       allocationIdempotencyKey: "conversation-1-generation-1",
     });
     expect(mocks.provider.createSandbox).toHaveBeenCalledOnce();
+  });
+
+  it("can inject one post-persistence response failure only in explicit test mode", async () => {
+    process.env.ONECOMPUTER_TEST_MODE = "1";
+    process.env.ONECOMPUTER_TEST_INJECT_ALLOCATION_RESPONSE_FAILURE_ONCE = "1";
+    const { sandboxRoutes } = await import("./sandboxes");
+    const app = new Hono();
+
+    app.route("/v1/sandboxes", sandboxRoutes());
+    const headers = {
+      "content-type": "application/json",
+      "Idempotency-Key": "failure-injection-1",
+      "X-Allocation-Operation-Id": "allocate-failure-1",
+    };
+    const response = await app.request("/v1/sandboxes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Failure injection proof" }),
+    });
+
+    expect(response.status).toBe(504);
+    await expect(response.json()).resolves.toEqual({
+      error: "sandbox allocation response unavailable",
+    });
+    expect(mocks.db.sandbox.upsert).toHaveBeenCalledOnce();
+    expect(mocks.db.sandboxAllocationOperation.update).toHaveBeenCalled();
+
+    const second = await app.request("/v1/sandboxes", {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Idempotency-Key": "failure-injection-2",
+        "X-Allocation-Operation-Id": "allocate-failure-2",
+      },
+      body: JSON.stringify({ name: "Failure injection second request" }),
+    });
+    expect(second.status).toBe(201);
   });
 });

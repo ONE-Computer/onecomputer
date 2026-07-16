@@ -17,6 +17,7 @@ import {
 } from "../services/audit-service";
 import { ServiceError } from "../services/errors";
 import { triggerGovernedAction } from "../services/governed-action-service";
+import { consumeAllocationResponseFailure } from "../services/allocation-failure-injection";
 import type { SandboxInfo } from "../services/sandbox-providers";
 import type { AuthContext } from "../providers";
 
@@ -372,6 +373,13 @@ export const sandboxRoutes = () => {
             .update({ where: { id: sandbox.id }, data: { status: "failed" } })
             .catch(() => undefined);
         });
+    }
+    // Test-only chaos hook: the provider resource and durable allocation
+    // receipt already exist, but the caller receives a generic transient
+    // failure. This exercises the caller's unknown-outcome reconciliation
+    // path without exposing provider diagnostics or enabling it in prod.
+    if (consumeAllocationResponseFailure()) {
+      return c.json({ error: "sandbox allocation response unavailable" }, 504);
     }
     return c.json(
       {

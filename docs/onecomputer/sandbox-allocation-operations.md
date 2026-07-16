@@ -37,6 +37,30 @@ metadata (`pending`, `completed`, or `unknown`) and never provider diagnostics,
 credentials, or raw upstream bodies. It is scoped to the organization/project
 and requester role.
 
+## Controlled failure-injection proof
+
+The development provider has an explicit, non-production-only chaos hook for
+testing the ambiguous response boundary. With both
+`ONECOMPUTER_TEST_MODE=1` and
+`ONECOMPUTER_TEST_INJECT_ALLOCATION_RESPONSE_FAILURE_ONCE=1`, the first
+allocation persists its sandbox and completed receipt, starts asynchronous
+bootstrap, then returns a generic HTTP 504 once. The hook is inert in
+`NODE_ENV=production`, exposes no provider error body, and is not an
+availability or authorization mechanism.
+
+Against that explicitly configured development provider, run the ONEVibe
+recovery harness:
+
+```sh
+npm run e2e:onecomputer-recovery
+```
+
+The expected proof is: first turn fails with a durable `unknown` lease, the
+follow-up adopts the exact operation/key-labelled sandbox without a second
+create, the same conversation completes, and explicit release leaves no
+provider row. This test hook must be disabled and removed from deployment
+environment before any production rollout.
+
 ## Security and recovery boundary
 
 An `unknown` receipt is not treated as success or deletion. ONEVibe may recover

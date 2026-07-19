@@ -1,0 +1,266 @@
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  OneComputerError,
+  canonicalJson,
+  governedOperationDigest,
+  type GovernedOperationEnvelope,
+  type IdentityContext,
+  type OperationView,
+  type OwnedJson,
+} from "@onecomputer/contracts";
+import type { GovernedToolExecutor } from "@onecomputer/litellm-adapter";
+import type { GovernanceStore, GovernedOperationRecord, WorkspaceStore } from "@onecomputer/workspace-store";
+
+export type FixtureApprovalEnvelope = {
+  version: "1";
+  issuer: "onecomputer-local-fixture";
+  keyId: "fixture-hmac-v1";
+  tenantId: string;
+  subjectId: string;
+  audience: "onecomputer-control";
+  operationId: string;
+  operationDigest: string;
+  nonce: string;
+  decision: "approve" | "deny";
+  issuedAt: string;
+  expiresAt: string;
+};
+
+export class FixtureApprovalAuthority {
+  constructor(private readonly secret: string) {
+    if (secret.length < 32) throw new Error("Fixture approval secret must be at least 32 characters");
+  }
+
+  sign(envelope: FixtureApprovalEnvelope) {
+    return createHmac("sha256", this.secret).update(canonicalJson(envelope), "utf8").digest("base64url");
+  }
+
+  verify(envelope: FixtureApprovalEnvelope, signature: string) {
+    const expected = Buffer.from(this.sign(envelope));
+    const received = Buffer.from(signature);
+    return expected.length === received.length && timingSafeEqual(expected, received);
+  }
+}
+
+const toView = (record: GovernedOperationRecord): OperationView => ({
+  id: record.id,
+  workspaceId: record.workspaceId,
+  state: record.state,
+  action: "Delete file",
+  resourceName: record.resourceName,
+  resourceLocation: record.resourceLocation,
+  safeSummary: record.safeSummary,
+  operationDigest: record.operationDigest,
+  requestedAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString(),
+  expiresAt: record.expiresAt.toISOString(),
+  approval: record.approval ? {
+    decision: record.approval.decision,
+    channel: record.approval.channel,
+    decidedAt: record.approval.decidedAt.toISOString(),
+  } : null,
+  receipt: record.receipt ? {
+    status: "succeeded",
+    resultSummary: record.receipt.resultSummary,
+    executedAt: record.receipt.executedAt.toISOString(),
+  } : null,
+  failureCode: record.failureCode,
+});
+
+export class GovernedOperationService {
+  constructor(
+    private readonly store: WorkspaceStore & GovernanceStore,
+    private readonly executor: GovernedToolExecutor,
+    private readonly approvals: FixtureApprovalAuthority,
+    private readonly operationTtlMs = 10 * 60 * 1000,
+  ) {}
+
+  async createDeleteFile(identity: IdentityContext, workspaceId: string, rawPath: string, idempotencyKey: string, correlationId: string) {
+    const workspace = await this.store.getOwned(identity, workspaceId);
+    if (!workspace) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
+    if (!["ready", "open"].includes(workspace.state)) throw new OneComputerError("WORKSPACE_NOT_READY", "The workspace is not ready for governed actions", 409, true);
+
+    const segments = rawPath.replaceAll("\\", "/").split("/").filter(Boolean);
+    if (!segments.length || segments.some((segment) => segment === "." || segment === "..")) {
+      throw new OneComputerError("INVALID_RESOURCE_PATH", "The file path is invalid", 400);
+    }
+    const path = `/${segments.join("/")}`;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.operationTtlMs);
+    const operationId = randomUUID();
+    const nonce = randomUUID();
+    const operationEnvelope: GovernedOperationEnvelope = {
+      version: "1",
+      tenantId: identity.tenantId,
+      subjectId: identity.subjectId,
+      workspaceId,
+      audience: identity.audience,
+      capabilityId: "files.delete",
+      serverName: "onecomputer_fixture",
+      toolName: "delete_file",
+      schemaId: "onecomputer.fixture.delete_file.v1",
+      arguments: { path },
+      nonce,
+      expiresAt: expiresAt.toISOString(),
+    };
+    const operationDigest = governedOperationDigest(operationEnvelope);
+    const resourceName = segments.at(-1)!;
+    const resourceLocation = segments.length > 1 ? `OneDrive / ${segments.slice(0, -1).join(" / ")}` : "OneDrive";
+    const record = await this.store.createGovernedOperation({
+      id: operationId,
+      identity,
+      workspaceId,
+      capabilityId: operationEnvelope.capabilityId,
+      serverName: operationEnvelope.serverName,
+      toolName: operationEnvelope.toolName,
+      schemaId: operationEnvelope.schemaId,
+      arguments: operationEnvelope.arguments,
+      operationDigest,
+      nonce,
+      safeSummary: `Delete ${resourceName}`,
+      resourceName,
+      resourceLocation,
+      correlationId,
+      idempotencyKey,
+      createdAt: now,
+      expiresAt,
+    });
+    if (!record) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
+    if (record.operationDigest !== operationDigest) {
+      throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
+    }
+    return toView(record);
+  }
+
+  async get(identity: IdentityContext, operationId: string) {
+    const record = await this.store.recoverOperation(identity, operationId, new Date(), "operation-read");
+    if (!record) throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
+    return toView(record);
+  }
+
+  async recent(identity: IdentityContext) {
+    const record = await this.store.getRecentOperation(identity);
+    if (!record) return null;
+    return toView(await this.store.recoverOperation(identity, record.id, new Date(), "operation-recent") ?? record);
+  }
+
+  async decideWithFixture(identity: IdentityContext, operationId: string, decision: "approve" | "deny", correlationId: string) {
+    const operation = await this.requireOwned(identity, operationId);
+    const now = new Date();
+    const proofExpiresAt = new Date(Math.min(operation.expiresAt.getTime(), now.getTime() + 2 * 60 * 1000));
+    const envelope: FixtureApprovalEnvelope = {
+      version: "1",
+      issuer: "onecomputer-local-fixture",
+      keyId: "fixture-hmac-v1",
+      tenantId: identity.tenantId,
+      subjectId: identity.subjectId,
+      audience: "onecomputer-control",
+      operationId,
+      operationDigest: operation.operationDigest,
+      nonce: operation.nonce,
+      decision,
+      issuedAt: now.toISOString(),
+      expiresAt: proofExpiresAt.toISOString(),
+    };
+    return this.applyApproval(identity, envelope, this.approvals.sign(envelope), correlationId);
+  }
+
+  async applyApproval(identity: IdentityContext, envelope: FixtureApprovalEnvelope, signature: string, correlationId: string) {
+    const operation = await this.requireOwned(identity, envelope.operationId);
+    const now = new Date();
+    const issuedAt = new Date(envelope.issuedAt);
+    const proofExpiresAt = new Date(envelope.expiresAt);
+    const bindingMatches = envelope.version === "1"
+      && envelope.issuer === "onecomputer-local-fixture"
+      && envelope.keyId === "fixture-hmac-v1"
+      && envelope.tenantId === identity.tenantId
+      && envelope.subjectId === identity.subjectId
+      && envelope.audience === identity.audience
+      && envelope.operationId === operation.id
+      && envelope.operationDigest === operation.operationDigest
+      && envelope.nonce === operation.nonce;
+    if (!bindingMatches || !this.approvals.verify(envelope, signature)) {
+      throw new OneComputerError("APPROVAL_PROOF_INVALID", "The approval proof is invalid for this operation", 403);
+    }
+    if (!Number.isFinite(issuedAt.getTime()) || !Number.isFinite(proofExpiresAt.getTime()) || issuedAt.getTime() > now.getTime() + 5_000 || proofExpiresAt <= now || operation.expiresAt <= now) {
+      throw new OneComputerError("APPROVAL_EXPIRED", "The approval proof or operation has expired", 409);
+    }
+    if (operation.approval && operation.approval.decision !== envelope.decision) {
+      throw new OneComputerError("APPROVAL_CONFLICT", "This operation already has a different decision", 409);
+    }
+    if (["denied", "failed", "expired"].includes(operation.state)) return toView(operation);
+    if (operation.state === "succeeded") return toView(operation);
+
+    const decidedAt = now;
+    const recorded = operation.approval ? operation : await this.store.recordApproval({
+      identity,
+      operationId: operation.id,
+      approvalId: randomUUID(),
+      decision: envelope.decision,
+      channel: "local-fixture",
+      issuer: envelope.issuer,
+      keyId: envelope.keyId,
+      operationDigest: envelope.operationDigest,
+      nonce: envelope.nonce,
+      proofHash: createHash("sha256").update(signature).digest("hex"),
+      issuedAt,
+      expiresAt: proofExpiresAt,
+      decidedAt,
+      correlationId,
+    });
+    if (!recorded) throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
+    if (!recorded.approval || recorded.approval.decision !== envelope.decision) {
+      throw new OneComputerError("APPROVAL_STATE_INVALID", "A verified approval record is required before execution", 409);
+    }
+    if (envelope.decision === "deny") return toView(recorded);
+    return this.execute(identity, recorded.id, correlationId);
+  }
+
+  private async execute(identity: IdentityContext, operationId: string, correlationId: string) {
+    const leaseId = randomUUID();
+    const leaseExpiresAt = new Date(Date.now() + 30_000);
+    const claimed = await this.store.claimExecution(identity, operationId, leaseId, leaseExpiresAt, correlationId);
+    if (!claimed) throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
+    if (claimed.leaseId !== leaseId) return this.waitForConcurrentExecution(identity, operationId);
+    try {
+      const result = await this.executor.executeGovernedTool({
+        tenantId: identity.tenantId,
+        subjectId: identity.subjectId,
+        workspaceId: claimed.workspaceId,
+        operationId: claimed.id,
+        operationDigest: claimed.operationDigest,
+        leaseId,
+        serverName: claimed.serverName,
+        toolName: claimed.toolName,
+        arguments: claimed.arguments,
+      });
+      const completed = await this.store.completeExecution(identity, claimed.id, leaseId, {
+        id: randomUUID(),
+        upstreamReference: result.upstreamReference,
+        resultSummary: result.resultSummary,
+        resultHash: createHash("sha256").update(canonicalJson(result.result)).digest("hex"),
+        executedAt: new Date(),
+      }, correlationId);
+      if (!completed) throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
+      return toView(completed);
+    } catch (error) {
+      await this.store.failExecution(identity, claimed.id, leaseId, error instanceof OneComputerError ? error.code : "TOOL_EXECUTION_FAILED", correlationId);
+      throw error;
+    }
+  }
+
+  private async waitForConcurrentExecution(identity: IdentityContext, operationId: string) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const current = await this.requireOwned(identity, operationId);
+      if (current.state !== "executing") return toView(current);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new OneComputerError("OPERATION_IN_PROGRESS", "The governed operation is still executing", 409, true);
+  }
+
+  private async requireOwned(identity: IdentityContext, operationId: string) {
+    const operation = await this.store.recoverOperation(identity, operationId, new Date(), "operation-command");
+    if (!operation) throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
+    return operation;
+  }
+}

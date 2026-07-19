@@ -28,3 +28,10 @@ export const workspaceApi = {
   testGateway: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}/gateway/test`, mutation()),
   delete: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}`, mutation("DELETE")),
 };
+
+export const operationApi = {
+  recent: () => request("/api/v1/operations/recent"),
+  get: (id) => request(`/api/v1/operations/${encodeURIComponent(id)}`),
+  createDeleteFile: (workspaceId, path) => request("/api/v1/operations/delete-file", mutation("POST", { workspaceId, path })),
+  decideWithFixture: (id, decision) => request(`/api/v1/operations/${encodeURIComponent(id)}/fixture-decision`, mutation("POST", { decision })),
+};

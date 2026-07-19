@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const workspaceStates = [
@@ -92,6 +93,95 @@ export class OneComputerError extends Error {
     this.name = "OneComputerError";
   }
 }
+
+export type OwnedJson = null | boolean | number | string | OwnedJson[] | { [key: string]: OwnedJson };
+
+export type GovernedOperationEnvelope = {
+  version: "1";
+  tenantId: string;
+  subjectId: string;
+  workspaceId: string;
+  audience: string;
+  capabilityId: string;
+  serverName: string;
+  toolName: string;
+  schemaId: string;
+  arguments: OwnedJson;
+  nonce: string;
+  expiresAt: string;
+};
+
+const normalizeOwnedJson = (value: unknown): OwnedJson => {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new OneComputerError("INVALID_CANONICAL_JSON", "Canonical JSON numbers must be finite", 400);
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(normalizeOwnedJson);
+  if (typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new OneComputerError("INVALID_CANONICAL_JSON", "Canonical JSON accepts only plain JSON values", 400);
+  }
+  const normalized: Record<string, OwnedJson> = {};
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    const item = (value as Record<string, unknown>)[key];
+    if (item === undefined) throw new OneComputerError("INVALID_CANONICAL_JSON", "Canonical JSON does not accept undefined values", 400);
+    normalized[key] = normalizeOwnedJson(item);
+  }
+  return normalized;
+};
+
+export const canonicalJson = (value: unknown) => JSON.stringify(normalizeOwnedJson(value));
+
+export const governedOperationDigest = (envelope: GovernedOperationEnvelope) =>
+  createHash("sha256").update(canonicalJson(envelope), "utf8").digest("hex");
+
+export const governedOperationStates = [
+  "approval_required",
+  "approved",
+  "executing",
+  "succeeded",
+  "denied",
+  "failed",
+  "expired",
+] as const;
+export const governedOperationStateSchema = z.enum(governedOperationStates);
+export type GovernedOperationState = z.infer<typeof governedOperationStateSchema>;
+
+export const createDeleteFileOperationSchema = z.strictObject({
+  workspaceId: z.uuid(),
+  path: z.string().trim().min(1).max(512).refine((value) => !value.includes("\0"), "Path contains an invalid character"),
+});
+export type CreateDeleteFileOperation = z.infer<typeof createDeleteFileOperationSchema>;
+
+export const fixtureApprovalSchema = z.strictObject({
+  decision: z.enum(["approve", "deny"]),
+});
+
+export const operationViewSchema = z.object({
+  id: z.uuid(),
+  workspaceId: z.uuid(),
+  state: governedOperationStateSchema,
+  action: z.literal("Delete file"),
+  resourceName: z.string(),
+  resourceLocation: z.string(),
+  safeSummary: z.string(),
+  operationDigest: z.string().length(64),
+  requestedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+  approval: z.object({
+    decision: z.enum(["approve", "deny"]),
+    channel: z.literal("local-fixture"),
+    decidedAt: z.iso.datetime(),
+  }).nullable(),
+  receipt: z.object({
+    status: z.literal("succeeded"),
+    resultSummary: z.string(),
+    executedAt: z.iso.datetime(),
+  }).nullable(),
+  failureCode: z.string().nullable(),
+});
+export type OperationView = z.infer<typeof operationViewSchema>;
 
 export const readinessFor = (state: WorkspaceState, gateway?: { models: ReadinessState; tools: ReadinessState }) => ({
   identity: "ready" as const,

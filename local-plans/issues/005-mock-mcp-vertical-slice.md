@@ -1,6 +1,6 @@
 # 005: prove the governed mock MCP vertical slice
 
-Status: `blocked`
+Status: `verification`
 
 Gate: C
 Depends on: 004
@@ -60,4 +60,15 @@ results, and secret/log scan.
 
 ## Completion record
 
-Not complete.
+The mock destructive vertical slice is implemented and verified on 2026-07-19.
+Before approval the fixture upstream counter is zero; denial, malformed input,
+cross-tenant access, and direct database status mutation remain zero. A valid
+bound fixture approval creates a one-time exact-tool LiteLLM key, resolves the
+authorized MCP server ID, executes `delete_file` once, revokes the key, and
+persists a receipt. Concurrent approvals return the same successful operation
+and increment the upstream counter once. The real UI displays pending,
+completed, denied, failed, and receipt states from Control.
+
+This issue remains in verification until capability assignments are
+data-driven and the full callback outage/gateway restart/clean-volume matrix is
+captured in the Gate C evidence bundle.

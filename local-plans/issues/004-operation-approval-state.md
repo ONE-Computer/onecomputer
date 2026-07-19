@@ -1,6 +1,6 @@
 # 004: implement durable operations and fixture approval
 
-Status: `blocked`
+Status: `verification`
 
 Gate: C
 Depends on: 003
@@ -58,4 +58,13 @@ revision.
 
 ## Completion record
 
-Not complete.
+The product-visible fixture lifecycle is implemented on 2026-07-19. It binds a
+signed decision to issuer, key, tenant, subject, audience, operation digest,
+decision, nonce, and expiry; compare-and-swap lease issuance limits concurrent
+approval retries to one execution; receipts are unique; direct status mutation
+without a verified approval record cannot issue a lease; expiry and abandoned
+leases recover fail closed.
+
+This issue remains in verification pending the general cancellation model and
+durable outbox delivery/retry mechanism required beyond this synchronous local
+fixture.

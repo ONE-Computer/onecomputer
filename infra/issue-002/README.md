@@ -26,3 +26,15 @@ credentials.
 LiteLLM is pinned to `v1.93.0` and OCI index digest
 `sha256:a1745e629abfb17d434426ff48b115f54f4f4c4a0f5af241de569e93c63c411e`.
 Its database is deliberately disposable for this qualification slice.
+
+## Governed operation extension
+
+The same local stack now carries the Gate C fixture flow. `POST
+/v1/operations/delete-file` persists an approval-required operation in owned
+PostgreSQL before any MCP call. The temporary fixture decision endpoint signs
+and verifies a bound decision inside Control, issues one compare-and-swap lease,
+and uses a 60-second LiteLLM key limited to `delete_file`. The UI shows the
+pending request, local-fixture approve/deny controls, and the durable receipt.
+
+This fixture is not the production approval channel. It exists to prove the
+operation binding and exactly-once path before OpenVTC/VTA integration.

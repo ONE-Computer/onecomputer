@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { OneComputerError, type IdentityContext } from "@onecomputer/contracts";
+import { OneComputerError, type IdentityContext, type OwnedJson } from "@onecomputer/contracts";
 
 export type GatewayGrant = {
   baseUrl: string;
@@ -28,6 +28,28 @@ export interface GatewayClient {
   revoke(workspaceId: string): Promise<void>;
 }
 
+export type GovernedToolExecutionInput = {
+  tenantId: string;
+  subjectId: string;
+  workspaceId: string;
+  operationId: string;
+  operationDigest: string;
+  leaseId: string;
+  serverName: string;
+  toolName: string;
+  arguments: OwnedJson;
+};
+
+export type GovernedToolExecutionResult = {
+  upstreamReference: string;
+  resultSummary: string;
+  result: OwnedJson;
+};
+
+export interface GovernedToolExecutor {
+  executeGovernedTool(input: GovernedToolExecutionInput): Promise<GovernedToolExecutionResult>;
+}
+
 type LiteLLMConfig = {
   adminUrl: string;
   workspaceUrl: string;
@@ -43,7 +65,7 @@ type JsonObject = Record<string, unknown>;
 
 const asObject = (value: unknown): JsonObject => value && typeof value === "object" ? value as JsonObject : {};
 
-export class LiteLLMGatewayAdapter implements GatewayClient {
+export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecutor {
   private readonly adminUrl: string;
   private readonly workspaceUrl: string;
   private readonly modelAlias: string;
@@ -65,6 +87,13 @@ export class LiteLLMGatewayAdapter implements GatewayClient {
       .update(`onecomputer:litellm:workspace:${workspaceId}`)
       .digest("base64url");
     return `sk-ocw-${digest}`;
+  }
+
+  private executionCredential(operationId: string, leaseId: string) {
+    const digest = createHmac("sha256", this.config.credentialSecret)
+      .update(`onecomputer:litellm:execution:${operationId}:${leaseId}`)
+      .digest("base64url");
+    return `sk-oce-${digest}`;
   }
 
   async ensureGrant(input: { workspaceId: string; identity: IdentityContext; expiresAt: string }): Promise<GatewayGrant> {
@@ -148,6 +177,62 @@ export class LiteLLMGatewayAdapter implements GatewayClient {
       apiBaseUrl: `${this.workspaceUrl}/v1`,
       mcpUrl: `${this.workspaceUrl}/mcp`,
     };
+  }
+
+  async executeGovernedTool(input: GovernedToolExecutionInput): Promise<GovernedToolExecutionResult> {
+    const credential = this.executionCredential(input.operationId, input.leaseId);
+    const grant = await this.adminCall("/key/generate", {
+      method: "POST",
+      body: {
+        key: credential,
+        key_alias: `onecomputer-execution-${input.operationId}`,
+        key_type: "llm_api",
+        duration: "60s",
+        models: [],
+        max_budget: 0.01,
+        rpm_limit: 4,
+        metadata: {
+          onecomputer_tenant_id: input.tenantId,
+          onecomputer_subject_id: input.subjectId,
+          onecomputer_workspace_id: input.workspaceId,
+          onecomputer_operation_id: input.operationId,
+          onecomputer_operation_digest: input.operationDigest,
+          onecomputer_lease_id: input.leaseId,
+        },
+        object_permission: {
+          mcp_servers: [input.serverName],
+          mcp_tool_permissions: { [input.serverName]: [input.toolName] },
+        },
+      },
+    });
+    if (!grant.ok) throw this.upstreamError("GATEWAY_EXECUTION_GRANT_FAILED", grant.status, grant.payload);
+    try {
+      const availableTools = await this.dataCall("/mcp-rest/tools/list", credential);
+      if (!availableTools.ok) throw this.upstreamError("GATEWAY_EXECUTION_DISCOVERY_FAILED", availableTools.status, availableTools.payload);
+      const tools = Array.isArray(asObject(availableTools.payload).tools) ? asObject(availableTools.payload).tools as unknown[] : [];
+      const selectedTool = tools.map(asObject).find((tool) => tool.name === input.toolName);
+      const serverId = asObject(selectedTool?.mcp_info).server_id;
+      if (typeof serverId !== "string" || !serverId) {
+        throw new OneComputerError("GATEWAY_EXECUTION_TOOL_NOT_ASSIGNED", "The exact governed tool is not assigned to this execution", 403);
+      }
+      const called = await this.dataCall("/mcp-rest/tools/call", credential, {
+        method: "POST",
+        body: { server_id: serverId, name: input.toolName, arguments: input.arguments as JsonObject },
+      });
+      if (!called.ok) throw this.upstreamError("GATEWAY_TOOL_EXECUTION_FAILED", called.status, called.payload);
+      const payload = asObject(called.payload);
+      if (payload.isError === true) throw new OneComputerError("UPSTREAM_TOOL_FAILED", "The governed tool reported a failure", 502, true);
+      const content = Array.isArray(payload.content) ? payload.content : [];
+      const firstText = content.map(asObject).find((item) => item.type === "text" && typeof item.text === "string")?.text;
+      const resultSummary = typeof firstText === "string" ? firstText.slice(0, 240) : "The governed tool completed successfully.";
+      return {
+        upstreamReference: `mcp:${input.operationId}`,
+        resultSummary,
+        result: JSON.parse(JSON.stringify(called.payload)) as OwnedJson,
+      };
+    } finally {
+      await this.adminCall("/key/delete", { method: "POST", body: { keys: [credential] } }, true).catch(() => undefined);
+    }
   }
 
   async revoke(workspaceId: string) {

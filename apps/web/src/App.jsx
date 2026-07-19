@@ -17,7 +17,7 @@ import { Navigation24Regular } from "@fluentui/react-icons/svg/navigation";
 import { ShieldCheckmark24Regular } from "@fluentui/react-icons/svg/shield-checkmark";
 import { Info24Regular } from "@fluentui/react-icons/svg/info";
 import { Bot24Regular } from "@fluentui/react-icons/svg/bot";
-import { workspaceApi } from "./workspace-api.js";
+import { operationApi, workspaceApi } from "./workspace-api.js";
 
 const capabilities = [
   {
@@ -50,6 +50,17 @@ const readinessLabels = { identity: "Identity", network: "Network", models: "Mod
 const readinessStates = { ready: "Ready", checking: "Checking", unavailable: "Not configured", failed: "Failed" };
 const busyStates = new Set(["loading", "provisioning", "restarting", "stopping"]);
 const gatewayAdminUrl = import.meta.env.VITE_LITELLM_ADMIN_URL ?? "http://127.0.0.1:4000/ui";
+const operationStateLabels = {
+  approval_required: "waiting for approval",
+  approved: "approved",
+  executing: "executing",
+  succeeded: "completed",
+  denied: "denied",
+  failed: "failed",
+  expired: "expired",
+};
+
+const operationTime = (value) => new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 
 function NavButton({ active, icon: Icon, label, onClick }) {
   return (
@@ -112,7 +123,7 @@ function Drawer({ title, children, onClose }) {
   );
 }
 
-function HomeScreen({ workspace, workspaceState, apiError, onOpen, onRestart, onStop, onDelete, onCapabilities, onRequest, onTestGateway, testingGateway }) {
+function HomeScreen({ workspace, workspaceState, apiError, operation, operationBusy, onOpen, onRestart, onStop, onDelete, onCapabilities, onOpenOperation, onCreateOperation, onTestGateway, testingGateway }) {
   const isRestarting = workspaceState === "restarting";
   const isOpen = workspaceState === "open";
   const busy = busyStates.has(workspaceState);
@@ -225,25 +236,35 @@ function HomeScreen({ workspace, workspaceState, apiError, onOpen, onRestart, on
 
         <div className="operation-block">
           <h2>Recent governed operation</h2>
-          <button className="operation-row" type="button" onClick={onRequest}>
-            <span className="operation-icon">
-              <Clock24Regular aria-hidden="true" />
-            </span>
-            <span className="operation-copy">
-              <strong>Delete Q3-draft.docx — waiting for approval</strong>
-              <small>OneDrive <i /> Requested by you <i /> Today, 9:12 AM</small>
-            </span>
-            <span className="operation-link">
-              View details <ChevronRight16Regular aria-hidden="true" />
-            </span>
-          </button>
+          {operation ? (
+            <button className="operation-row" type="button" onClick={onOpenOperation}>
+              <span className={`operation-icon${operation.state === "succeeded" ? " complete" : ""}`}>
+                {operation.state === "succeeded" ? <CheckmarkCircle24Regular aria-hidden="true" /> : <Clock24Regular aria-hidden="true" />}
+              </span>
+              <span className="operation-copy">
+                <strong>{operation.safeSummary} — {operationStateLabels[operation.state]}</strong>
+                <small>{operation.resourceLocation} <i /> Requested by you <i /> Today, {operationTime(operation.requestedAt)}</small>
+              </span>
+              <span className="operation-link">
+                View details <ChevronRight16Regular aria-hidden="true" />
+              </span>
+            </button>
+          ) : (
+            <div className="operation-empty">
+              <p>Try the approval flow with the protected fixture file.</p>
+              <button className="secondary-button" type="button" onClick={onCreateOperation} disabled={operationBusy || !workspace || !["ready", "open"].includes(workspaceState)}>
+                <Delete24Regular aria-hidden="true" />
+                {operationBusy ? "Creating request" : "Request file deletion"}
+              </button>
+            </div>
+          )}
         </div>
       </section>
     </div>
   );
 }
 
-function ActivityScreen({ onRequest }) {
+function ActivityScreen({ operation, onOpenOperation }) {
   return (
     <div className="secondary-screen">
       <header className="page-heading compact">
@@ -252,11 +273,15 @@ function ActivityScreen({ onRequest }) {
         <span>Recent workspace and governed-operation events, shown without sensitive content.</span>
       </header>
       <div className="timeline">
-        <button type="button" onClick={onRequest}>
-          <span className="timeline-icon pending"><Clock24Regular aria-hidden="true" /></span>
-          <span><strong>Delete Q3-draft.docx</strong><small>Waiting for approval · Today, 9:12 AM</small></span>
-          <ChevronRight16Regular aria-hidden="true" />
-        </button>
+        {operation && (
+          <button type="button" onClick={onOpenOperation}>
+            <span className={`timeline-icon${operation.state === "succeeded" ? "" : " pending"}`}>
+              {operation.state === "succeeded" ? <CheckmarkCircle24Regular aria-hidden="true" /> : <Clock24Regular aria-hidden="true" />}
+            </span>
+            <span><strong>{operation.safeSummary}</strong><small>{operationStateLabels[operation.state]} · Today, {operationTime(operation.requestedAt)}</small></span>
+            <ChevronRight16Regular aria-hidden="true" />
+          </button>
+        )}
         <div>
           <span className="timeline-icon"><Laptop24Regular aria-hidden="true" /></span>
           <span><strong>Acme Workspace became ready</strong><small>All assigned services connected · Today, 8:58 AM</small></span>
@@ -307,6 +332,8 @@ export function App() {
   const [toast, setToast] = useState("");
   const [testingGateway, setTestingGateway] = useState(false);
   const [gatewayResult, setGatewayResult] = useState(null);
+  const [operation, setOperation] = useState(null);
+  const [operationBusy, setOperationBusy] = useState(false);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -330,6 +357,7 @@ export function App() {
       if (error.code === "WORKSPACE_NOT_FOUND") applyWorkspace(null);
       else { setWorkspaceState("failed"); showApiError(error); }
     });
+    operationApi.recent().then(setOperation).catch(showApiError);
   }, []);
 
   useEffect(() => {
@@ -342,6 +370,12 @@ export function App() {
     const interval = window.setInterval(() => workspaceApi.current().then(applyWorkspace).catch(showApiError), delay);
     return () => window.clearInterval(interval);
   }, [workspaceState]);
+
+  useEffect(() => {
+    if (!operation || !["approved", "executing"].includes(operation.state)) return undefined;
+    const interval = window.setInterval(() => operationApi.get(operation.id).then(setOperation).catch(showApiError), 1500);
+    return () => window.clearInterval(interval);
+  }, [operation?.id, operation?.state]);
 
   const createWorkspace = async () => {
     setWorkspaceState("provisioning");
@@ -397,6 +431,38 @@ export function App() {
       showApiError(error);
     } finally {
       setTestingGateway(false);
+    }
+  };
+
+  const createGovernedOperation = async () => {
+    if (!workspace) return;
+    setOperationBusy(true);
+    setApiError("");
+    try {
+      const created = await operationApi.createDeleteFile(workspace.id, "/Finance/2026/Q3-draft.docx");
+      setOperation(created);
+      setDrawer("request");
+      setToast("Protected deletion request created. No tool has run yet.");
+    } catch (error) {
+      showApiError(error);
+    } finally {
+      setOperationBusy(false);
+    }
+  };
+
+  const decideGovernedOperation = async (decision) => {
+    if (!operation) return;
+    setOperationBusy(true);
+    setApiError("");
+    try {
+      const decided = await operationApi.decideWithFixture(operation.id, decision);
+      setOperation(decided);
+      setToast(decision === "approve" ? "Approved operation executed once through the governed gateway." : "The protected operation was denied.");
+    } catch (error) {
+      showApiError(error);
+      operationApi.get(operation.id).then(setOperation).catch(() => undefined);
+    } finally {
+      setOperationBusy(false);
     }
   };
 
@@ -456,12 +522,15 @@ export function App() {
             onStop={stopWorkspace}
             onDelete={deleteWorkspace}
             onCapabilities={() => setDrawer("capabilities")}
-            onRequest={() => setDrawer("request")}
+            operation={operation}
+            operationBusy={operationBusy}
+            onOpenOperation={() => setDrawer("request")}
+            onCreateOperation={createGovernedOperation}
             onTestGateway={testGateway}
             testingGateway={testingGateway}
           />
         )}
-        {activeNav === "Activity" && <ActivityScreen onRequest={() => setDrawer("request")} />}
+        {activeNav === "Activity" && <ActivityScreen operation={operation} onOpenOperation={() => setDrawer("request")} />}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 
@@ -483,17 +552,44 @@ export function App() {
         </Drawer>
       )}
 
-      {drawer === "request" && (
+      {drawer === "request" && operation && (
         <Drawer title="Governed operation" onClose={() => setDrawer(null)}>
-          <div className="request-status"><Clock24Regular aria-hidden="true" /><span><strong>Waiting for approval</strong><small>Requested today at 9:12 AM</small></span></div>
+          <div className={`request-status${operation.state === "succeeded" ? " complete" : ""}`}>
+            {operation.state === "succeeded" ? <CheckmarkCircle24Regular aria-hidden="true" /> : <Clock24Regular aria-hidden="true" />}
+            <span><strong>{operationStateLabels[operation.state]}</strong><small>Requested today at {operationTime(operation.requestedAt)}</small></span>
+          </div>
           <dl className="request-details">
-            <div><dt>Action</dt><dd>Delete file</dd></div>
-            <div><dt>File</dt><dd>Q3-draft.docx</dd></div>
-            <div><dt>Location</dt><dd>OneDrive / Finance / 2026</dd></div>
+            <div><dt>Action</dt><dd>{operation.action}</dd></div>
+            <div><dt>File</dt><dd>{operation.resourceName}</dd></div>
+            <div><dt>Location</dt><dd>{operation.resourceLocation}</dd></div>
             <div><dt>Requested by</dt><dd>Alex Morgan</dd></div>
+            <div><dt>Operation binding</dt><dd><code>{operation.operationDigest.slice(0, 12)}…</code></dd></div>
           </dl>
-          <div className="drawer-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>This request must be approved through your organization’s trusted approval channel. You can safely close this panel.</p></div>
-          <button className="secondary-button full-width" type="button" onClick={() => setDrawer(null)}>Close</button>
+          {operation.receipt && (
+            <div className="gateway-response">
+              <strong>Execution receipt</strong>
+              <p>{operation.receipt.resultSummary}</p>
+            </div>
+          )}
+          <div className="drawer-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>{
+            operation.state === "approval_required"
+              ? "The exact action is stored and bound to this request. The tool has not run. Use the temporary local fixture below to test approval or denial."
+              : operation.state === "succeeded"
+                ? "The bound operation was approved, executed once, and recorded with a receipt."
+                : operation.state === "denied"
+                  ? "The request was denied and the tool was not called."
+                  : "ONEComputer is preserving the authoritative operation state."
+          }</p></div>
+          {operation.state === "approval_required" ? (
+            <div className="approval-actions">
+              <button className="primary-button" type="button" onClick={() => decideGovernedOperation("approve")} disabled={operationBusy}>
+                <ShieldCheckmark24Regular aria-hidden="true" />{operationBusy ? "Applying decision" : "Approve with local fixture"}
+              </button>
+              <button className="secondary-button danger-button" type="button" onClick={() => decideGovernedOperation("deny")} disabled={operationBusy}>Deny</button>
+            </div>
+          ) : (
+            <button className="secondary-button full-width" type="button" onClick={() => setDrawer(null)}>Close</button>
+          )}
         </Drawer>
       )}
 

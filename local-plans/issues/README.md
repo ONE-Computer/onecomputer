@@ -15,8 +15,9 @@ and the minimum proof required before proceeding.
 
 Issue 000 is the accepted architecture baseline. Issue 001 completed the first
 product slice. Issue 002 and its partial LiteLLM decision were accepted on
-2026-07-19. Issue 003 is ready. Completing an issue may make only its immediate
-successor ready.
+2026-07-19. The user-visible governed-operation implementation spans Issues
+003–005 and is in verification; Issue 006 remains blocked. Completing an issue
+may make only its immediate successor ready.
 Gate-closing issues require explicit human review.
 
 ## Execution rules
@@ -44,6 +45,15 @@ Gate-closing issues require explicit human review.
     new issue, not opportunistic implementation.
 13. Never import or copy code from the legacy OneCLI branch. Reimplement only
     independently justified contracts and behavior.
+
+## Accepted vertical-delivery amendment
+
+On 2026-07-19 the user authorized Issues 003–005 to be delivered as one
+product-visible governed-operation feature rather than as three disconnected
+backend tasks. Their individual acceptance criteria and dependency order still
+apply: governance storage is proven before approval state, and approval state
+is proven before the gateway execution slice is closed. Issue 006 remains
+blocked until all three completion records are satisfied.
 
 ## Common evidence protocol
 

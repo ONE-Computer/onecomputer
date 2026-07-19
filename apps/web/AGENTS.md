@@ -10,3 +10,4 @@ When implementing from a selected generated mock, treat that image as the source
 
 - The user selected the light Calm Launchpad direction because its layout feels familiar to Windows users.
 - Preserve the calm, practical, employee-first experience and visible readiness without exposing infrastructure or turning the home screen into an admin dashboard.
+- During the prototype, ONEComputer Web also serves as the local administrator/control surface. The user accepted a temporary loopback-only Gateway link while the owned workspace journey remains the primary screen.

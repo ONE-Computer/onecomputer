@@ -1,6 +1,6 @@
 # 003: build governance contracts and owned PostgreSQL
 
-Status: `ready`
+Status: `verification`
 
 Gate: C
 Depends on: 002
@@ -57,4 +57,12 @@ dependency graph, clean-start logs, and data classification.
 
 ## Completion record
 
-Not complete.
+The governed-operation foundation is implemented and machine-verified on
+2026-07-19: versioned canonical JSON and SHA-256 binding, mutation tests,
+tenant-scoped PostgreSQL repositories, operations, approvals, leases, receipts,
+safe events, two-pass clean migration, and package-boundary tests.
+
+This issue remains in verification because the broader authoritative schema for
+general capability assignments, reusable policy records, cancellation, and
+outbox delivery has not been implemented. The delivered fixture path does not
+pretend those product-wide concerns are complete.

@@ -614,6 +614,34 @@ summary:focus-visible {
   color: #28250e;
 }
 
+.operation-icon.complete {
+  background: #e7f5ea;
+  color: var(--green);
+}
+
+.operation-empty {
+  display: grid;
+  justify-items: start;
+  gap: 18px;
+  padding: 8px 0 24px;
+  border-bottom: 1px solid #deddd9;
+}
+
+.operation-empty p {
+  max-width: 410px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.operation-empty .secondary-button {
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 16px;
+  font-size: 14px;
+}
+
 .operation-copy {
   display: grid;
   min-width: 0;
@@ -834,6 +862,15 @@ summary:focus-visible {
   color: #57420c;
 }
 
+.request-status.complete {
+  background: #edf7ef;
+  color: #175c22;
+}
+
+.request-status.complete small {
+  color: #4e6e54;
+}
+
 .gateway-result-status {
   display: flex;
   align-items: center;
@@ -924,6 +961,17 @@ summary:focus-visible {
 .full-width {
   width: 100%;
   margin-top: 25px;
+}
+
+.approval-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  margin-top: 25px;
+}
+
+.approval-actions .primary-button {
+  min-width: 0;
 }
 
 .toast {
@@ -1178,6 +1226,10 @@ summary:focus-visible {
   .ready-label,
   .approval-label {
     grid-column: 2;
+  }
+
+  .approval-actions {
+    grid-template-columns: 1fr;
   }
 
   .toast {

@@ -1,9 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
-import { OneComputerError, createWorkspaceSchema, identityContextSchema } from "@onecomputer/contracts";
-import { LiteLLMGatewayAdapter, type GatewayClient } from "@onecomputer/litellm-adapter";
-import { PostgresWorkspaceStore, type WorkspaceStore } from "@onecomputer/workspace-store";
+import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema } from "@onecomputer/contracts";
+import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor } from "@onecomputer/litellm-adapter";
+import { PostgresWorkspaceStore, type GovernanceStore, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
+import { FixtureApprovalAuthority, GovernedOperationService } from "./operations.js";
 import { HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
 
 const envSchema = z.object({
@@ -17,6 +18,7 @@ const envSchema = z.object({
   LITELLM_WORKSPACE_URL: z.string().url().optional(),
   LITELLM_MASTER_KEY: z.string().min(24).optional(),
   LITELLM_CREDENTIAL_SECRET: z.string().min(32).optional(),
+  FIXTURE_APPROVAL_SECRET: z.string().min(32).default("local-disabled-fixture-approval-secret-32-chars"),
 });
 
 const sameSecret = (received: string | undefined, expected: string) => {
@@ -26,9 +28,19 @@ const sameSecret = (received: string | undefined, expected: string) => {
   return left.length === right.length && timingSafeEqual(left, right);
 };
 
-export function createControlServer(store: WorkspaceStore, controller: ControllerClient, proxyToken: string, gateway?: GatewayClient) {
-  const app = Fastify({ logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.authorization", "*.launchUrl"] }, bodyLimit: 32 * 1024 });
+export function createControlServer(
+  store: WorkspaceStore & GovernanceStore,
+  controller: ControllerClient,
+  proxyToken: string,
+  gateway?: GatewayClient & Partial<GovernedToolExecutor>,
+  fixtureApprovalSecret = "local-test-fixture-approval-secret-32-characters",
+) {
+  const app = Fastify({ logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] }, bodyLimit: 32 * 1024 });
   const service = new WorkspaceService(store, controller, gateway);
+  const executor: GovernedToolExecutor = gateway?.executeGovernedTool
+    ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
+    : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
+  const operations = new GovernedOperationService(store, executor, new FixtureApprovalAuthority(fixtureApprovalSecret));
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/healthz") return;
@@ -66,6 +78,21 @@ export function createControlServer(store: WorkspaceStore, controller: Controlle
     await service.delete(identity(request.headers), request.params.workspaceId);
     return reply.code(204).send();
   });
+  app.get("/v1/operations/recent", async (request, reply) => {
+    const operation = await operations.recent(identity(request.headers));
+    return operation ? reply.send(operation) : reply.code(204).send();
+  });
+  app.post("/v1/operations/delete-file", async (request, reply) => {
+    const input = createDeleteFileOperationSchema.parse(request.body ?? {});
+    const operation = await operations.createDeleteFile(identity(request.headers), input.workspaceId, input.path, idempotency(request.headers), request.id);
+    return reply.code(201).send(operation);
+  });
+  app.get<{ Params: { operationId: string } }>("/v1/operations/:operationId", async (request) => operations.get(identity(request.headers), request.params.operationId));
+  app.post<{ Params: { operationId: string } }>("/v1/operations/:operationId/fixture-decision", async (request) => {
+    idempotency(request.headers);
+    const input = fixtureApprovalSchema.parse(request.body ?? {});
+    return operations.decideWithFixture(identity(request.headers), request.params.operationId, input.decision, request.id);
+  });
 
   app.setErrorHandler((error, request, reply) => {
     const errorName = error instanceof Error ? error.name : "UnknownError";
@@ -91,7 +118,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         credentialSecret: env.LITELLM_CREDENTIAL_SECRET,
       })
     : undefined;
-  const app = createControlServer(store, new HttpControllerClient(env.CONTROLLER_URL, env.CONTROLLER_INTERNAL_TOKEN), env.WEB_PROXY_TOKEN, gateway);
+  const app = createControlServer(store, new HttpControllerClient(env.CONTROLLER_URL, env.CONTROLLER_INTERNAL_TOKEN), env.WEB_PROXY_TOKEN, gateway, env.FIXTURE_APPROVAL_SECRET);
   app.addHook("onClose", async () => store.close());
   await app.listen({ host: env.CONTROL_HOST, port: env.CONTROL_PORT });
 }

@@ -71,24 +71,48 @@ silently using Softeria's shared application. If the Entra app is confidential,
 provide its secret through an approved runtime secret mechanism as
 `ONECOMPUTER_MS365_CLIENT_SECRET`; do not commit it.
 
-The service has no host port. Its internal MCP URL is:
+Its internal MCP URL is:
 
 ```text
 http://ms365-mcp:3000/mcp
 ```
 
-Only services on `gateway-private`, including LiteLLM, can reach it. It is not
-yet registered in LiteLLM: that registration is intentionally held until the
-dedicated Entra client and per-user authorization-code flow can be verified, so
-no temporary no-auth or shared-token mode becomes part of the product path.
+Only services on `gateway-private`, including LiteLLM, can reach that URL. The
+separate `ms365-egress` network gives only the trusted connector the outbound
+lane required for Microsoft login and Graph calls; workspaces do not join it.
+Production must constrain that lane to the approved Microsoft endpoints.
+
+For local browser consent only, the connector is also bound to
+`http://127.0.0.1:3001`; it is not reachable from the LAN or a sandbox. Its
+redirect allowlist contains only LiteLLM's local OAuth callback at
+`http://127.0.0.1:4000/callback`. Replace this development exception with an
+authenticated public authorization route before production.
+
+The Issue 008 LiteLLM overlay registers the server as `onecomputer_ms365` with
+an interactive per-user authorization-code flow. LiteLLM is configured to
+retain each user's OAuth tokens; the connector receives a bearer token only for
+that user's tool call. The server is not assigned to existing workspace keys,
+so registration does not grant a sandbox access.
+
+The gateway can discover the read-only tool catalog before Microsoft consent,
+but real tool execution requires the dedicated Entra client ID/tenant ID and a
+user-completed browser consent flow. No OAuth token or Microsoft password should
+be pasted into chat, committed, or passed to a workspace.
 
 ## Current deployed checks
 
 - container health endpoint returned 200;
 - OAuth protected-resource metadata advertised exactly the four scopes above;
 - unauthenticated MCP discovery returned exactly the 33 expected read tools;
+- LiteLLM loaded `onecomputer_ms365` and the same 33-tool allowlist while the
+  existing workspace grant remained unassigned;
+- the local OAuth bridge redirected LiteLLM -> loopback connector -> the
+  tenant-scoped Microsoft authorization endpoint with only the four allowed
+  Graph scopes plus `offline_access`;
+- the connector-only egress lane reached Microsoft login and Graph metadata;
 - an unauthenticated tool call returned 401 before Microsoft Graph execution;
-- no host port was published;
+- no non-loopback host port was published; local port 3001 exists only for the
+  browser leg of OAuth;
 - the process runs as UID 1000 with a read-only root filesystem, all Linux
   capabilities dropped, and `no-new-privileges` enabled;
 - the locked production dependency tree reported zero npm audit findings.

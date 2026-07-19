@@ -1,4 +1,10 @@
 services:
+  litellm:
+    volumes:
+      - ../issue-008/litellm-config.yaml:/app/config.yaml:ro
+    depends_on:
+      ms365-mcp: { condition: service_healthy }
+
   ms365-mcp:
     image: onecomputer/softeria-ms365-mcp:0.131.2
     build:
@@ -21,6 +27,8 @@ services:
       MS365_MCP_CLIENT_ID: ${ONECOMPUTER_MS365_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
       MS365_MCP_TENANT_ID: ${ONECOMPUTER_MS365_TENANT_ID:-organizations}
       MS365_MCP_CLIENT_SECRET: ${ONECOMPUTER_MS365_CLIENT_SECRET:-}
+      MS365_MCP_PUBLIC_URL: http://127.0.0.1:3001
+      MS365_MCP_ALLOWED_REDIRECT_URIS: http://127.0.0.1:4000/callback
       MS365_MCP_MAX_TOP: "25"
       MS365_MCP_MAX_PAGES: "4"
       MS365_MCP_MAX_ITEMS: "100"
@@ -28,7 +36,10 @@ services:
       MS365_MCP_REQUIRE_CONFIRM: "true"
       MS365_MCP_TRUST_PROXY_HOPS: "0"
       LOG_LEVEL: info
-    networks: [gateway-private]
+    networks: [gateway-private, ms365-egress]
+    # Local OAuth browser bridge only. Remove when an authenticated production
+    # reverse-proxy route supplies the public authorization endpoint.
+    ports: ["127.0.0.1:3001:3000"]
     read_only: true
     tmpfs:
       - /tmp
@@ -46,3 +57,6 @@ services:
       retries: 30
       start_period: 10s
     restart: unless-stopped
+
+networks:
+  ms365-egress: {}

@@ -5,6 +5,10 @@ services:
     depends_on:
       ms365-mcp: { condition: service_healthy }
 
+  web:
+    environment:
+      VITE_LITELLM_ADMIN_URL: http://localhost:4000/ui
+
   ms365-mcp:
     image: onecomputer/softeria-ms365-mcp:0.131.2
     build:
@@ -27,8 +31,8 @@ services:
       MS365_MCP_CLIENT_ID: ${ONECOMPUTER_MS365_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
       MS365_MCP_TENANT_ID: ${ONECOMPUTER_MS365_TENANT_ID:-organizations}
       MS365_MCP_CLIENT_SECRET: ${ONECOMPUTER_MS365_CLIENT_SECRET:-}
-      MS365_MCP_PUBLIC_URL: http://127.0.0.1:3001
-      MS365_MCP_ALLOWED_REDIRECT_URIS: http://127.0.0.1:4000/callback
+      MS365_MCP_PUBLIC_URL: http://localhost:3001
+      MS365_MCP_ALLOWED_REDIRECT_URIS: http://localhost:4000/callback
       MS365_MCP_MAX_TOP: "25"
       MS365_MCP_MAX_PAGES: "4"
       MS365_MCP_MAX_ITEMS: "100"

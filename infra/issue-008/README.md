@@ -82,11 +82,13 @@ separate `ms365-egress` network gives only the trusted connector the outbound
 lane required for Microsoft login and Graph calls; workspaces do not join it.
 Production must constrain that lane to the approved Microsoft endpoints.
 
-For local browser consent only, the connector is also bound to
-`http://127.0.0.1:3001`; it is not reachable from the LAN or a sandbox. Its
-redirect allowlist contains only LiteLLM's local OAuth callback at
-`http://127.0.0.1:4000/callback`. Replace this development exception with an
-authenticated public authorization route before production.
+For local browser consent only, the connector is bound to host loopback and
+advertised as `http://localhost:3001`; it is not reachable from the LAN or a
+sandbox. Its redirect allowlist contains only LiteLLM's local OAuth callback at
+`http://localhost:4000/callback`. Entra permits local HTTP web callbacks only
+with the literal `localhost`, so open the LiteLLM UI through
+`http://localhost:4000/ui` during consent. Replace this development exception
+with an authenticated HTTPS authorization route before production.
 
 The Issue 008 LiteLLM overlay registers the server as `onecomputer_ms365` with
 an interactive per-user authorization-code flow. LiteLLM is configured to

@@ -54,11 +54,13 @@ Run the overlay with the existing stack definition:
 
 ```bash
 docker compose \
+  --env-file .env \
   -f infra/issue-002/compose.yml \
   -f infra/issue-008/compose.yml \
   build ms365-mcp
 
 docker compose \
+  --env-file .env \
   -f infra/issue-002/compose.yml \
   -f infra/issue-008/compose.yml \
   up -d --no-deps ms365-mcp

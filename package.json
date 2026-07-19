@@ -1,0 +1,26 @@
+{
+  "name": "onecomputer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "tsx --test tests/**/*.test.ts",
+    "dev:control": "npm run dev -w @onecomputer/control-api",
+    "dev:controller": "npm run dev -w @onecomputer/workspace-controller",
+    "dev:web": "npm run dev -w web",
+    "db:migrate": "tsx apps/control-api/src/migrate.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,20 @@
+model_list:
+  - model_name: onecomputer-assistant
+    litellm_params:
+      model: openai/onecomputer-fixture
+      api_base: http://gateway-fixture:4200/v1
+      api_key: fixture-model-key-not-a-provider-secret
+
+mcp_servers:
+  onecomputer_fixture:
+    transport: http
+    url: http://gateway-fixture:4200/mcp
+    description: ONEComputer Issue 002 read and destructive tool fixture
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  store_model_in_db: false
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false

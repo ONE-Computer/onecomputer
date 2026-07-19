@@ -13,8 +13,11 @@ and the minimum proof required before proceeding.
   required.
 - `complete`: all acceptance and evidence requirements passed.
 
-Only Issue 000 begins ready. Completing an issue may make only its immediate
-successor ready. Gate-closing issues require explicit human review.
+Issue 000 is the accepted architecture baseline. Issue 001 completed the first
+product slice. Issue 002 and its partial LiteLLM decision were accepted on
+2026-07-19. Issue 003 is ready. Completing an issue may make only its immediate
+successor ready.
+Gate-closing issues require explicit human review.
 
 ## Execution rules
 
@@ -82,14 +85,14 @@ task contents in chat.
 
 | ID | Gate | Outcome | Depends on | Gate closer |
 | --- | --- | --- | --- | --- |
-| 000 | A | Freeze first-principle architecture | — | Yes |
-| 001 | B | Qualify pinned LiteLLM | 000 | No |
-| 002 | B | Record gateway decision | 001 | Yes |
-| 003 | C | Build contracts and owned PostgreSQL | 002 | No |
+| 000 | A | Record the accepted first-principle architecture | — | Yes |
+| 001 | B | Launch a real Kasm sandbox from ONEComputer | 000 | No |
+| 002 | B | Qualify and integrate the LiteLLM gateway slice | 001 | Yes |
+| 003 | C | Extend governance contracts and owned PostgreSQL | 002 | No |
 | 004 | C | Build durable operations and fixture approvals | 003 | No |
 | 005 | C | Prove mock MCP governance vertical slice | 004 | Yes |
-| 006 | D | Build and contain a real Kasm workspace | 005 | Yes |
-| 007 | E | Build the owned MVP UI | 006 | Yes |
+| 006 | D | Harden Kasm containment and connect governed paths | 005 | Yes |
+| 007 | E | Productionize the owned MVP UI | 006 | Yes |
 | 008 | F | Qualify O365 MCP candidates | 007 | No |
 | 009 | F | Integrate physical OpenVTC/VTA | 008 | Yes |
 | 010 | G | Prove governed OneDrive read/delete | 009 | Yes |

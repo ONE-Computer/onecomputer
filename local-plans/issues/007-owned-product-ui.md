@@ -8,18 +8,20 @@ Unblocks: 008
 
 ## Outcome
 
-A clean, minimal ONEComputer interface lets authorized users operate the proven
-workspace/governance slice without exposing vendor internals or moving authority
-into the browser.
+The selected ONEComputer prototype and Kasm lifecycle journey become a
+production-ready interface over the proven workspace/governance slice without
+exposing vendor internals or moving authority into the browser.
 
 ## In scope
 
-- Scaffold `apps/web` with Next.js 16, shadcn/ui, Tailwind CSS v4, and the latest
-  qualified active Node LTS pinned by patch and image digest.
+- Productionize the existing `apps/web` visual and interaction contract using
+  the qualified application stack; preserve the selected Windows-familiar
+  direction instead of redesigning the journey.
 - Establish owned design tokens, light/dark themes, typography, navigation,
   responsive layouts, loading/empty/error states, and accessible components.
-- Implement employee workspace launch/status/open/stop, assigned capabilities,
-  operation/request status, and redacted activity/evidence journeys.
+- Preserve the authoritative Issue 001 workspace lifecycle integration, then
+  add assigned capabilities, operation/request status, and redacted
+  activity/evidence journeys over later authoritative APIs.
 - Implement role-gated policy/profile and integration-health surfaces needed by
   the MVP administrator.
 - Use server-mediated Control APIs, CSRF/idempotency protections, correlation

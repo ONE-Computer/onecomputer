@@ -1,6 +1,6 @@
 # 003: build governance contracts and owned PostgreSQL
 
-Status: `blocked`
+Status: `ready`
 
 Gate: C
 Depends on: 002
@@ -8,15 +8,17 @@ Unblocks: 004
 
 ## Outcome
 
-Versioned governance contracts and a new ONEComputer PostgreSQL schema provide
-the only authoritative state for identities, workspaces, capabilities, policy,
-operations, approvals, leases, receipts, outbox delivery, and evidence.
+The workspace-only contracts and owned PostgreSQL foundation from Issue 001 are
+extended into the only authoritative state for identities, workspaces,
+capabilities, policy, operations, approvals, leases, receipts, outbox delivery,
+and evidence.
 
 ## In scope
 
-- Scaffold the minimal TypeScript monorepo and pinned toolchain.
-- Create `packages/contracts`, `packages/control`, and `packages/db` with
-  enforced dependency direction.
+- Extend the pinned TypeScript monorepo and workspace contracts established by
+  Issue 001.
+- Add the governance portions of `packages/contracts`, `packages/control`, and
+  `packages/db` with enforced dependency direction.
 - Define strict versioned schemas, canonical JSON rules, operation hashing,
   bounded errors, and correlation identifiers.
 - Create the minimum owned schema and transactional repository interfaces.

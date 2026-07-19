@@ -17,7 +17,7 @@ approval adapter.
 - Build an unprivileged `apps/control-api` over owned domain/repositories.
 - Implement authenticated identity context and the qualified LiteLLM policy
   callback/adapter contract.
-- Deploy the pinned LiteLLM topology and mock MCP server from Issue 001.
+- Deploy the pinned LiteLLM topology and mock MCP server from Issue 002.
 - Implement capability assignment and policy for read allow, destructive deny,
   and destructive approval-required.
 - Return stable operation status to the client and resume only the bound

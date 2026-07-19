@@ -1,4 +1,4 @@
-# 006: build and contain the Kasm workspace boundary
+# 006: harden and connect the Kasm workspace boundary
 
 Status: `blocked`
 
@@ -8,21 +8,19 @@ Unblocks: 007
 
 ## Outcome
 
-An authenticated employee receives a real Kasm workspace with a short-lived,
-audience-bound gateway grant and an enforced network profile that makes the
-governed gateway path unavoidable.
+The working Kasm sandbox lifecycle from Issue 001 receives a short-lived,
+audience-bound gateway grant and enforced network profiles that make the
+governed model and MCP path from Issue 005 unavoidable.
 
 ## In scope
 
-- Build a private `apps/workspace-controller` and `packages/kasm-adapter` with a
-  narrow authenticated lifecycle API; only the controller receives Docker
-  authority.
-- Implement per-workspace networks, controlled DNS, scoped gateway grants,
-  desktop/session access, TTL, readiness dimensions, reconciliation, and
-  delete/recreate cleanup.
+- Harden the private `apps/workspace-controller` and `packages/kasm-adapter`
+  created in Issue 001 without broadening their lifecycle authority.
+- Extend the existing per-workspace network and readiness model with controlled
+  DNS, scoped gateway grants, and governed capability readiness.
 - Define `restricted-standard` and bounded `developer` egress profiles.
-- Bake and pin the workspace image and required tooling; no dynamic privileged
-  bootstrap from mutable sources.
+- Bake and pin the agent tooling added to the existing workspace image; no
+  dynamic privileged bootstrap from mutable sources.
 - Connect the real workspace to the Issue 005 model/MCP path.
 
 ## Out of scope

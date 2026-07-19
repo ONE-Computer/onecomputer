@@ -1,0 +1,307 @@
+import http from "node:http";
+import { OneComputerError, type Launch, type Sandbox } from "@onecomputer/contracts";
+
+export interface SandboxAdapter {
+  create(input: SandboxCreateInput): Promise<Sandbox>;
+  status(providerId: string): Promise<Sandbox>;
+  open(providerId: string): Promise<Launch>;
+  destroy(providerId: string): Promise<void>;
+}
+
+export type SandboxCreateInput = {
+  workspaceId: string;
+  expiresAt: string;
+  gateway?: {
+    baseUrl: string;
+    credential: string;
+    modelAlias: string;
+    expiresAt: string;
+  };
+};
+
+type KasmConfig = {
+  baseUrl: string;
+  apiKey: string;
+  apiSecret: string;
+  userId: string;
+  imageId: string;
+  requestTimeoutMs?: number;
+};
+
+type JsonObject = Record<string, unknown>;
+
+const asObject = (value: unknown): JsonObject => value && typeof value === "object" ? value as JsonObject : {};
+const textValue = (object: JsonObject, ...keys: string[]) => {
+  for (const key of keys) if (typeof object[key] === "string") return object[key] as string;
+  return undefined;
+};
+
+export class KasmDeveloperApiAdapter implements SandboxAdapter {
+  private readonly baseUrl: string;
+  private readonly timeoutMs: number;
+
+  constructor(private readonly config: KasmConfig) {
+    this.baseUrl = config.baseUrl.replace(/\/$/, "");
+    this.timeoutMs = config.requestTimeoutMs ?? 20_000;
+  }
+
+  private async call(path: string, body: JsonObject): Promise<JsonObject> {
+    const response = await fetch(`${this.baseUrl}/api/public/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "accept": "application/json" },
+      body: JSON.stringify({ api_key: this.config.apiKey, api_key_secret: this.config.apiSecret, ...body }),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!response.ok) {
+      throw new OneComputerError("KASM_UPSTREAM_ERROR", `Kasm ${path} returned ${response.status}`, 502, response.status >= 500);
+    }
+    return asObject(await response.json());
+  }
+
+  async create(_input: SandboxCreateInput): Promise<Sandbox> {
+    const response = await this.call("request_kasm", { user_id: this.config.userId, image_id: this.config.imageId });
+    const kasm = asObject(response.kasm ?? response);
+    const providerId = textValue(kasm, "kasm_id");
+    if (!providerId) throw new OneComputerError("KASM_INVALID_RESPONSE", "Kasm did not return a session identifier", 502, true);
+    return { providerId, state: mapKasmState(textValue(kasm, "operational_status", "status")), failureCode: null };
+  }
+
+  async status(providerId: string): Promise<Sandbox> {
+    const response = await this.call("get_kasm_status", { kasm_id: providerId, user_id: this.config.userId });
+    const kasm = asObject(response.kasm ?? response);
+    const state = mapKasmState(textValue(kasm, "operational_status", "status"));
+    return { providerId, state, failureCode: state === "failed" ? "KASM_SESSION_FAILED" : null };
+  }
+
+  async open(providerId: string): Promise<Launch> {
+    const response = await this.call("get_kasm_status", { kasm_id: providerId, user_id: this.config.userId });
+    const kasm = asObject(response.kasm ?? response);
+    if (mapKasmState(textValue(kasm, "operational_status", "status")) !== "ready") {
+      throw new OneComputerError("WORKSPACE_NOT_READY", "The workspace is not ready to open", 409, true);
+    }
+    const kasmUrl = textValue(kasm, "kasm_url", "url") ?? textValue(response, "kasm_url", "url");
+    const sessionToken = textValue(kasm, "session_token") ?? textValue(response, "session_token");
+    if (!kasmUrl) throw new OneComputerError("KASM_INVALID_RESPONSE", "Kasm did not return a launch URL", 502, true);
+    const launch = new URL(kasmUrl, this.baseUrl);
+    if (sessionToken && !launch.searchParams.has("token")) launch.searchParams.set("token", sessionToken);
+    return { launchUrl: launch.toString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+  }
+
+  async destroy(providerId: string) {
+    await this.call("destroy_kasm", { kasm_id: providerId, user_id: this.config.userId });
+  }
+}
+
+export function mapKasmState(value?: string): Sandbox["state"] {
+  switch (value?.toLowerCase()) {
+    case "running":
+    case "ready":
+      return "ready";
+    case "stopped":
+    case "deleted":
+      return "stopped";
+    case "error":
+    case "failed":
+      return "failed";
+    default:
+      return "provisioning";
+  }
+}
+
+type KasmLocalConfig = {
+  socketPath?: string;
+  image: string;
+  network: string;
+  controlNetwork: string;
+  relayImage: string;
+  publicHost?: string;
+  portStart?: number;
+  portEnd?: number;
+};
+
+export class KasmLocalAdapter implements SandboxAdapter {
+  private readonly socketPath: string;
+  constructor(private readonly config: KasmLocalConfig) {
+    this.socketPath = config.socketPath ?? "/var/run/docker.sock";
+  }
+
+  async create(input: SandboxCreateInput): Promise<Sandbox> {
+    await this.ensureNetwork(this.config.network, true);
+    await this.ensureNetwork(this.config.controlNetwork, false);
+    const name = `onecomputer-v4-sandbox-${input.workspaceId}`;
+    const existing = await this.inspectByName(name);
+    if (existing?.running) {
+      await this.ensureRelay(name, existing.id, existing.port ?? await this.allocatePort());
+      return { providerId: existing.id, state: "ready", failureCode: null };
+    }
+    if (existing) await this.destroy(existing.id);
+    const port = await this.allocatePort();
+    const created = await this.request("POST", `/containers/create?name=${encodeURIComponent(name)}`, {
+      Image: this.config.image,
+      Labels: {
+        "com.onecomputer.sandbox.provider": "kasm-local",
+        "com.onecomputer.workspace-id": input.workspaceId,
+        "com.onecomputer.expires-at": input.expiresAt,
+        "com.onecomputer.desktop-port": String(port),
+      },
+      Env: [
+        "VNC_PW=onecomputer",
+        "VNC_RESOLUTION=1440x900",
+        "VNCOPTIONS=-DisableBasicAuth=1",
+        ...(input.gateway ? [
+          `OPENAI_BASE_URL=${input.gateway.baseUrl}/v1`,
+          `OPENAI_API_KEY=${input.gateway.credential}`,
+          `ONECOMPUTER_LITELLM_URL=${input.gateway.baseUrl}`,
+          `ONECOMPUTER_MODEL_ALIAS=${input.gateway.modelAlias}`,
+          `ONECOMPUTER_GATEWAY_EXPIRES_AT=${input.gateway.expiresAt}`,
+        ] : []),
+      ],
+      HostConfig: {
+        NetworkMode: this.config.network,
+        ShmSize: 536_870_912,
+        PidsLimit: 1024,
+        Memory: 3_221_225_472,
+        NanoCpus: 2_000_000_000,
+      },
+    });
+    const providerId = textValue(created, "Id");
+    if (!providerId) throw new OneComputerError("DOCKER_INVALID_RESPONSE", "Docker did not return a container identifier", 502);
+    try {
+      await this.request("POST", `/containers/${providerId}/start`);
+      await this.ensureRelay(name, providerId, port);
+      return { providerId, state: "provisioning", failureCode: null };
+    } catch (error) {
+      await this.destroy(providerId).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async status(providerId: string): Promise<Sandbox> {
+    try {
+      const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
+      const state = asObject(inspected.State);
+      const running = state.Running === true;
+      const failed = typeof state.ExitCode === "number" && state.ExitCode !== 0;
+      return { providerId, state: running ? "ready" : failed ? "failed" : "stopped", failureCode: failed ? "FIXTURE_EXITED" : null };
+    } catch (error) {
+      if (error instanceof OneComputerError && error.statusCode === 404) return { providerId, state: "stopped", failureCode: null };
+      throw error;
+    }
+  }
+
+  async open(providerId: string): Promise<Launch> {
+    const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
+    if (asObject(inspected.State).Running !== true) throw new OneComputerError("WORKSPACE_NOT_READY", "The Kasm desktop is not running", 409, true);
+    const port = Number(asObject(inspected.Config).Labels && asObject(asObject(inspected.Config).Labels)["com.onecomputer.desktop-port"]);
+    if (!Number.isInteger(port) || port <= 0) throw new OneComputerError("KASM_INVALID_STATE", "The Kasm desktop has no assigned session port", 502);
+    return { launchUrl: `https://${this.config.publicHost ?? "127.0.0.1"}:${port}/`, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() };
+  }
+
+  async destroy(providerId: string) {
+    let name: string | undefined;
+    try {
+      const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
+      name = textValue(inspected, "Name")?.replace(/^\//, "");
+    } catch (error) {
+      if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
+    }
+    if (name) await this.removeContainer(`${name}-relay`);
+    await this.removeContainer(providerId);
+  }
+
+  private async removeContainer(id: string) {
+    try {
+      await this.request("DELETE", `/containers/${encodeURIComponent(id)}?force=true&v=true`);
+    } catch (error) {
+      if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
+    }
+  }
+
+  private async ensureNetwork(name: string, internal: boolean) {
+    const networks = await this.request("GET", `/networks/${encodeURIComponent(name)}`).catch(() => null);
+    if (networks) return;
+    await this.request("POST", "/networks/create", {
+      Name: name,
+      Driver: "bridge",
+      Internal: internal,
+      Attachable: true,
+      Labels: { "com.onecomputer.issue": "001" },
+    });
+  }
+
+  private async inspectByName(name: string) {
+    try {
+      const inspected = await this.request("GET", `/containers/${encodeURIComponent(name)}/json`);
+      const labels = asObject(asObject(inspected.Config).Labels);
+      const rawPort = labels["com.onecomputer.desktop-port"];
+      return { id: String(inspected.Id), running: asObject(inspected.State).Running === true, port: typeof rawPort === "string" ? Number(rawPort) : undefined };
+    } catch (error) {
+      if (error instanceof OneComputerError && error.statusCode === 404) return null;
+      throw error;
+    }
+  }
+
+  private async allocatePort() {
+    const start = this.config.portStart ?? 16920;
+    const end = this.config.portEnd ?? 16999;
+    const listed = await this.request("GET", "/containers/json?all=1");
+    const used = new Set(Object.values(asObject(listed)).flatMap((value) => {
+      const labels = asObject(asObject(value).Labels);
+      const raw = labels["com.onecomputer.desktop-port"];
+      return typeof raw === "string" ? [Number(raw)] : [];
+    }));
+    for (let port = start; port <= end; port += 1) if (!used.has(port)) return port;
+    throw new OneComputerError("KASM_PORTS_EXHAUSTED", "No local Kasm desktop ports are available", 503, true);
+  }
+
+  private async ensureRelay(sandboxName: string, sandboxId: string, port: number) {
+    const relayName = `${sandboxName}-relay`;
+    const existing = await this.inspectByName(relayName);
+    if (existing?.running) return;
+    if (existing) await this.removeContainer(existing.id);
+    const script = `const net=require("node:net");net.createServer(c=>{const u=net.connect({host:${JSON.stringify(sandboxName)},port:6901});const x=()=>{c.destroy();u.destroy()};c.on("error",x);u.on("error",x);c.pipe(u).pipe(c)}).listen(${port},"0.0.0.0")`;
+    const created = await this.request("POST", `/containers/create?name=${encodeURIComponent(relayName)}`, {
+      Image: this.config.relayImage,
+      Entrypoint: ["node"],
+      Cmd: ["-e", script],
+      ExposedPorts: { [`${port}/tcp`]: {} },
+      Labels: {
+        "com.onecomputer.sandbox.relay": "kasm-local",
+        "com.onecomputer.sandbox-id": sandboxId,
+        "com.onecomputer.desktop-port": String(port),
+      },
+      HostConfig: {
+        NetworkMode: this.config.controlNetwork,
+        RestartPolicy: { Name: "unless-stopped" },
+        PortBindings: { [`${port}/tcp`]: [{ HostIp: "127.0.0.1", HostPort: String(port) }] },
+        SecurityOpt: ["no-new-privileges"],
+      },
+    });
+    const relayId = textValue(created, "Id");
+    if (!relayId) throw new OneComputerError("DOCKER_INVALID_RESPONSE", "Docker did not return a relay identifier", 502);
+    await this.request("POST", `/containers/${relayId}/start`);
+    await this.request("POST", `/networks/${encodeURIComponent(this.config.network)}/connect`, { Container: relayId });
+  }
+
+  private request(method: string, path: string, body?: JsonObject): Promise<JsonObject> {
+    return new Promise((resolve, reject) => {
+      const payload = body ? JSON.stringify(body) : undefined;
+      const request = http.request({ socketPath: this.socketPath, path: `/v1.47${path}`, method, headers: payload ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload) } : undefined }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          if ((response.statusCode ?? 500) >= 400) {
+            reject(new OneComputerError("DOCKER_API_ERROR", `Docker API returned ${response.statusCode}`, response.statusCode ?? 500));
+            return;
+          }
+          if (!text) { resolve({}); return; }
+          try { resolve(asObject(JSON.parse(text))); } catch { reject(new OneComputerError("DOCKER_INVALID_RESPONSE", "Docker returned invalid JSON", 502)); }
+        });
+      });
+      request.on("error", (error) => reject(new OneComputerError("DOCKER_UNAVAILABLE", error.message, 503, true)));
+      if (payload) request.write(payload);
+      request.end();
+    });
+  }
+}

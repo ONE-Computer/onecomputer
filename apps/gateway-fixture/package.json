@@ -1,0 +1,15 @@
+{
+  "name": "@onecomputer/gateway-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "fastify": "5.10.0",
+    "zod": "4.4.3"
+  }
+}

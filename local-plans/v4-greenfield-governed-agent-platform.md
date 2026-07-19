@@ -1,6 +1,6 @@
 # V4: greenfield governed agent platform
 
-Status: proposed for architecture review
+Status: accepted architecture baseline; product slices active
 
 ## Product objective
 
@@ -237,9 +237,10 @@ ChatGPT and Manus without cloning either. Primary journeys are:
 - security policy and workspace profiles for authorized roles;
 - platform integrations, health, and version pins for platform administrators.
 
-The UI begins after backend contracts and the fixture vertical slice are stable.
-It may use fixtures for visual development but cannot define authorization or
-be counted as integration acceptance.
+Product design and the interactive UI prototype lead delivery. Each selected
+journey then drives a server-mediated vertical slice, beginning with the Kasm
+sandbox lifecycle in Issue 001. Fixtures may support visual development, but
+they cannot define authorization or count as integration acceptance.
 
 ## Technology rules
 
@@ -259,7 +260,7 @@ be counted as integration acceptance.
 | Gate | Outcome | Issues |
 | --- | --- | --- |
 | A | Architecture and trust contract reviewed | 000 |
-| B | LiteLLM qualified and gateway decision recorded | 001–002 |
+| B | Real Kasm sandbox slice works; LiteLLM is qualified and decided | 001–002 |
 | C | Owned governance and fixture approval vertical slice works | 003–005 |
 | D | Real workspace is identity-bound and network-contained | 006 |
 | E | Owned MVP UI works over authoritative APIs | 007 |

@@ -1,0 +1,154 @@
+import { randomUUID } from "node:crypto";
+import Fastify from "fastify";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
+
+const envSchema = z.object({
+  FIXTURE_HOST: z.string().default("127.0.0.1"),
+  FIXTURE_PORT: z.coerce.number().int().positive().default(4200),
+});
+
+export type FixtureCounters = {
+  model: number;
+  toolsList: number;
+  searchFiles: number;
+  deleteFile: number;
+};
+
+export function createGatewayFixture() {
+  const counters: FixtureCounters = { model: 0, toolsList: 0, searchFiles: 0, deleteFile: 0 };
+  const app = Fastify({ logger: true, bodyLimit: 64 * 1024 });
+
+  app.get("/healthz", async () => ({ status: "ok" }));
+  app.get("/counters", async () => ({ ...counters }));
+  app.post("/counters/reset", async () => {
+    counters.model = 0;
+    counters.toolsList = 0;
+    counters.searchFiles = 0;
+    counters.deleteFile = 0;
+    return { ...counters };
+  });
+
+  app.post("/v1/chat/completions", async (request, reply) => {
+    counters.model += 1;
+    const body = request.body && typeof request.body === "object" ? request.body as Record<string, unknown> : {};
+    if (body.stream === true) {
+      const id = `chatcmpl-${randomUUID()}`;
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      reply.raw.write(`data: ${JSON.stringify({
+        id,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1_000),
+        model: String(body.model ?? "onecomputer-fixture"),
+        choices: [{ index: 0, delta: { role: "assistant", content: "ONEComputer’s scoped model route is ready through LiteLLM." }, finish_reason: null }],
+      })}\n\n`);
+      reply.raw.write(`data: ${JSON.stringify({
+        id,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1_000),
+        model: String(body.model ?? "onecomputer-fixture"),
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      })}\n\n`);
+      reply.raw.end("data: [DONE]\n\n");
+      return;
+    }
+    return {
+      id: `chatcmpl-${randomUUID()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1_000),
+      model: String(body.model ?? "onecomputer-fixture"),
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content: "ONEComputer’s scoped model route is ready through LiteLLM." },
+        finish_reason: "stop",
+      }],
+      usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+    };
+  });
+
+  app.post("/v1/responses", async (request, reply) => {
+    counters.model += 1;
+    const body = request.body && typeof request.body === "object" ? request.body as Record<string, unknown> : {};
+    const responseId = `resp-${randomUUID()}`;
+    const messageId = `msg-${randomUUID()}`;
+    const text = "ONEComputer’s scoped model route is ready through LiteLLM.";
+    const completed = {
+      id: responseId,
+      object: "response",
+      created_at: Math.floor(Date.now() / 1_000),
+      status: "completed",
+      model: String(body.model ?? "onecomputer-fixture"),
+      output: [{
+        type: "message",
+        id: messageId,
+        status: "completed",
+        role: "assistant",
+        content: [{ type: "output_text", text, annotations: [] }],
+      }],
+      parallel_tool_calls: true,
+      usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20, output_tokens_details: { reasoning_tokens: 0 } },
+      text: { format: { type: "text" } },
+      error: null,
+      incomplete_details: null,
+      instructions: null,
+      metadata: {},
+      temperature: 1,
+      tool_choice: "auto",
+      tools: [],
+    };
+    if (body.stream === true) {
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      const send = (event: Record<string, unknown>) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      send({ type: "response.created", sequence_number: 0, response: { ...completed, status: "in_progress", output: [] } });
+      send({ type: "response.output_text.delta", sequence_number: 1, response_id: responseId, item_id: messageId, output_index: 0, content_index: 0, delta: text });
+      send({ type: "response.output_text.done", sequence_number: 2, response_id: responseId, item_id: messageId, output_index: 0, content_index: 0, text });
+      send({ type: "response.completed", sequence_number: 3, response: completed });
+      reply.raw.end("data: [DONE]\n\n");
+      return;
+    }
+    return completed;
+  });
+
+  app.all("/mcp", async (request, reply) => {
+    const server = new McpServer({ name: "onecomputer-fixture", version: "0.1.0" });
+    server.registerTool("search_files", {
+      description: "Search the approved fixture file catalog.",
+      inputSchema: { query: z.string().min(1) },
+    }, async ({ query }) => {
+      counters.searchFiles += 1;
+      return { content: [{ type: "text", text: `Fixture results for ${query}` }] };
+    });
+    server.registerTool("delete_file", {
+      description: "Delete a fixture file. This destructive tool is deliberately not assigned.",
+      inputSchema: { path: z.string().min(1) },
+    }, async ({ path }) => {
+      counters.deleteFile += 1;
+      return { content: [{ type: "text", text: `Deleted fixture ${path}` }] };
+    });
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const body = request.body as Record<string, unknown> | undefined;
+    if (body?.method === "tools/list") counters.toolsList += 1;
+    await server.connect(transport);
+    await transport.handleRequest(request.raw, reply.raw, request.body);
+    reply.hijack();
+  });
+
+  return { app, counters };
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  const env = envSchema.parse(process.env);
+  const { app } = createGatewayFixture();
+  await app.listen({ host: env.FIXTURE_HOST, port: env.FIXTURE_PORT });
+}

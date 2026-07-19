@@ -1,6 +1,6 @@
 # 000: freeze the first-principle architecture contract
 
-Status: `ready`
+Status: `complete`
 
 Gate: A
 Depends on: none
@@ -34,19 +34,22 @@ code is scaffolded.
 
 ## Required verification
 
-- [ ] Every product ask maps to an owning component and later issue.
-- [ ] Every trust boundary has an enforcement point and failure behavior.
-- [ ] The destructive-tool sequence identifies who may create, approve, lease,
+- [x] Every product ask maps to an owning component and later issue.
+- [x] Every trust boundary has an enforcement point and failure behavior.
+- [x] The destructive-tool sequence identifies who may create, approve, lease,
   execute, and evidence an operation.
-- [ ] The browser, workspace, MCP server, LiteLLM, and vendor databases are not
+- [x] The browser, workspace, MCP server, LiteLLM, and vendor databases are not
   accidental authorities.
-- [ ] Claims about Kasm, guardrails, DLP, and MDM are explicitly bounded.
-- [ ] A human reviews and accepts or amends the contract.
+- [x] Claims about Kasm, guardrails, DLP, and MDM are explicitly bounded.
+- [x] A human reviews and accepts or amends the contract.
 
 ## Evidence required
 
-Include reviewed ADR index, diagram sources, requirement-to-component matrix,
-threat inventory, unresolved decisions, and review record.
+The accepted baseline is
+`local-plans/v4-greenfield-governed-agent-platform.md`: it contains the target
+topology, component ownership, trust model, prohibited routes, lifecycle,
+gateway decision criteria, and delivery map. The human review is recorded by
+the 2026-07-19 direction to proceed with Kasm as Issue 001.
 
 ## Stop conditions
 
@@ -56,4 +59,8 @@ threat inventory, unresolved decisions, and review record.
 
 ## Completion record
 
-Not complete.
+Accepted on 2026-07-19 as the architecture baseline for product-first delivery.
+The reviewed topology, ownership boundaries, prohibited direct routes, and MVP
+slice are recorded in `local-plans/v4-greenfield-governed-agent-platform.md`.
+This closes the planning gate only; each implementation issue still owns the
+deployed security evidence for its boundary.

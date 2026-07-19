@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+coverage/
+.turbo/
+.pnpm-store/
+
+.env
+.env.*
+!.env.example
+
+.artifacts/
+*.log
+.DS_Store
+
+# local-plans/ is intentionally tracked on the greenfield branch.

@@ -1,0 +1,8 @@
+{
+  "name": "onecomputer-softeria-ms365-mcp-image",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@softeria/ms-365-mcp-server": "0.131.2"
+  }
+}

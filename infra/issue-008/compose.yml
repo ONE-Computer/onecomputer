@@ -1,0 +1,48 @@
+services:
+  ms365-mcp:
+    image: onecomputer/softeria-ms365-mcp:0.131.2
+    build:
+      context: ../issue-008/softeria
+      dockerfile: Dockerfile
+    command:
+      - --http
+      - "0.0.0.0:3000"
+      - --org-mode
+      - --preset
+      - mail,calendar,files
+      - --read-only
+      - --allowed-scopes
+      - User.Read Mail.Read Calendars.Read Files.Read
+      - --no-dynamic-registration
+      - --allow-unauthenticated-discovery
+    environment:
+      # These public identifiers must be replaced with the dedicated
+      # ONEComputer Entra app before interactive OAuth can succeed.
+      MS365_MCP_CLIENT_ID: ${ONECOMPUTER_MS365_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
+      MS365_MCP_TENANT_ID: ${ONECOMPUTER_MS365_TENANT_ID:-organizations}
+      MS365_MCP_CLIENT_SECRET: ${ONECOMPUTER_MS365_CLIENT_SECRET:-}
+      MS365_MCP_MAX_TOP: "25"
+      MS365_MCP_MAX_PAGES: "4"
+      MS365_MCP_MAX_ITEMS: "100"
+      MS365_MCP_REDACT_PII: "true"
+      MS365_MCP_REQUIRE_CONFIRM: "true"
+      MS365_MCP_TRUST_PROXY_HOPS: "0"
+      LOG_LEVEL: info
+    networks: [gateway-private]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/node/.ms-365-mcp-server
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/').then(async r=>{if(!r.ok||!(await r.text()).includes('Microsoft 365 MCP Server'))process.exit(1)}).catch(()=>process.exit(1))
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped

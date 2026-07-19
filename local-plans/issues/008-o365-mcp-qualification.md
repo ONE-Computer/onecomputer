@@ -8,19 +8,24 @@ Unblocks: 009
 
 ## Outcome
 
-An evidence-backed decision selects a pinned O365/OneDrive MCP implementation
-or specifies the smallest owned wrapper required for the golden path.
+An evidence-backed decision selects a pinned Microsoft 365 MCP implementation
+for Outlook Mail, Outlook Calendar, and OneDrive, or specifies the smallest
+owned wrapper required for the golden paths.
 
 ## In scope
 
-- Evaluate, in order, an eligible Microsoft first-party OneDrive/Work IQ remote
-  MCP, the pinned Softeria `ms-365-mcp-server`, then a narrow owned wrapper.
+- Use the pinned Softeria `ms-365-mcp-server` as the first candidate for Outlook
+  Mail, Outlook Calendar, and OneDrive; retain eligible Microsoft first-party
+  remote MCPs and a narrow owned wrapper as fallbacks where Softeria fails the
+  contract.
 - Review source/release provenance, maintenance, license, transports, OAuth,
   delegated/application scopes, tenant controls, tool schemas, pagination,
   item/eTag identity, delete semantics, receipts, errors, rate limits, and drift.
 - Run candidates in an isolated test tenant with a non-production account and
   least privilege.
-- Map raw tools to the two typed capabilities: bounded read and exact delete.
+- Map raw tools to bounded mail read/search, calendar read/availability, and
+  OneDrive read/search capabilities. Separately classify send/reply, calendar
+  mutation, and exact file delete as governed write operations.
 - Verify LiteLLM registration, scoped discovery, pre-execution policy context,
   result metadata, and credential isolation.
 
@@ -39,6 +44,9 @@ or specifies the smallest owned wrapper required for the golden path.
   arguments before provider execution.
 - [ ] Read is bounded; delete binds item identity and version/eTag and returns a
   usable receipt or explicit limitation.
+- [ ] Mail and calendar reads are bounded by user, time/query window, selected
+  fields, page count, and item count; write tools remain absent until each has a
+  typed governed-operation contract.
 - [ ] OAuth tokens remain in the selected gateway/provider seam and are absent
   from workspace, browser, policy payloads, logs, and evidence.
 - [ ] Wrong tenant, site/drive/item, scope, schema drift, stale eTag, timeout,
@@ -61,3 +69,12 @@ wrapper contract if conditional.
 ## Completion record
 
 Not complete.
+
+## Early candidate deployment
+
+On 2026-07-19 the user selected Softeria as the first candidate and expanded
+the desired connector surface to Outlook Mail and Calendar in addition to
+OneDrive. A pinned, read-only `0.131.2` container is deployed privately through
+`infra/issue-008/compose.yml`; its deployment record is in
+`infra/issue-008/README.md`. This early bring-up does not satisfy the blocked
+live-qualification criteria or change this issue's status.

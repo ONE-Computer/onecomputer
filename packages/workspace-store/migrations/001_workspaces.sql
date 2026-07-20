@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS workspaces (
   operation_token uuid,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
-  expires_at timestamptz NOT NULL,
   UNIQUE (tenant_id, subject_id, grant_id)
 );
 
@@ -22,5 +21,3 @@ CREATE TABLE IF NOT EXISTS workspace_idempotency (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, subject_id, operation, idempotency_key)
 );
-
-CREATE INDEX IF NOT EXISTS workspaces_expiry_idx ON workspaces (expires_at);

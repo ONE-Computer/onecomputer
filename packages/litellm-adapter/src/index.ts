@@ -22,7 +22,7 @@ export type GatewayTestResult = {
 };
 
 export interface GatewayClient {
-  ensureGrant(input: { workspaceId: string; identity: IdentityContext; expiresAt: string }): Promise<GatewayGrant>;
+  ensureGrant(input: { workspaceId: string; identity: IdentityContext }): Promise<GatewayGrant>;
   readiness(workspaceId: string): Promise<GatewayReadiness>;
   test(workspaceId: string): Promise<GatewayTestResult>;
   revoke(workspaceId: string): Promise<void>;
@@ -59,6 +59,8 @@ type LiteLLMConfig = {
   mcpServer?: string;
   allowedTools?: string[];
   requestTimeoutMs?: number;
+  workspaceGrantTtlMs?: number;
+  workspaceGrantRenewalMs?: number;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -72,6 +74,9 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
   private readonly mcpServer: string;
   private readonly allowedTools: string[];
   private readonly timeoutMs: number;
+  private readonly workspaceGrantTtlMs: number;
+  private readonly workspaceGrantRenewalMs: number;
+  private readonly workspaceGrantExpiries = new Map<string, number>();
 
   constructor(private readonly config: LiteLLMConfig) {
     this.adminUrl = config.adminUrl.replace(/\/$/, "");
@@ -80,6 +85,8 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     this.mcpServer = config.mcpServer ?? "onecomputer_fixture";
     this.allowedTools = config.allowedTools ?? ["search_files"];
     this.timeoutMs = config.requestTimeoutMs ?? 15_000;
+    this.workspaceGrantTtlMs = config.workspaceGrantTtlMs ?? 8 * 60 * 60 * 1000;
+    this.workspaceGrantRenewalMs = config.workspaceGrantRenewalMs ?? 60 * 60 * 1000;
   }
 
   credentialFor(workspaceId: string) {
@@ -96,14 +103,19 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     return `sk-oce-${digest}`;
   }
 
-  async ensureGrant(input: { workspaceId: string; identity: IdentityContext; expiresAt: string }): Promise<GatewayGrant> {
+  async ensureGrant(input: { workspaceId: string; identity: IdentityContext }): Promise<GatewayGrant> {
     const credential = this.credentialFor(input.workspaceId);
-    const remainingSeconds = Math.max(60, Math.ceil((new Date(input.expiresAt).getTime() - Date.now()) / 1_000));
+    const cachedExpiry = this.workspaceGrantExpiries.get(input.workspaceId) ?? 0;
+    if (cachedExpiry > Date.now() + this.workspaceGrantRenewalMs) {
+      return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: new Date(cachedExpiry).toISOString() };
+    }
+    const expiresAt = new Date(Date.now() + this.workspaceGrantTtlMs);
+    const durationSeconds = Math.max(60, Math.ceil(this.workspaceGrantTtlMs / 1_000));
     const grant = {
       key: credential,
       key_alias: `onecomputer-workspace-${input.workspaceId}`,
       key_type: "llm_api",
-      duration: `${remainingSeconds}s`,
+      duration: `${durationSeconds}s`,
       models: [this.modelAlias],
       max_budget: 1,
       rpm_limit: 60,
@@ -124,7 +136,8 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       const updated = await this.adminCall("/key/update", { method: "POST", body: grant });
       if (!updated.ok) throw this.upstreamError("GATEWAY_GRANT_FAILED", updated.status, updated.payload);
     }
-    return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: input.expiresAt };
+    this.workspaceGrantExpiries.set(input.workspaceId, expiresAt.getTime());
+    return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: expiresAt.toISOString() };
   }
 
   async readiness(workspaceId: string): Promise<GatewayReadiness> {
@@ -133,6 +146,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       this.dataCall("/v1/models", credential),
       this.dataCall("/mcp-rest/tools/list", credential),
     ]);
+    if (!models.ok || !tools.ok) this.workspaceGrantExpiries.delete(workspaceId);
     const modelIds = Array.isArray(asObject(models.payload).data)
       ? (asObject(models.payload).data as unknown[]).map((item) => String(asObject(item).id ?? ""))
       : [];
@@ -240,6 +254,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       method: "POST",
       body: { keys: [this.credentialFor(workspaceId)] },
     }, true);
+    this.workspaceGrantExpiries.delete(workspaceId);
     if (!result.ok && result.status !== 404) throw this.upstreamError("GATEWAY_REVOKE_FAILED", result.status, result.payload);
   }
 

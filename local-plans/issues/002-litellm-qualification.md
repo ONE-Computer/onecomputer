@@ -78,8 +78,9 @@ the ONEComputer policy, approval, or evidence authority.
 - LiteLLM uses its own disposable PostgreSQL and a private fixture network.
 - The fixture supplies an OpenAI-compatible model, `search_files`, and the
   deliberately unassigned destructive `delete_file` tool with counters.
-- Control derives a workspace-specific key, creates/updates its LiteLLM virtual
-  key record, and revokes it on stop, delete, expiry, or failed provisioning.
+- Control derives a workspace-specific key, creates or renews its short-lived
+  LiteLLM virtual-key lease independently of workspace lifetime, and revokes it
+  on stop, delete, or failed provisioning.
 - The key is limited to `onecomputer-assistant`, MCP server
   `onecomputer_fixture`, and `search_files`.
 - Kasm can resolve LiteLLM but cannot resolve the fixture, either database,

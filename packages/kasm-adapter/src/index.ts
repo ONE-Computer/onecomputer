@@ -10,7 +10,6 @@ export interface SandboxAdapter {
 
 export type SandboxCreateInput = {
   workspaceId: string;
-  expiresAt: string;
   gateway?: {
     baseUrl: string;
     credential: string;
@@ -141,7 +140,6 @@ export class KasmLocalAdapter implements SandboxAdapter {
       Labels: {
         "com.onecomputer.sandbox.provider": "kasm-local",
         "com.onecomputer.workspace-id": input.workspaceId,
-        "com.onecomputer.expires-at": input.expiresAt,
         "com.onecomputer.desktop-port": String(port),
       },
       Env: [
@@ -153,11 +151,11 @@ export class KasmLocalAdapter implements SandboxAdapter {
           `OPENAI_API_KEY=${input.gateway.credential}`,
           `ONECOMPUTER_LITELLM_URL=${input.gateway.baseUrl}`,
           `ONECOMPUTER_MODEL_ALIAS=${input.gateway.modelAlias}`,
-          `ONECOMPUTER_GATEWAY_EXPIRES_AT=${input.gateway.expiresAt}`,
         ] : []),
       ],
       HostConfig: {
         NetworkMode: this.config.network,
+        RestartPolicy: { Name: "unless-stopped" },
         ShmSize: 536_870_912,
         PidsLimit: 1024,
         Memory: 3_221_225_472,

@@ -41,7 +41,6 @@ test("controller passes a validated scoped gateway grant to the sandbox adapter"
     payload: {
       workspaceId: "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508",
       correlationId: "correlation-002",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       gateway: {
         baseUrl: "http://litellm:4000",
         credential: "sk-scoped-controller-test-000001",

@@ -20,7 +20,7 @@ class FakeExecutor implements GovernedToolExecutor {
 
 const setup = async () => {
   const store = new MemoryWorkspaceStore();
-  const workspace = await store.createOrGet(identity, "personal", randomUUID(), new Date(Date.now() + 60_000));
+  const workspace = await store.createOrGet(identity, "personal", randomUUID());
   await store.update(workspace.id, { state: "ready" });
   const executor = new FakeExecutor();
   const authority = new FixtureApprovalAuthority(approvalSecret);

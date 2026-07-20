@@ -18,7 +18,7 @@ const authHeaders = {
 
 test("Control API exposes a durable approval-required operation and fixture decision", async () => {
   const store = new MemoryWorkspaceStore();
-  const workspace = await store.createOrGet(identity, "personal", randomUUID(), new Date(Date.now() + 60_000));
+  const workspace = await store.createOrGet(identity, "personal", randomUUID());
   await store.update(workspace.id, { state: "ready" });
   const executions: GovernedToolExecutionInput[] = [];
   const gateway: GatewayClient & GovernedToolExecutor = {

@@ -8,9 +8,10 @@ Unblocks: 007
 
 ## Outcome
 
-The working Kasm sandbox lifecycle from Issue 001 receives a short-lived,
-audience-bound gateway grant and enforced network profiles that make the
-governed model and MCP path from Issue 005 unavoidable.
+The persistent Kasm sandbox lifecycle from Issue 001 receives a renewable,
+short-lived, audience-bound gateway grant and enforced network profiles that
+make the governed model and MCP path from Issue 005 unavoidable. Credential
+expiry must never stop or delete the workspace.
 
 ## In scope
 

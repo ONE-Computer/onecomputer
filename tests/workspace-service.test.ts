@@ -22,9 +22,9 @@ class FakeController implements ControllerClient {
 class FakeGateway implements GatewayClient {
   grants = 0;
   revocations = 0;
-  async ensureGrant(input: { workspaceId: string; expiresAt: string }): Promise<GatewayGrant> {
+  async ensureGrant(input: { workspaceId: string }): Promise<GatewayGrant> {
     this.grants += 1;
-    return { baseUrl: "http://litellm:4000", credential: `sk-${input.workspaceId}`, modelAlias: "onecomputer-assistant", expiresAt: input.expiresAt };
+    return { baseUrl: "http://litellm:4000", credential: `sk-${input.workspaceId}`, modelAlias: "onecomputer-assistant", expiresAt: new Date(Date.now() + 60_000).toISOString() };
   }
   async readiness() { return { models: "ready" as const, tools: "ready" as const }; }
   async test() {
@@ -72,16 +72,17 @@ test("workspace identifiers do not confer cross-subject access", async () => {
   );
 });
 
-test("an expired workspace grant cannot provision a sandbox", async () => {
+test("workspace lifetime remains UI-managed while its gateway grant can renew", async () => {
   const controller = new FakeController();
   const store = new MemoryWorkspaceStore();
-  await store.createOrGet(alex, "personal", "expired-seed-01", new Date(Date.now() - 1_000));
-  const service = new WorkspaceService(store, controller);
-  await assert.rejects(
-    service.create(alex, "personal", "expired-retry-1", "correlation-1"),
-    (error: unknown) => Boolean(error && typeof error === "object" && "code" in error && error.code === "GRANT_EXPIRED"),
-  );
-  assert.equal(controller.creates, 0);
+  const gateway = new FakeGateway();
+  const service = new WorkspaceService(store, controller, gateway);
+  const created = await service.create(alex, "personal", "persistent-create-1", "correlation-1");
+  const current = await service.current(alex);
+  assert.equal(current?.id, created.id);
+  assert.equal(current?.state, "ready");
+  assert.equal(controller.creates, 1);
+  assert.equal(gateway.grants, 2);
 });
 
 test("restart destroys the prior sandbox and retains product identity", async () => {

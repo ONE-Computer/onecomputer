@@ -31,8 +31,8 @@ model, MCP, approval, and broader governance capabilities are added.
   used by this slice.
 - Persist the minimum owned workspace identity and lifecycle record required to
   recover create/restart/stop operations without treating Kasm as product truth.
-- Implement one-sandbox-per-grant behavior, TTL, readiness dimensions, launch
-  URL handoff, reconciliation, and delete/recreate cleanup.
+- Implement one-sandbox-per-grant behavior, UI-managed persistence, readiness
+  dimensions, launch URL handoff, reconciliation, and delete/recreate cleanup.
 - Show honest `not_created`, `provisioning`, `ready`, `open`, `restarting`,
   `stopping`, `stopped`, and `failed` states in the existing UI.
 - Start with a deny-by-default sandbox network that permits only the Kasm
@@ -59,8 +59,8 @@ model, MCP, approval, and broader governance capabilities are added.
   Kasm admin credential, Docker authority, host-control token, or internal URL.
 - [x] Public Web and Control API containers have no Docker socket or Kasm admin
   credential; only the private workspace controller has lifecycle authority.
-- [x] Cross-tenant, cross-subject, guessed workspace ID, expired grant, and
-  direct controller/Kasm access fail before lifecycle mutation.
+- [x] Cross-tenant, cross-subject, guessed workspace ID, and direct
+  controller/Kasm access fail before lifecycle mutation.
 - [x] Refresh, Control restart, controller restart, duplicate callback, and
   Kasm/API timeout recover to one honest lifecycle state without manual data
   mutation.
@@ -107,6 +107,11 @@ Evidence: `.artifacts/v4/issues/001/20260719T080700Z/verification.md` and
 The optional Kasm Workspaces Developer API adapter is also present. Live
 qualification of that deployment mode requires an external Kasm server and is
 not a blocker for the local Kasm/Docker capability accepted by Issue 000.
+
+Workspace lifetime was corrected on 2026-07-20: the product record and sandbox
+do not expire on a timer. Stop, restart, and delete are owned lifecycle actions.
+Short-lived gateway credentials renew separately and cannot mutate workspace
+lifecycle state.
 
 ## Post-completion follow-up
 

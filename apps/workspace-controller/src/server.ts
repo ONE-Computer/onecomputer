@@ -47,7 +47,6 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
     const input = controllerCreateSchema.parse(request.body);
     return reply.code(201).send(await adapter.create({
       workspaceId: input.workspaceId,
-      expiresAt: input.expiresAt,
       gateway: input.gateway,
     }));
   });

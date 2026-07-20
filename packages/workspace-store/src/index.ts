@@ -15,7 +15,6 @@ export type WorkspaceRecord = {
   operationToken: string | null;
   createdAt: Date;
   updatedAt: Date;
-  expiresAt: Date;
 };
 
 export type GovernedOperationRecord = {
@@ -85,7 +84,7 @@ export interface GovernanceStore {
 export interface WorkspaceStore {
   getCurrent(identity: IdentityContext, grantId: string): Promise<WorkspaceRecord | null>;
   getOwned(identity: IdentityContext, workspaceId: string): Promise<WorkspaceRecord | null>;
-  createOrGet(identity: IdentityContext, grantId: string, idempotencyKey: string, expiresAt: Date): Promise<WorkspaceRecord>;
+  createOrGet(identity: IdentityContext, grantId: string, idempotencyKey: string): Promise<WorkspaceRecord>;
   claim(workspaceId: string, allowed: WorkspaceState[], next: WorkspaceState): Promise<WorkspaceRecord | null>;
   finish(workspaceId: string, operationToken: string, patch: Partial<Pick<WorkspaceRecord, "state" | "providerId" | "failureCode">>): Promise<WorkspaceRecord>;
   update(workspaceId: string, patch: Partial<Pick<WorkspaceRecord, "state" | "providerId" | "failureCode">>): Promise<WorkspaceRecord>;
@@ -103,7 +102,6 @@ const mapRow = (row: Record<string, unknown>): WorkspaceRecord => ({
   operationToken: row.operation_token ? String(row.operation_token) : null,
   createdAt: new Date(String(row.created_at)),
   updatedAt: new Date(String(row.updated_at)),
-  expiresAt: new Date(String(row.expires_at)),
 });
 
 const operationSelect = `
@@ -159,7 +157,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
@@ -183,7 +181,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
     return result.rowCount ? mapRow(result.rows[0]) : null;
   }
 
-  async createOrGet(identity: IdentityContext, grantId: string, idempotencyKey: string, expiresAt: Date) {
+  async createOrGet(identity: IdentityContext, grantId: string, idempotencyKey: string) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -199,8 +197,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
         const id = randomUUID();
         const now = new Date();
         const inserted = await client.query(
-          "INSERT INTO workspaces (id,tenant_id,subject_id,grant_id,state,created_at,updated_at,expires_at) VALUES ($1,$2,$3,$4,'not_created',$5,$5,$6) RETURNING *",
-          [id, identity.tenantId, identity.subjectId, grantId, now, expiresAt],
+          "INSERT INTO workspaces (id,tenant_id,subject_id,grant_id,state,created_at,updated_at) VALUES ($1,$2,$3,$4,'not_created',$5,$5) RETURNING *",
+          [id, identity.tenantId, identity.subjectId, grantId, now],
         );
         record = mapRow(inserted.rows[0]);
       }
@@ -456,11 +454,11 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore {
     const item = this.records.get(workspaceId);
     return item?.tenantId === identity.tenantId && item.subjectId === identity.subjectId ? item : null;
   }
-  async createOrGet(identity: IdentityContext, grantId: string, _key: string, expiresAt: Date) {
+  async createOrGet(identity: IdentityContext, grantId: string, _key: string) {
     const existing = [...this.records.values()].find((item) => item.tenantId === identity.tenantId && item.subjectId === identity.subjectId && item.grantId === grantId);
     if (existing) return existing;
     const now = new Date();
-    const record: WorkspaceRecord = { id: randomUUID(), ...identity, grantId, state: "not_created", providerId: null, failureCode: null, operationToken: null, createdAt: now, updatedAt: now, expiresAt };
+    const record: WorkspaceRecord = { id: randomUUID(), ...identity, grantId, state: "not_created", providerId: null, failureCode: null, operationToken: null, createdAt: now, updatedAt: now };
     this.records.set(record.id, record);
     return record;
   }

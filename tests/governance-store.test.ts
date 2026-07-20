@@ -9,7 +9,7 @@ const outsider: IdentityContext = { tenantId: "other", subjectId: "alex-morgan",
 
 const setup = async () => {
   const store = new MemoryWorkspaceStore();
-  const workspace = await store.createOrGet(alex, "personal", randomUUID(), new Date(Date.now() + 60_000));
+  const workspace = await store.createOrGet(alex, "personal", randomUUID());
   const now = new Date();
   const envelope: GovernedOperationEnvelope = {
     version: "1",

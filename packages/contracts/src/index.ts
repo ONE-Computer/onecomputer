@@ -32,7 +32,6 @@ export const workspaceViewSchema = z.object({
   readiness: readinessSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
-  expiresAt: z.iso.datetime(),
   failureCode: z.string().nullable(),
 });
 export type WorkspaceView = z.infer<typeof workspaceViewSchema>;
@@ -51,7 +50,6 @@ export type IdentityContext = z.infer<typeof identityContextSchema>;
 export const controllerCreateSchema = z.object({
   workspaceId: z.uuid(),
   correlationId: z.string().min(1).max(128),
-  expiresAt: z.iso.datetime(),
   gateway: z.object({
     baseUrl: z.url(),
     credential: z.string().min(24),

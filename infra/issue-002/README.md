@@ -4,7 +4,8 @@ This stack extends the completed Kasm lifecycle with a pinned LiteLLM data
 plane, disposable LiteLLM PostgreSQL, and a private model/MCP fixture.
 
 The browser reaches only the Web proxy. Control owns the LiteLLM master key and
-derives a short-lived key for each workspace. A workspace key is restricted to
+derives a renewable short-lived key for each persistent workspace. A workspace
+key is restricted to
 the `onecomputer-assistant` model alias, the `onecomputer_fixture` MCP server,
 and its `search_files` tool. The unassigned destructive `delete_file` tool is
 used for negative verification.

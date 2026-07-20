@@ -1,6 +1,6 @@
 # 006: launch a policy-built managed agent workspace
 
-Status: `review`
+Status: `complete`
 
 Gate: E
 Depends on: 005
@@ -54,9 +54,9 @@ network profile. The workspace remains wholly managed by the ONEComputer UI.
 - [x] Proxy removal, client reconfiguration, raw hostname/IP use, and expired,
   revoked, cross-user, cross-workspace, or wrong-audience keys cannot bypass the
   boundary.
-- [ ] Grant renewal and full service restart preserve the workspace; Stop and
+- [x] Grant renewal and full service restart preserve the workspace; Stop and
   Restart from the UI remain authoritative and leave no resource leak.
-- [ ] The desktop application set is deliberately minimal and the deferred
+- [x] The desktop application set is deliberately minimal and the deferred
   Issue 001 application-streamlining note is resolved.
 
 ## Evidence required
@@ -74,8 +74,7 @@ container/network inspection, lifecycle/restart inventory, and secret scan.
 
 ## Completion record
 
-Implementation and automated/live qualification completed on 2026-07-20.
-Evidence is recorded in `infra/issue-006/qualification-2026-07-20.md`.
-
-Waiting for human review of the UI Restart/Stop/Start lifecycle, persistent
-home file, and minimal desktop before closing the issue.
+Completed and accepted on 2026-07-20. The product owner verified the minimal
+desktop, assigned agent policy, real Microsoft Mail/Calendar/OneDrive reads,
+and persistent home data across UI Restart and Stop/Start. Automated and live
+evidence is recorded in `infra/issue-006/qualification-2026-07-20.md`.

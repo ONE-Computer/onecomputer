@@ -1,6 +1,6 @@
 # 007: enable one governed real-model route
 
-Status: `blocked`
+Status: `ready`
 
 Gate: F
 Depends on: 006
@@ -57,4 +57,5 @@ records, restart result, and secret/retention scan.
 
 ## Completion record
 
-Not complete. Blocked on Issue 006.
+Not complete. Issue 006 was accepted on 2026-07-20; this is the next ready
+issue.

@@ -47,7 +47,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /home/node/.ms-365-mcp-server
+      - /home/node/.ms-365-mcp-server:uid=1000,gid=1000,mode=0700
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     healthcheck:

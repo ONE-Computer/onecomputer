@@ -16,7 +16,9 @@ and the minimum proof required before proceeding.
 Issue 000 is the accepted architecture baseline. Issue 001 completed the first
 product slice. Issue 002 and its partial LiteLLM decision were accepted on
 2026-07-19. The user-visible governed-operation implementation spans Issues
-003–005 and is in verification; Issue 006 remains blocked. Completing an issue
+003–005 and is in verification. Its human product acceptance was recorded on
+2026-07-20 and does not need to be repeated; the remaining gaps are automated
+engineering and evidence work. Issue 006 remains blocked. Completing an issue
 may make only its immediate successor ready.
 Gate-closing issues require explicit human review.
 

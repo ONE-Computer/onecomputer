@@ -68,3 +68,11 @@ leases recover fail closed.
 This issue remains in verification pending the general cancellation model and
 durable outbox delivery/retry mechanism required beyond this synchronous local
 fixture.
+
+### Human product acceptance
+
+Accepted by the product owner on 2026-07-20. The user completed the approval
+journey and verified that the bound operation reached `completed`, displayed
+the expected execution receipt, and stated that it was approved, executed once,
+and recorded. This sign-off is complete and does not need to be repeated; only
+the cancellation and durable-outbox engineering criteria remain.

@@ -72,3 +72,12 @@ completed, denied, failed, and receipt states from Control.
 This issue remains in verification until capability assignments are
 data-driven and the full callback outage/gateway restart/clean-volume matrix is
 captured in the Gate C evidence bundle.
+
+### Human product acceptance
+
+Accepted by the product owner on 2026-07-20 with visual evidence from the live
+product. The workspace was open with Identity, Network, Models, and Tools ready;
+the recent destructive operation was completed; and its drawer showed the
+bound file/location plus the execution receipt. This sign-off is complete and
+does not need to be repeated. Remaining verification is automated Gate C
+evidence, not another manual UX pass.

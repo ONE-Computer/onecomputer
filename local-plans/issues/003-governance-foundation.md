@@ -66,3 +66,12 @@ This issue remains in verification because the broader authoritative schema for
 general capability assignments, reusable policy records, cancellation, and
 outbox delivery has not been implemented. The delivered fixture path does not
 pretend those product-wide concerns are complete.
+
+### Human product acceptance
+
+Accepted by the product owner on 2026-07-20. The user verified the persisted
+workspace and completed governed-operation presentation in the running product:
+owned action and resource details, operation binding, terminal status, and an
+execution receipt were all visible after completion. This sign-off is complete
+and does not need to be repeated; the issue remains in verification only for
+the engineering gaps listed above.

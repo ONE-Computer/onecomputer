@@ -410,7 +410,7 @@ function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisc
               {loading ? "Checking" : connected ? "Connected" : expired ? "Reconnect required" : "Not connected"}
             </span>
           </div>
-          <p className="connection-description">Use the approved read-only Microsoft 365 tools through the ONEComputer AI gateway.</p>
+          <p className="connection-description">Use approved Microsoft 365 tools through the ONEComputer AI gateway. Protected actions require approval.</p>
           <div className="connection-services" aria-label="Included services">
             <span>Outlook Mail</span><span>Calendar</span><span>OneDrive</span>
           </div>

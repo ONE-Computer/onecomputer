@@ -132,6 +132,77 @@ export class GovernedOperationService {
     return toView(record);
   }
 
+  async createMicrosoft365Delete(
+    identity: IdentityContext,
+    workspaceId: string,
+    input: { driveId: string; driveItemId: string; "If-Match": string },
+    agentId: string,
+    policy: { policyVersionId: string; policyHash: string },
+    idempotencyKey: string,
+    correlationId: string,
+  ) {
+    const workspace = await this.store.getOwned(identity, workspaceId);
+    if (!workspace) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
+    if (!["ready", "open"].includes(workspace.state)) throw new OneComputerError("WORKSPACE_NOT_READY", "The workspace is not ready for governed actions", 409, true);
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.operationTtlMs);
+    const operationId = randomUUID();
+    const nonce = randomUUID();
+    const argumentsValue: OwnedJson = {
+      "If-Match": input["If-Match"],
+      confirm: true,
+      driveId: input.driveId,
+      driveItemId: input.driveItemId,
+      excludeResponse: true,
+    };
+    const operationEnvelope: GovernedOperationEnvelope = {
+      version: "1",
+      tenantId: identity.tenantId,
+      subjectId: identity.subjectId,
+      workspaceId,
+      agentId,
+      audience: identity.audience,
+      capabilityId: "onedrive-delete-protected",
+      serverName: "onecomputer_ms365",
+      toolName: "delete-onedrive-file",
+      schemaId: "onecomputer.m365.delete-onedrive-file.v1",
+      arguments: argumentsValue,
+      policyVersionId: policy.policyVersionId,
+      policyHash: policy.policyHash,
+      nonce,
+      expiresAt: expiresAt.toISOString(),
+    };
+    const operationDigest = governedOperationDigest(operationEnvelope);
+    const shortItem = input.driveItemId.length > 20 ? `${input.driveItemId.slice(0, 8)}…${input.driveItemId.slice(-8)}` : input.driveItemId;
+    const shortDrive = input.driveId.length > 20 ? `${input.driveId.slice(0, 8)}…${input.driveId.slice(-8)}` : input.driveId;
+    const record = await this.store.createGovernedOperation({
+      id: operationId,
+      identity,
+      workspaceId,
+      agentId,
+      capabilityId: operationEnvelope.capabilityId,
+      serverName: operationEnvelope.serverName,
+      toolName: operationEnvelope.toolName,
+      schemaId: operationEnvelope.schemaId,
+      arguments: operationEnvelope.arguments,
+      operationDigest,
+      nonce,
+      safeSummary: `Delete OneDrive item ${shortItem}`,
+      resourceName: shortItem,
+      resourceLocation: `OneDrive drive ${shortDrive}`,
+      correlationId,
+      idempotencyKey,
+      createdAt: now,
+      expiresAt,
+    });
+    if (!record) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
+    if (record.operationDigest !== operationDigest) {
+      throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
+    }
+    return toView(record);
+  }
+
   async get(identity: IdentityContext, operationId: string) {
     const record = await this.store.recoverOperation(identity, operationId, new Date(), "operation-read");
     if (!record) throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
@@ -230,6 +301,7 @@ export class GovernedOperationService {
         operationId: claimed.id,
         operationDigest: claimed.operationDigest,
         leaseId,
+        agentId: claimed.agentId ?? undefined,
         serverName: claimed.serverName,
         toolName: claimed.toolName,
         arguments: claimed.arguments,

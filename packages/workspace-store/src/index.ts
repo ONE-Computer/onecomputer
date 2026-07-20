@@ -23,6 +23,7 @@ export type GovernedOperationRecord = {
   tenantId: string;
   subjectId: string;
   workspaceId: string;
+  agentId: string | null;
   capabilityId: string;
   serverName: string;
   toolName: string;
@@ -38,6 +39,7 @@ export type GovernedOperationRecord = {
   correlationId: string;
   leaseId: string | null;
   leaseExpiresAt: Date | null;
+  dispatchStartedAt: Date | null;
   failureCode: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -47,9 +49,10 @@ export type GovernedOperationRecord = {
 };
 
 export type CreateGovernedOperationRecord = Omit<GovernedOperationRecord,
-  "tenantId" | "subjectId" | "state" | "policyDecision" | "leaseId" | "leaseExpiresAt" | "failureCode" | "createdAt" | "updatedAt" | "approval" | "receipt"
+  "tenantId" | "subjectId" | "agentId" | "state" | "policyDecision" | "leaseId" | "leaseExpiresAt" | "dispatchStartedAt" | "failureCode" | "createdAt" | "updatedAt" | "approval" | "receipt"
 > & {
   identity: IdentityContext;
+  agentId?: string;
   idempotencyKey: string;
   createdAt: Date;
 };
@@ -77,6 +80,18 @@ export interface GovernanceStore {
   getRecentOperation(identity: IdentityContext): Promise<GovernedOperationRecord | null>;
   recordApproval(input: ApprovalRecordInput): Promise<GovernedOperationRecord | null>;
   claimExecution(identity: IdentityContext, operationId: string, leaseId: string, leaseExpiresAt: Date, correlationId: string): Promise<GovernedOperationRecord | null>;
+  claimToolDispatch(identity: IdentityContext, input: {
+    operationId: string;
+    operationDigest: string;
+    leaseId: string;
+    workspaceId: string;
+    agentId: string;
+    serverName: string;
+    toolName: string;
+    arguments: OwnedJson;
+    dispatchedAt: Date;
+    correlationId: string;
+  }): Promise<boolean>;
   completeExecution(identity: IdentityContext, operationId: string, leaseId: string, receipt: { id: string; upstreamReference: string; resultSummary: string; resultHash: string; executedAt: Date }, correlationId: string): Promise<GovernedOperationRecord | null>;
   failExecution(identity: IdentityContext, operationId: string, leaseId: string, failureCode: string, correlationId: string): Promise<GovernedOperationRecord | null>;
   recoverOperation(identity: IdentityContext, operationId: string, now: Date, correlationId: string): Promise<GovernedOperationRecord | null>;
@@ -118,6 +133,7 @@ const mapOperationRow = (row: Record<string, unknown>): GovernedOperationRecord 
   tenantId: String(row.tenant_id),
   subjectId: String(row.subject_id),
   workspaceId: String(row.workspace_id),
+  agentId: row.agent_id ? String(row.agent_id) : null,
   capabilityId: String(row.capability_id),
   serverName: String(row.server_name),
   toolName: String(row.tool_name),
@@ -133,6 +149,7 @@ const mapOperationRow = (row: Record<string, unknown>): GovernedOperationRecord 
   correlationId: String(row.correlation_id),
   leaseId: row.lease_id ? String(row.lease_id) : null,
   leaseExpiresAt: row.lease_expires_at ? new Date(String(row.lease_expires_at)) : null,
+  dispatchStartedAt: row.dispatch_started_at ? new Date(String(row.dispatch_started_at)) : null,
   failureCode: row.failure_code ? String(row.failure_code) : null,
   createdAt: new Date(String(row.created_at)),
   updatedAt: new Date(String(row.updated_at)),
@@ -158,7 +175,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
@@ -267,12 +284,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
       }
       await client.query(
         `INSERT INTO governed_operations (
-          id,tenant_id,subject_id,workspace_id,capability_id,server_name,tool_name,schema_id,arguments_json,
+          id,tenant_id,subject_id,workspace_id,agent_id,capability_id,server_name,tool_name,schema_id,arguments_json,
           operation_digest,nonce,state,policy_decision,safe_summary,resource_name,resource_location,
           idempotency_key,correlation_id,created_at,updated_at,expires_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,'approval_required','approval_required',$12,$13,$14,$15,$16,$17,$17,$18)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,'approval_required','approval_required',$13,$14,$15,$16,$17,$18,$18,$19)`,
         [
-          input.id, input.identity.tenantId, input.identity.subjectId, input.workspaceId, input.capabilityId,
+          input.id, input.identity.tenantId, input.identity.subjectId, input.workspaceId, input.agentId ?? null, input.capabilityId,
           input.serverName, input.toolName, input.schemaId, JSON.stringify(input.arguments), input.operationDigest,
           input.nonce, input.safeSummary, input.resourceName, input.resourceLocation, input.idempotencyKey,
           input.correlationId, input.createdAt, input.expiresAt,
@@ -369,6 +386,26 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
     } finally {
       client.release();
     }
+  }
+
+  async claimToolDispatch(identity: IdentityContext, input: {
+    operationId: string; operationDigest: string; leaseId: string; workspaceId: string; agentId: string; serverName: string;
+    toolName: string; arguments: OwnedJson; dispatchedAt: Date; correlationId: string;
+  }) {
+    const result = await this.pool.query(
+      `UPDATE governed_operations SET dispatch_started_at=$11,updated_at=$11
+       WHERE id=$1 AND tenant_id=$2 AND subject_id=$3 AND workspace_id=$4 AND state='executing'
+         AND agent_id=$5 AND operation_digest=$6 AND lease_id=$7 AND lease_expires_at>$11
+         AND server_name=$8 AND tool_name=$9 AND arguments_json=$10::jsonb
+         AND dispatch_started_at IS NULL RETURNING id`,
+      [input.operationId, identity.tenantId, identity.subjectId, input.workspaceId, input.agentId, input.operationDigest,
+        input.leaseId, input.serverName, input.toolName, JSON.stringify(input.arguments), input.dispatchedAt],
+    );
+    if (result.rowCount) await this.pool.query(
+      "INSERT INTO governed_operation_events (operation_id,tenant_id,event_type,correlation_id) VALUES ($1,$2,'dispatch_started',$3)",
+      [input.operationId, identity.tenantId, input.correlationId],
+    );
+    return Boolean(result.rowCount);
   }
 
   async completeExecution(identity: IdentityContext, operationId: string, leaseId: string, receipt: { id: string; upstreamReference: string; resultSummary: string; resultHash: string; executedAt: Date }, correlationId: string) {
@@ -498,6 +535,7 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore {
       tenantId: input.identity.tenantId,
       subjectId: input.identity.subjectId,
       workspaceId: input.workspaceId,
+      agentId: input.agentId ?? null,
       capabilityId: input.capabilityId,
       serverName: input.serverName,
       toolName: input.toolName,
@@ -513,6 +551,7 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore {
       correlationId: input.correlationId,
       leaseId: null,
       leaseExpiresAt: null,
+      dispatchStartedAt: null,
       failureCode: null,
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
@@ -558,6 +597,28 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore {
     const next: GovernedOperationRecord = { ...record, state: "executing", leaseId, leaseExpiresAt, updatedAt: new Date() };
     this.operations.set(record.id, next);
     return next;
+  }
+
+  async claimToolDispatch(identity: IdentityContext, input: {
+    operationId: string; operationDigest: string; leaseId: string; workspaceId: string; agentId: string; serverName: string;
+    toolName: string; arguments: OwnedJson; dispatchedAt: Date; correlationId: string;
+  }) {
+    const record = this.operations.get(input.operationId);
+    if (!record || record.tenantId !== identity.tenantId || record.subjectId !== identity.subjectId) return false;
+    const matches = record.state === "executing"
+      && record.workspaceId === input.workspaceId
+      && record.agentId === input.agentId
+      && record.operationDigest === input.operationDigest
+      && record.leaseId === input.leaseId
+      && record.leaseExpiresAt !== null
+      && record.leaseExpiresAt > input.dispatchedAt
+      && record.serverName === input.serverName
+      && record.toolName === input.toolName
+      && JSON.stringify(record.arguments) === JSON.stringify(input.arguments)
+      && record.dispatchStartedAt === null;
+    if (!matches) return false;
+    this.operations.set(record.id, { ...record, dispatchStartedAt: input.dispatchedAt, updatedAt: input.dispatchedAt });
+    return true;
   }
 
   async completeExecution(identity: IdentityContext, operationId: string, leaseId: string, receipt: { id: string; upstreamReference: string; resultSummary: string; resultHash: string; executedAt: Date }, _correlationId: string) {

@@ -104,7 +104,7 @@ const mvpPolicyDocument = (revisionNote = "Initial MVP policy") => ({
   mcp: {
     servers: {
       onecomputer_ms365: {
-        tools: ["list-mail-folders", "list-calendars", "list-drives"],
+        tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "delete-onedrive-file"],
       },
     },
   },

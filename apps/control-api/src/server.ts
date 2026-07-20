@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, type RuntimePolicy } from "@onecomputer/contracts";
+import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, type RuntimePolicy } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { FixtureApprovalAuthority, GovernedOperationService } from "./operations
 import { Microsoft365ConnectionService } from "./connections.js";
 import { HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
 import { EntraAuthenticationService, isAdministrator, testPrincipalFromHeaders } from "./auth.js";
+import { McpPolicyService } from "./mcp-policy.js";
 
 type AuthenticationBoundary = Pick<EntraAuthenticationService, "begin" | "complete" | "authenticate" | "logout">;
 
@@ -52,6 +53,7 @@ export function createControlServer(
   security: {
     authentication?: AuthenticationBoundary;
     identityPolicyStore?: IdentityPolicyStore;
+    mcpPolicyToken?: string;
     testIdentityMode?: boolean;
   } = {},
 ) {
@@ -69,7 +71,7 @@ export function createControlServer(
     allowedTools: ["search_files"],
   };
   const app = Fastify({
-    logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] },
+    logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.x-onecomputer-mcp-policy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] },
     logController: new LogController({
       disableRequestLogging: (request) => request.url.startsWith("/v1/connections/microsoft-365/callback") || request.url.startsWith("/v1/auth/callback"),
     }),
@@ -80,6 +82,7 @@ export function createControlServer(
     ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
     : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
   const operations = new GovernedOperationService(store, executor, new FixtureApprovalAuthority(fixtureApprovalSecret));
+  const mcpPolicy = security.identityPolicyStore ? new McpPolicyService(security.identityPolicyStore, store, operations) : undefined;
   const oauthGateway = gateway
     && typeof (gateway as Partial<OAuthConnectionGateway>).beginUserOAuthConnection === "function"
     && typeof (gateway as Partial<OAuthConnectionGateway>).completeUserOAuthConnection === "function"
@@ -102,6 +105,12 @@ export function createControlServer(
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/healthz") return;
+    if (request.url === "/internal/v1/mcp/authorize") {
+      if (!sameSecret(request.headers["x-onecomputer-mcp-policy-token"] as string | undefined, security.mcpPolicyToken ?? proxyToken)) {
+        return reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "Internal policy authentication is required", correlationId: request.id, retryable: false } });
+      }
+      return;
+    }
     if (!sameSecret(request.headers["x-onecomputer-proxy-token"] as string | undefined, proxyToken)) {
       return reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "Authentication is required", correlationId: request.id, retryable: false } });
     }
@@ -139,6 +148,10 @@ export function createControlServer(
   };
 
   app.get("/healthz", async () => ({ status: "ok" }));
+  app.post("/internal/v1/mcp/authorize", async (request) => {
+    if (!mcpPolicy) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "MCP policy storage is unavailable", 503, true);
+    return mcpPolicy.authorize(mcpPolicyRequestSchema.parse(request.body ?? {}), request.id);
+  });
   app.get<{ Querystring: { return?: string } }>("/v1/auth/login", async (request, reply) => {
     if (!security.authentication) throw new OneComputerError("AUTH_NOT_CONFIGURED", "Microsoft sign-in is not configured", 503);
     const started = await security.authentication.begin(request.query.return);
@@ -292,6 +305,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     { publicWebUrl: env.PUBLIC_WEB_URL, authorizationOrigin: env.M365_AUTHORIZATION_ORIGIN },
     {
       identityPolicyStore,
+      mcpPolicyToken: env.CONTROLLER_INTERNAL_TOKEN,
       authentication: new EntraAuthenticationService(identityPolicyStore, {
         tenantId: env.ENTRA_TENANT_ID,
         clientId: env.ENTRA_CLIENT_ID,

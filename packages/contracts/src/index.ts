@@ -134,12 +134,15 @@ export type GovernedOperationEnvelope = {
   tenantId: string;
   subjectId: string;
   workspaceId: string;
+  agentId?: string;
   audience: string;
   capabilityId: string;
   serverName: string;
   toolName: string;
   schemaId: string;
   arguments: OwnedJson;
+  policyVersionId?: string;
+  policyHash?: string;
   nonce: string;
   expiresAt: string;
 };
@@ -189,6 +192,44 @@ export type CreateDeleteFileOperation = z.infer<typeof createDeleteFileOperation
 export const fixtureApprovalSchema = z.strictObject({
   decision: z.enum(["approve", "deny"]),
 });
+
+const ownedJsonSchema: z.ZodType<OwnedJson> = z.lazy(() => z.union([
+  z.null(),
+  z.boolean(),
+  z.number().finite(),
+  z.string(),
+  z.array(ownedJsonSchema),
+  z.record(z.string(), ownedJsonSchema),
+]));
+
+export const mcpPolicyRequestSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  tenantId: z.string().min(1).max(128),
+  subjectId: z.string().min(1).max(128),
+  workspaceId: z.uuid(),
+  agentId: z.string().min(1).max(128),
+  policyVersionId: z.string().min(1).max(128).nullable(),
+  policyHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  operationId: z.uuid().nullable(),
+  operationDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  leaseId: z.uuid().nullable(),
+  serverId: z.string().regex(/^[a-f0-9]{32}$/),
+  serverName: z.string().min(1).max(128),
+  toolName: z.string().min(1).max(128),
+  arguments: ownedJsonSchema,
+});
+export type McpPolicyRequest = z.infer<typeof mcpPolicyRequestSchema>;
+
+export const mcpPolicyDecisionSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  decision: z.enum(["allow", "deny", "approval_required"]),
+  code: z.string().min(1).max(128),
+  capabilityId: z.string().min(1).max(128).nullable(),
+  schemaId: z.string().min(1).max(160).nullable(),
+  schemaHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  operationId: z.uuid().nullable(),
+});
+export type McpPolicyDecision = z.infer<typeof mcpPolicyDecisionSchema>;
 
 export const operationViewSchema = z.object({
   id: z.uuid(),

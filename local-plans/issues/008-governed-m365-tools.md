@@ -1,6 +1,6 @@
 # 008: govern the Microsoft 365 MCP capability surface
 
-Status: `ready`
+Status: `verification`
 
 Gate: G
 Depends on: 007
@@ -43,9 +43,9 @@ denied, or requires approval immediately before execution.
 
 ## Required verification
 
-- [ ] Assigned bounded reads succeed; unassigned, cross-user/tenant/workspace,
+- [x] Assigned bounded reads succeed; unassigned, cross-user/tenant/workspace,
   over-limit, wrong-server/tool/schema, and direct MCP/Graph attempts deny.
-- [ ] Control receives and validates the exact authenticated identity and
+- [x] Control receives and validates the exact authenticated identity and
   canonical arguments before any upstream connection.
 - [ ] The protected delete reaches Microsoft zero times before approval and
   once after one valid exact bound fixture decision.
@@ -54,7 +54,7 @@ denied, or requires approval immediately before execution.
   and restart yield zero unsafe executions.
 - [ ] The provider result becomes an honest safe receipt; ambiguous completion
   is not automatically retried.
-- [ ] Workspace, browser, Control policy payloads, logs, and evidence contain no
+- [x] Workspace, browser, Control policy payloads, logs, and evidence contain no
   OAuth token or unrestricted Microsoft content.
 
 ## Evidence required
@@ -72,5 +72,9 @@ negative/mutation/restart matrix, receipt projection, and credential scan.
 
 ## Completion record
 
-Not complete. Issue 007 was accepted on 2026-07-20; this is the next ready
-issue.
+Implementation and automated/live fail-closed qualification completed on
+2026-07-20. The final five-tool policy is promoted immutably to version 3.
+Final completion waits
+for the user to reconnect with `Files.ReadWrite`, restart the workspace from
+the UI, and approve deletion of one disposable OneDrive file. See
+`infra/issue-008/governed-policy-qualification-2026-07-20.md`.

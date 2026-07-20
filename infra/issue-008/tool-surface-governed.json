@@ -1,0 +1,56 @@
+{
+  "provider": "@softeria/ms-365-mcp-server",
+  "version": "0.131.2",
+  "litellmVersion": "1.93.0",
+  "serverName": "onecomputer_ms365",
+  "serverId": "9885e7f76089931fc5365104183af8ea",
+  "scopes": ["Calendars.Read", "Files.ReadWrite", "Mail.Read", "User.Read"],
+  "tools": {
+    "list-mail-folders": {
+      "capabilityId": "m365.mail-folders.list",
+      "decision": "allow",
+      "schemaId": "onecomputer.m365.list-mail-folders.v1",
+      "schemaHash": "93b5b67eabca418bf389be849e287c70b3ca0a3d88dfee6c72026a1da81669aa",
+      "arguments": { "top": "optional integer 1..25; every other argument denied" }
+    },
+    "list-calendars": {
+      "capabilityId": "m365.calendars.list",
+      "decision": "allow",
+      "schemaId": "onecomputer.m365.list-calendars.v1",
+      "schemaHash": "7b6174f71fbdf879f94977e5d02fcbb45458f95076ee8ab1b1ceaed53228f47e",
+      "arguments": { "top": "optional integer 1..25; every other argument denied" }
+    },
+    "list-drives": {
+      "capabilityId": "m365.drives.list",
+      "decision": "allow",
+      "schemaId": "onecomputer.m365.list-drives.v1",
+      "schemaHash": "b29418b35042af19ef23e7d4646611e9f92848279eb338a9da72f247af5d8e45",
+      "arguments": { "top": "optional integer 1..25; every other argument denied" }
+    },
+    "search-onedrive-files": {
+      "capabilityId": "m365.files.search",
+      "decision": "allow",
+      "schemaId": "onecomputer.m365.search-onedrive-files.v1",
+      "schemaHash": "c76630a71e76adf0cce3600ad788cb95b3b74bfae72d7ca9552632f1970df01d",
+      "arguments": {
+        "driveId": "required non-empty string up to 512 characters",
+        "q": "required non-empty string up to 128 characters",
+        "top": "optional integer 1..10; every other argument denied"
+      }
+    },
+    "delete-onedrive-file": {
+      "capabilityId": "onedrive-delete-protected",
+      "decision": "approval_required",
+      "schemaId": "onecomputer.m365.delete-onedrive-file.v1",
+      "schemaHash": "cbeedd72003f1808db2ac179748dd530e4491401ecceb2827dc9538194aabf90",
+      "requestArguments": ["driveId", "driveItemId", "If-Match"],
+      "executionArgumentsAddedByControl": { "confirm": true, "excludeResponse": true }
+    }
+  },
+  "requalifyWhen": [
+    "LiteLLM image/version or MCP dispatcher hook path changes",
+    "Softeria package/version, tool name, input schema, or confirmation behavior changes",
+    "server name, URL, transport, authentication type, scopes, or stable server ID changes",
+    "owned argument projection, schema ID/hash, result projection, or policy callback changes"
+  ]
+}

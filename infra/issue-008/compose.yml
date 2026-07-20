@@ -1,7 +1,11 @@
 services:
   litellm:
+    environment:
+      ONECOMPUTER_MCP_POLICY_URL: http://control-api:4100/internal/v1/mcp/authorize
+      ONECOMPUTER_MCP_POLICY_TOKEN: ${ONECOMPUTER_CONTROLLER_TOKEN:?set ONECOMPUTER_CONTROLLER_TOKEN}
     volumes:
       - ../issue-008/litellm-config.yaml:/app/config.yaml:ro
+      - ../issue-008/onecomputer_policy_callback.py:/app/onecomputer_policy_callback.py:ro
     depends_on:
       ms365-mcp: { condition: service_healthy }
 
@@ -20,9 +24,10 @@ services:
       - --org-mode
       - --preset
       - mail,calendar,files
-      - --read-only
+      - --enabled-tools
+      - ^(list-mail-folders|list-calendars|list-drives|search-onedrive-files|delete-onedrive-file)$
       - --allowed-scopes
-      - User.Read Mail.Read Calendars.Read Files.Read
+      - User.Read Mail.Read Calendars.Read Files.ReadWrite
       - --no-dynamic-registration
       - --allow-unauthenticated-discovery
     environment:

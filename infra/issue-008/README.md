@@ -1,139 +1,88 @@
-# Issue 008 early Microsoft 365 connector bring-up
+# Issue 008 governed Microsoft 365 tools
 
-This overlay adds Softeria's Microsoft 365 MCP server to the existing Issue 002
-stack as the private `ms365-mcp` service. It is an early, reversible candidate
-deployment; it does not close Issue 008 or claim live Microsoft qualification.
+This overlay keeps Softeria's pinned Microsoft 365 MCP server private behind
+LiteLLM while making ONEComputer Control the decision authority immediately
+before each Microsoft tool execution.
 
-The service covers three product capability families:
+The workspace receives one LiteLLM key bound to its owned tenant, user, agent,
+workspace, and immutable policy version. LiteLLM resolves that key and the
+exact MCP tool, then the mounted `onecomputer_policy_callback.py` sends the
+authenticated binding and exact arguments to Control. Missing context,
+unknown/malformed decisions, timeout, or Control outage deny the call.
 
-- Outlook Mail read and search;
-- Outlook Calendar read, calendar view, and availability lookup; and
-- OneDrive file/folder browse, metadata, and search.
+## Qualified capability surface
 
-The initial surface is intentionally read-only. `send-mail`, event creation or
-mutation, and OneDrive mutation/deletion are not discoverable. Later work must
-enable individual write tools only through ONEComputer's governed-operation and
-execution-lease path.
+Only five tools are registered in LiteLLM for `onecomputer_ms365`:
 
-## Pin and supply-chain record
+- `list-mail-folders`, `list-calendars`, and `list-drives` are automatically
+  allowed only with `{}` or `{ "top": 1..25 }`;
+- `search-onedrive-files` is limited to one drive, a 128-character query, and
+  at most 10 results so the agent can resolve the item ID and eTag to bind;
+- `delete-onedrive-file` requires `driveId`, `driveItemId`, and `If-Match` and
+  never reaches Microsoft on the initial agent call;
+- every other argument and Microsoft tool is undiscoverable or denied.
 
-- npm package: `@softeria/ms-365-mcp-server@0.131.2`
-- npm integrity:
-  `sha512-gX2pDV12LDtwRaKBqLUPwLZTEHAFIp/uETfwVhuFnC0PM/Cygu0YvYJaAbTK3g3dkGjuPHKbTVJi7fXmDUegTg==`
-- upstream source tag: `v0.131.2`
-- upstream source commit: `0dd76d275dbf58366a8f349c7cc86bf0b970bdc3`
-- license: MIT
-- base image: `node:24-alpine` at OCI digest
-  `sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd`
-- first qualified local image:
-  `onecomputer/softeria-ms365-mcp@sha256:1f24a474e7f0605ec55e621f4b2273ac79bd040c6a8a87ff41ea3335266437bb`
+Control persists a delete request with the exact tenant/user/workspace,
+capability, server/tool/schema identity, drive/item/eTag, policy version/hash,
+nonce, and expiry. Approval creates one short execution lease. Control adds
+`confirm: true` and `excludeResponse: true`; the callback atomically consumes
+the exact dispatch binding before Softeria receives it. Replay or mutation is
+denied. Ambiguous completion is not retried.
 
-The committed npm lockfile pins the full dependency graph and registry
-integrities. Rebuilds must re-run the tests below and record the resulting local
-image digest instead of assuming it remains identical.
+The complete IDs, hashes, and requalification triggers are pinned in
+`tool-surface-governed.json`.
 
-## Effective permission boundary
+## Credentials and delegated scopes
 
-The server advertises only these delegated Microsoft Graph scopes:
+OAuth tokens remain in LiteLLM's per-user credential store and are sent only
+to Softeria for that user's call. They are never returned to Control or the
+workspace. The connector requests exactly:
 
 ```text
-User.Read Mail.Read Calendars.Read Files.Read
+User.Read Mail.Read Calendars.Read Files.ReadWrite
 ```
 
-The `mail,calendar,files` presets are further restricted by `--read-only` and
-the explicit scope allowlist. Pagination is capped at 4 pages / 100 accumulated
-items, and `$top` is capped at 25.
+`Files.ReadWrite` is required for the single protected delete capability. It
+does not grant the workspace unrestricted writes: LiteLLM exposes only the
+five pinned tools and Control denies every delete until an exact approval
+lease exists. Existing users connected under the earlier `Files.Read` slice
+must disconnect and reconnect once to consent to the new scope.
 
-The currently pinned deployment exposes 33 tools, recorded in
-`tool-surface-readonly.json`. Any tool-name or input-schema change is a
-requalification trigger.
+## Pin and network record
+
+- LiteLLM: `v1.93.0` at the digest in `infra/issue-002/compose.yml`
+- Softeria package: `@softeria/ms-365-mcp-server@0.131.2`
+- upstream tag/commit: `v0.131.2` / `0dd76d275dbf58366a8f349c7cc86bf0b970bdc3`
+- license: MIT
+- stable LiteLLM server ID: `9885e7f76089931fc5365104183af8ea`
+
+The connector is reachable only from `gateway-private`; only the connector
+joins `ms365-egress`. Workspaces can reach LiteLLM but cannot reach Softeria,
+Graph, PostgreSQL, Docker, or Control directly. Port 3001 is a loopback-only
+local OAuth browser bridge. Replace it with authenticated HTTPS before
+production.
 
 ## Start
-
-Run the overlay with the existing stack definition:
 
 ```bash
 docker compose \
   --env-file .env \
   -f infra/issue-002/compose.yml \
   -f infra/issue-008/compose.yml \
-  build ms365-mcp
-
-docker compose \
-  --env-file .env \
-  -f infra/issue-002/compose.yml \
-  -f infra/issue-008/compose.yml \
-  up -d --no-deps ms365-mcp
+  up -d --build
 ```
 
-Before real OAuth, set `ONECOMPUTER_MS365_CLIENT_ID` and
-`ONECOMPUTER_MS365_TENANT_ID` to the dedicated single-tenant Entra app values.
-The default all-zero client ID makes authentication fail closed and avoids
-silently using Softeria's shared application. If the Entra app is confidential,
-provide its secret through an approved runtime secret mechanism as
-`ONECOMPUTER_MS365_CLIENT_SECRET`; do not commit it.
+The dedicated Entra application values stay in the ignored `.env`. Never paste
+OAuth tokens or provider secrets into chat or commit them.
 
-Its internal MCP URL is:
+## Verification
 
-```text
-http://ms365-mcp:3000/mcp
-```
+Automated tests cover exact identity/policy binding, bounded reads, over-broad
+arguments, protected-operation persistence, mutation, exact lease dispatch,
+and replay. The live qualification record is
+`governed-policy-qualification-2026-07-20.md`.
 
-Only services on `gateway-private`, including LiteLLM, can reach that URL. The
-separate `ms365-egress` network gives only the trusted connector the outbound
-lane required for Microsoft login and Graph calls; workspaces do not join it.
-Production must constrain that lane to the approved Microsoft endpoints.
-
-For local browser consent only, the connector is bound to host loopback and
-advertised as `http://localhost:3001`; it is not reachable from the LAN or a
-sandbox. Its redirect allowlist contains only LiteLLM's local OAuth callback at
-`http://localhost:4000/callback`. Entra permits local HTTP web callbacks only
-with the literal `localhost`, so open the LiteLLM UI through
-`http://localhost:4000/ui` during consent. Replace this development exception
-with an authenticated HTTPS authorization route before production.
-
-The Issue 008 LiteLLM overlay registers the server as `onecomputer_ms365` with
-an interactive per-user authorization-code flow. LiteLLM is configured to
-retain each user's OAuth tokens; the connector receives a bearer token only for
-that user's tool call. The server is not assigned to existing workspace keys,
-so registration does not grant a sandbox access.
-
-LiteLLM PostgreSQL now uses the named
-`onecomputer-v4-litellm-postgres-data` volume and LiteLLM requires the dedicated
-stable `ONECOMPUTER_LITELLM_SALT_KEY`. Losing or changing that value makes
-stored OAuth credentials undecryptable. It must come from a durable secret
-store in production and must remain distinct from the LiteLLM master key.
-
-The gateway can discover the read-only tool catalog before Microsoft consent,
-but real tool execution requires the dedicated Entra client ID/tenant ID and a
-user-completed browser consent flow. No OAuth token or Microsoft password should
-be pasted into chat, committed, or passed to a workspace.
-
-## Current deployed checks
-
-- container health endpoint returned 200;
-- OAuth protected-resource metadata advertised exactly the four scopes above;
-- unauthenticated MCP discovery returned exactly the 33 expected read tools;
-- LiteLLM loaded `onecomputer_ms365` and the same 33-tool allowlist while the
-  existing workspace grant remained unassigned;
-- the local OAuth bridge redirected LiteLLM -> loopback connector -> the
-  tenant-scoped Microsoft authorization endpoint with only the four allowed
-  Graph scopes plus `offline_access`;
-- the connector-only egress lane reached Microsoft login and Graph metadata;
-- an unauthenticated tool call returned 401 before Microsoft Graph execution;
-- no non-loopback host port was published; local port 3001 exists only for the
-  browser leg of OAuth;
-- the process runs as UID 1000 with a read-only root filesystem, all Linux
-  capabilities dropped, and `no-new-privileges` enabled;
-- the locked production dependency tree reported zero npm audit findings.
-
-One interactive Entra connection was completed before persistent storage was
-enabled, but the disposable database already contained zero OAuth rows when
-this was discovered. That connection must be repeated under the mapped
-ONEComputer user identity; connecting as the generic LiteLLM administrator is
-not sufficient for an agent key with a different `user_id`.
-
-The repeatable synthetic custody qualification and its conditional result are
-recorded in `qualification-2026-07-20.md`. Real identity-bound Graph reads,
-wrong-tenant/provider behavior, production connection UI, and real-token leak
-scans remain unverified.
+Final human review requires reconnecting Microsoft 365 for `Files.ReadWrite`,
+restarting the workspace from the ONEComputer UI so policy version 3 reaches
+the agent environment, and deleting one disposable file through the approval
+drawer. Do not use a production document.

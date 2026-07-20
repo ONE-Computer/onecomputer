@@ -11,11 +11,31 @@ export type GatewayGrant = {
 export type GatewayReadiness = {
   models: "ready" | "failed";
   tools: "ready" | "failed";
+  modelRoute?: GatewayModelRoute;
+};
+
+export type GatewayModelRoute = {
+  alias: string;
+  status: "ready" | "failed";
+  fallback: "none";
+  budget: {
+    limitUsd: number;
+    spentUsd: number;
+    remainingUsd: number;
+    duration: "30d";
+    resetsAt: string | null;
+  };
+  limits: {
+    requestsPerMinute: number;
+    tokensPerMinute: number;
+    maxParallelRequests: number;
+  };
 };
 
 export type GatewayTestResult = {
   model: string;
-  response: string;
+  availability: "ready";
+  modelRoute: GatewayModelRoute;
   tools: Array<{ name: string; description: string }>;
   apiBaseUrl: string;
   mcpUrl: string;
@@ -93,6 +113,11 @@ type LiteLLMConfig = {
 type JsonObject = Record<string, unknown>;
 
 const asObject = (value: unknown): JsonObject => value && typeof value === "object" ? value as JsonObject : {};
+const WORKSPACE_MAX_BUDGET_USD = 1;
+const WORKSPACE_BUDGET_DURATION = "30d" as const;
+const WORKSPACE_RPM_LIMIT = 30;
+const WORKSPACE_TPM_LIMIT = 50_000;
+const WORKSPACE_MAX_PARALLEL_REQUESTS = 4;
 
 export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecutor, OAuthConnectionGateway {
   private readonly adminUrl: string;
@@ -376,9 +401,11 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       agent_id: gatewayAgentId,
       duration: `${durationSeconds}s`,
       models: [modelAlias],
-      max_budget: 1,
-      rpm_limit: 60,
-      tpm_limit: 100_000,
+      max_budget: WORKSPACE_MAX_BUDGET_USD,
+      budget_duration: WORKSPACE_BUDGET_DURATION,
+      rpm_limit: WORKSPACE_RPM_LIMIT,
+      tpm_limit: WORKSPACE_TPM_LIMIT,
+      max_parallel_requests: WORKSPACE_MAX_PARALLEL_REQUESTS,
       metadata: {
         onecomputer_workspace_id: input.workspaceId,
         onecomputer_tenant_id: input.identity.tenantId,
@@ -431,9 +458,10 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     const modelAlias = policy?.modelAlias ?? this.modelAlias;
     const allowedTools = policy?.allowedTools ?? this.allowedTools;
     const credential = this.credentialFor(workspaceId, effectiveAgentId);
-    const [models, tools] = await Promise.all([
+    const [models, tools, modelRoute] = await Promise.all([
       this.dataCall("/v1/models", credential),
       this.dataCall("/mcp-rest/tools/list", credential),
+      this.modelRoute(credential, workspaceId, effectiveAgentId, modelAlias),
     ]);
     if (!models.ok || !tools.ok) this.workspaceGrantStates.delete(credential);
     const modelIds = Array.isArray(asObject(models.payload).data)
@@ -445,6 +473,39 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     return {
       models: models.ok && modelIds.includes(modelAlias) ? "ready" : "failed",
       tools: tools.ok && allowedTools.length === toolNames.length && allowedTools.every((tool) => toolNames.includes(tool)) ? "ready" : "failed",
+      modelRoute: {
+        ...modelRoute,
+        status: models.ok && modelIds.includes(modelAlias) ? "ready" : "failed",
+      },
+    };
+  }
+
+  private async modelRoute(credential: string, workspaceId: string, agentId: string | undefined, modelAlias: string): Promise<GatewayModelRoute> {
+    const keyAlias = `onecomputer-agent-${this.agentIdFor(workspaceId, agentId)}`;
+    const result = await this.adminCall(`/key/list?return_full_object=true&key_alias=${encodeURIComponent(keyAlias)}`, { method: "GET" });
+    const keys = Array.isArray(asObject(result.payload).keys) ? asObject(result.payload).keys as unknown[] : [];
+    const tokenHash = createHash("sha256").update(credential).digest("hex");
+    const key = keys.map(asObject).find((item) => item.token === tokenHash);
+    if (!key) throw new OneComputerError("GATEWAY_USAGE_UNAVAILABLE", "The model route usage state is unavailable", 502, true);
+    const numberOr = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
+    const limitUsd = numberOr(key.max_budget, WORKSPACE_MAX_BUDGET_USD);
+    const spentUsd = Math.max(0, numberOr(key.spend, 0));
+    return {
+      alias: modelAlias,
+      status: "ready",
+      fallback: "none",
+      budget: {
+        limitUsd,
+        spentUsd,
+        remainingUsd: Math.max(0, limitUsd - spentUsd),
+        duration: WORKSPACE_BUDGET_DURATION,
+        resetsAt: typeof key.budget_reset_at === "string" ? key.budget_reset_at : null,
+      },
+      limits: {
+        requestsPerMinute: numberOr(key.rpm_limit, WORKSPACE_RPM_LIMIT),
+        tokensPerMinute: numberOr(key.tpm_limit, WORKSPACE_TPM_LIMIT),
+        maxParallelRequests: numberOr(key.max_parallel_requests, WORKSPACE_MAX_PARALLEL_REQUESTS),
+      },
     };
   }
 
@@ -452,23 +513,12 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     const effectiveAgentId = policy?.agentId ?? agentId;
     const modelAlias = policy?.modelAlias ?? this.modelAlias;
     const credential = this.credentialFor(workspaceId, effectiveAgentId);
-    const [completion, toolList] = await Promise.all([
-      this.dataCall("/v1/chat/completions", credential, {
-        method: "POST",
-        body: {
-          model: modelAlias,
-          messages: [{ role: "user", content: "Confirm that the ONEComputer model route is ready." }],
-          max_tokens: 80,
-        },
-      }),
+    const [readiness, toolList] = await Promise.all([
+      this.readiness(workspaceId, effectiveAgentId, policy),
       this.dataCall("/mcp-rest/tools/list", credential),
     ]);
-    if (!completion.ok) throw this.upstreamError("MODEL_ROUTE_FAILED", completion.status, completion.payload);
+    if (readiness.models !== "ready" || !readiness.modelRoute) throw new OneComputerError("MODEL_ROUTE_FAILED", "The assigned model route is unavailable", 502, true);
     if (!toolList.ok) throw this.upstreamError("MCP_DISCOVERY_FAILED", toolList.status, toolList.payload);
-    const choices = asObject(completion.payload).choices;
-    const firstChoice = Array.isArray(choices) ? asObject(choices[0]) : {};
-    const content = asObject(firstChoice.message).content;
-    if (typeof content !== "string") throw new OneComputerError("GATEWAY_INVALID_RESPONSE", "The model gateway returned an invalid response", 502, true);
     const tools = Array.isArray(asObject(toolList.payload).tools)
       ? (asObject(toolList.payload).tools as unknown[]).map((item) => {
           const tool = asObject(item);
@@ -477,7 +527,8 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       : [];
     return {
       model: modelAlias,
-      response: content,
+      availability: "ready",
+      modelRoute: readiness.modelRoute,
       tools,
       apiBaseUrl: `${this.workspaceUrl}/v1`,
       mcpUrl: `${this.workspaceUrl}/mcp`,

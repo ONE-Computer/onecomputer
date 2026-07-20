@@ -221,7 +221,9 @@ function HomeScreen({ userName, workspace, workspaceState, apiError, operation, 
                 </span>
                 <span>
                   <strong>{name}</strong>
-                  <small>{description}</small>
+                  <small>{name === "AI assistant" && workspace?.modelRoute
+                    ? `${workspace.modelRoute.alias} · $${workspace.modelRoute.budget.remainingUsd.toFixed(2)} remaining`
+                    : description}</small>
                 </span>
               </div>
             ))}
@@ -232,7 +234,7 @@ function HomeScreen({ userName, workspace, workspaceState, apiError, operation, 
           {readiness.models === "ready" && readiness.tools === "ready" && (
             <button className="secondary-button gateway-test-button" type="button" onClick={onTestGateway} disabled={testingGateway}>
               <Bot24Regular aria-hidden="true" />
-              {testingGateway ? "Testing connection" : "Test AI connection"}
+              {testingGateway ? "Checking availability" : "Check AI availability"}
             </button>
           )}
         </div>
@@ -821,18 +823,18 @@ export function App() {
 
       {drawer === "gateway" && gatewayResult && (
         <Drawer title="AI connection" onClose={() => setDrawer(null)}>
-          <div className="gateway-result-status"><CheckmarkCircle24Regular aria-hidden="true" /><span><strong>Connected through LiteLLM</strong><small>Scoped to this managed workspace</small></span></div>
+          <div className="gateway-result-status"><CheckmarkCircle24Regular aria-hidden="true" /><span><strong>Approved model route is available</strong><small>Scoped to this managed workspace and agent</small></span></div>
           <dl className="request-details">
             <div><dt>Base API URL</dt><dd><code>{gatewayResult.apiBaseUrl}</code></dd></div>
             <div><dt>MCP gateway</dt><dd><code>{gatewayResult.mcpUrl}</code></dd></div>
             <div><dt>Model route</dt><dd>{gatewayResult.model}</dd></div>
+            <div><dt>Budget remaining</dt><dd>${gatewayResult.modelRoute.budget.remainingUsd.toFixed(2)} of ${gatewayResult.modelRoute.budget.limitUsd.toFixed(2)}</dd></div>
+            <div><dt>Budget period</dt><dd>30 days</dd></div>
+            <div><dt>Request limit</dt><dd>{gatewayResult.modelRoute.limits.requestsPerMinute} per minute</dd></div>
+            <div><dt>Fallback</dt><dd>None — fails closed</dd></div>
             <div><dt>Assigned tools</dt><dd>{gatewayResult.tools.map((tool) => tool.name).join(", ") || "None"}</dd></div>
           </dl>
-          <div className="gateway-response">
-            <strong>Test response</strong>
-            <p>{gatewayResult.response}</p>
-          </div>
-          <div className="drawer-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>The workspace used a short-lived key. Provider and LiteLLM administrator credentials were not shared with it.</p></div>
+          <div className="drawer-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>This check reads availability and usage metadata only. It does not send a prompt. Provider and LiteLLM administrator credentials are not shared with the workspace.</p></div>
           <button className="secondary-button full-width" type="button" onClick={() => setDrawer(null)}>Close</button>
         </Drawer>
       )}

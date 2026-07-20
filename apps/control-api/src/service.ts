@@ -39,6 +39,7 @@ export const toView = (record: WorkspaceRecord, gateway?: GatewayReadiness): Wor
   grantId: record.grantId,
   state: record.state,
   readiness: readinessFor(record.state, gateway),
+  ...(gateway ? { modelRoute: gateway.modelRoute } : {}),
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
   failureCode: record.failureCode,
@@ -53,7 +54,7 @@ export class WorkspaceService {
 
   private async view(record: WorkspaceRecord, policy: RuntimePolicy) {
     if (!this.gateway || !["ready", "open"].includes(record.state)) return toView(record);
-    const gateway = await this.gateway.readiness(record.id, policy.agentId, policy).catch(() => ({ models: "failed" as const, tools: "failed" as const }));
+    const gateway = await this.gateway.readiness(record.id, policy.agentId, policy).catch(() => undefined);
     return toView(record, gateway);
   }
 

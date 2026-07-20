@@ -25,11 +25,30 @@ export const readinessSchema = z.object({
   tools: readinessStateSchema,
 });
 
+export const modelRouteSchema = z.object({
+  alias: z.string().min(1).max(128),
+  status: z.enum(["ready", "failed"]),
+  fallback: z.literal("none"),
+  budget: z.object({
+    limitUsd: z.number().nonnegative(),
+    spentUsd: z.number().nonnegative(),
+    remainingUsd: z.number().nonnegative(),
+    duration: z.literal("30d"),
+    resetsAt: z.iso.datetime().nullable(),
+  }),
+  limits: z.object({
+    requestsPerMinute: z.number().int().positive(),
+    tokensPerMinute: z.number().int().positive(),
+    maxParallelRequests: z.number().int().positive(),
+  }),
+});
+
 export const workspaceViewSchema = z.object({
   id: z.uuid(),
   grantId: z.string().min(1),
   state: workspaceStateSchema,
   readiness: readinessSchema,
+  modelRoute: modelRouteSchema.optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   failureCode: z.string().nullable(),

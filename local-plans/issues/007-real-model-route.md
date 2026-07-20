@@ -1,6 +1,6 @@
 # 007: enable one governed real-model route
 
-Status: `ready`
+Status: `verification`
 
 Gate: F
 Depends on: 006
@@ -31,17 +31,17 @@ no provider credential in the workspace.
 
 ## Required verification
 
-- [ ] The assigned alias works from the persistent sandbox agent key.
-- [ ] Raw provider/model names, unassigned aliases, cross-user/workspace keys,
+- [x] The assigned alias works from the persistent sandbox agent key.
+- [x] Raw provider/model names, unassigned aliases, cross-user/workspace keys,
   expired/revoked keys, and direct provider access deny.
-- [ ] Rate, token, and cost exhaustion fail deterministically and attribute the
+- [x] Rate, token, and cost exhaustion fail deterministically and attribute the
   denial to the exact tenant/user/workspace/agent.
-- [ ] Provider outage follows the recorded fallback policy and never silently
+- [x] Provider outage follows the recorded fallback policy and never silently
   routes outside it.
-- [ ] Streaming cannot bypass alias policy, budgets, attribution, or evidence.
-- [ ] Provider keys and prompt/response bodies are absent from workspace,
+- [x] Streaming cannot bypass alias policy, budgets, attribution, or evidence.
+- [x] Provider keys and prompt/response bodies are absent from workspace,
   browser, Control payloads, logs, and retained evidence by default.
-- [ ] Gateway restart preserves routing configuration and usage truth.
+- [x] Gateway restart preserves routing configuration and usage truth.
 
 ## Evidence required
 
@@ -57,5 +57,6 @@ records, restart result, and secret/retention scan.
 
 ## Completion record
 
-Not complete. Issue 006 was accepted on 2026-07-20; this is the next ready
-issue.
+Machine qualification passed on 2026-07-20. The issue is paused for the required
+human review of the rebuilt workspace image, sandbox CLI, and safe Web budget
+surface before it can be marked complete.

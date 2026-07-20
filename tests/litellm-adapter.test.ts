@@ -300,6 +300,11 @@ test("workspace grant materializes the exact Control policy rather than adapter 
   try {
     await liveAdapter.ensureGrant({ workspaceId: "workspace-a", identity, policy });
     assert.deepEqual(grantBody.models, ["onecomputer-assistant"]);
+    assert.equal(grantBody.max_budget, 1);
+    assert.equal(grantBody.budget_duration, "30d");
+    assert.equal(grantBody.rpm_limit, 30);
+    assert.equal(grantBody.tpm_limit, 50_000);
+    assert.equal(grantBody.max_parallel_requests, 4);
     assert.deepEqual(grantBody.object_permission, {
       mcp_servers: ["onecomputer_ms365"],
       mcp_tool_permissions: {
@@ -360,6 +365,64 @@ test("a pre-existing key with mismatched identity is replaced rather than update
     assert.ok(requests.some((url) => url.startsWith("/key/list?")));
     assert.ok(requests.includes("/key/delete"));
     assert.ok(!requests.includes("/key/update"));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("availability check exposes safe route usage without sending a prompt", async () => {
+  const requests: string[] = [];
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: "http://unused",
+    workspaceUrl: "http://unused",
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  const credential = liveAdapter.credentialFor("workspace-a");
+  const server = createServer((request, response) => {
+    requests.push(request.url ?? "");
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/v1/models") {
+      response.end(JSON.stringify({ data: [{ id: "onecomputer-assistant" }] }));
+      return;
+    }
+    if (request.url === "/mcp-rest/tools/list") {
+      response.end(JSON.stringify({ tools: [{ name: "search_files", description: "Search assigned files" }] }));
+      return;
+    }
+    if (request.url?.startsWith("/key/list?")) {
+      response.end(JSON.stringify({
+        keys: [{
+          token: createHash("sha256").update(credential).digest("hex"),
+          spend: 0.125,
+          max_budget: 1,
+          budget_reset_at: "2026-08-19T00:00:00.000Z",
+          rpm_limit: 30,
+          tpm_limit: 50_000,
+          max_parallel_requests: 4,
+        }],
+      }));
+      return;
+    }
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const routedAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  try {
+    const result = await routedAdapter.test("workspace-a");
+    assert.equal(result.availability, "ready");
+    assert.equal(result.model, "onecomputer-assistant");
+    assert.equal(result.modelRoute.fallback, "none");
+    assert.equal(result.modelRoute.budget.remainingUsd, 0.875);
+    assert.equal(result.modelRoute.limits.tokensPerMinute, 50_000);
+    assert.ok(!requests.includes("/v1/chat/completions"));
+    assert.ok(!JSON.stringify(result).includes("gpt-"));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

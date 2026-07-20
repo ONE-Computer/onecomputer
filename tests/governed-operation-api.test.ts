@@ -23,7 +23,14 @@ test("Control API exposes a durable approval-required operation and fixture deci
   const gateway: GatewayClient & GovernedToolExecutor = {
     ensureGrant: async () => ({ baseUrl: "http://gateway", credential: "scoped-test-credential-000001", modelAlias: "test", expiresAt: new Date(Date.now() + 60_000).toISOString() }),
     readiness: async () => ({ models: "ready", tools: "ready" }),
-    test: async () => ({ model: "test", response: "ready", tools: [], apiBaseUrl: "http://gateway/v1", mcpUrl: "http://gateway/mcp" }),
+    test: async () => ({
+      model: "test",
+      availability: "ready",
+      modelRoute: { alias: "test", status: "ready", fallback: "none", budget: { limitUsd: 1, spentUsd: 0, remainingUsd: 1, duration: "30d", resetsAt: null }, limits: { requestsPerMinute: 30, tokensPerMinute: 50_000, maxParallelRequests: 4 } },
+      tools: [],
+      apiBaseUrl: "http://gateway/v1",
+      mcpUrl: "http://gateway/mcp",
+    }),
     revoke: async () => undefined,
     executeGovernedTool: async (input) => {
       executions.push(input);

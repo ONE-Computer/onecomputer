@@ -2,6 +2,7 @@
 """Small credentialless-by-user ONEComputer workspace client."""
 
 import json
+import hashlib
 import os
 import sys
 import urllib.error
@@ -12,9 +13,11 @@ BASE_URL = os.environ.get("ONECOMPUTER_LITELLM_URL", "http://litellm:4000").rstr
 API_KEY = os.environ.get("OPENAI_API_KEY", "")
 MODEL = os.environ.get("ONECOMPUTER_MODEL_ALIAS", "onecomputer-assistant")
 ALLOWED = tuple(filter(None, os.environ.get("ONECOMPUTER_ALLOWED_TOOLS", "").split(",")))
+AGENT_ID = os.environ.get("ONECOMPUTER_AGENT_ID", "unassigned")
+SAFETY_IDENTIFIER = hashlib.sha256(("onecomputer:" + AGENT_ID).encode()).hexdigest()
 
 
-def request(path, payload=None):
+def request(path, payload=None, timeout=20):
     if not API_KEY:
         raise RuntimeError("This workspace has no active ONEComputer grant. Restart it from ONEComputer.")
     body = json.dumps(payload).encode() if payload is not None else None
@@ -25,7 +28,7 @@ def request(path, payload=None):
         headers={"Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=20) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
         try:
@@ -33,6 +36,8 @@ def request(path, payload=None):
         except Exception:
             detail = {"status": error.code}
         raise RuntimeError("ONEComputer gateway rejected the request: " + json.dumps(detail)) from None
+    except (TimeoutError, urllib.error.URLError):
+        raise RuntimeError("The assigned ONEComputer route is unavailable. No fallback is configured.") from None
 
 
 def tools():
@@ -61,6 +66,54 @@ def print_status():
     print("  Tools:", ", ".join(tool.get("name", "") for tool in tools()) or "none")
 
 
+def chat(prompt, stream=False):
+    if not prompt.strip():
+        raise RuntimeError("Enter a prompt after the command")
+    payload = {
+        "model": MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_completion_tokens": 256,
+        "store": False,
+        "safety_identifier": SAFETY_IDENTIFIER,
+        "stream": stream,
+    }
+    if not stream:
+        result = request("/v1/chat/completions", payload, timeout=60)
+        choices = result.get("choices", [])
+        content = choices[0].get("message", {}).get("content") if choices else None
+        if not isinstance(content, str):
+            raise RuntimeError("The assigned model route returned an invalid response")
+        print(content)
+        return
+
+    req = urllib.request.Request(
+        BASE_URL + "/v1/chat/completions",
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={"Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            for raw_line in response:
+                line = raw_line.decode("utf-8").strip()
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                chunk = json.loads(line[6:])
+                choices = chunk.get("choices", [])
+                content = choices[0].get("delta", {}).get("content") if choices else None
+                if isinstance(content, str):
+                    print(content, end="", flush=True)
+        print()
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.load(error)
+        except Exception:
+            detail = {"status": error.code}
+        raise RuntimeError("ONEComputer gateway rejected the request: " + json.dumps(detail)) from None
+    except (TimeoutError, urllib.error.URLError):
+        raise RuntimeError("The assigned ONEComputer route is unavailable. No fallback is configured.") from None
+
+
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else "shell"
     if command in ("status", "tools"):
@@ -70,14 +123,17 @@ def main():
     if command in friendly:
         print(json.dumps(call_tool(friendly[command]), indent=2))
         return
+    if command in ("chat", "stream") and len(sys.argv) >= 3:
+        chat(" ".join(sys.argv[2:]), stream=command == "stream")
+        return
     if command == "tool" and len(sys.argv) >= 3:
         arguments = json.loads(sys.argv[3]) if len(sys.argv) >= 4 else {}
         print(json.dumps(call_tool(sys.argv[2], arguments), indent=2))
         return
     if command != "shell":
-        raise RuntimeError("Usage: onecomputer-agent [status|mail|calendar|drives|tool NAME JSON|shell]")
-    print("ONEComputer Agent — policy-scoped Microsoft 365 access")
-    print("Commands: status, mail, calendar, drives, quit")
+        raise RuntimeError("Usage: onecomputer-agent [status|chat PROMPT|stream PROMPT|mail|calendar|drives|tool NAME JSON|shell]")
+    print("ONEComputer Agent — policy-scoped models and Microsoft 365 access")
+    print("Commands: status, chat PROMPT, stream PROMPT, mail, calendar, drives, quit")
     while True:
         try:
             line = input("onecomputer> ").strip()

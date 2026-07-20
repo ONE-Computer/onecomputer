@@ -59,6 +59,7 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1", "--log_config", "/app/log-config.yaml"]
     environment:
       LITELLM_MASTER_KEY: ${ONECOMPUTER_LITELLM_MASTER_KEY:?set ONECOMPUTER_LITELLM_MASTER_KEY}
+      OPENAI_API_KEY: ${ONECOMPUTER_OPENAI_API_KEY:?set ONECOMPUTER_OPENAI_API_KEY}
       LITELLM_SALT_KEY: ${ONECOMPUTER_LITELLM_SALT_KEY:-${ONECOMPUTER_LITELLM_CREDENTIAL_SECRET:?set ONECOMPUTER_LITELLM_SALT_KEY}}
       DATABASE_URL: postgres://litellm:${ONECOMPUTER_LITELLM_POSTGRES_PASSWORD}@litellm-postgres:5432/litellm
       DISABLE_ADMIN_UI: "false"

@@ -32,11 +32,12 @@ class FakeGateway implements GatewayClient {
     this.lastPolicy = input.policy;
     return { baseUrl: "http://litellm:4000", credential: `sk-${input.workspaceId}`, modelAlias: "onecomputer-assistant", expiresAt: new Date(Date.now() + 60_000).toISOString() };
   }
-  async readiness() { return { models: "ready" as const, tools: "ready" as const }; }
+  async readiness() { return { models: "ready" as const, tools: "ready" as const, modelRoute: fakeModelRoute }; }
   async test() {
     return {
       model: "onecomputer-assistant",
-      response: "ready",
+      availability: "ready" as const,
+      modelRoute: fakeModelRoute,
       tools: [{ name: "search_files", description: "Search files" }],
       apiBaseUrl: "http://litellm:4000/v1",
       mcpUrl: "http://litellm:4000/mcp",
@@ -44,6 +45,14 @@ class FakeGateway implements GatewayClient {
   }
   async revoke() { this.revocations += 1; }
 }
+
+const fakeModelRoute = {
+  alias: "onecomputer-assistant",
+  status: "ready" as const,
+  fallback: "none" as const,
+  budget: { limitUsd: 1, spentUsd: 0.25, remainingUsd: 0.75, duration: "30d" as const, resetsAt: null },
+  limits: { requestsPerMinute: 30, tokensPerMinute: 50_000, maxParallelRequests: 4 },
+};
 
 const alex: IdentityContext = { tenantId: "acme", subjectId: "alex", audience: "onecomputer-control" };
 const policy: RuntimePolicy = {
@@ -145,6 +154,7 @@ test("workspace lifecycle provisions, reports, tests, and revokes a scoped gatew
   const workspace = await service.create(alex, policy, "personal", "gateway-key-0001", "correlation-002");
   assert.equal(workspace.readiness.models, "ready");
   assert.equal(workspace.readiness.tools, "ready");
+  assert.equal(workspace.modelRoute?.budget.remainingUsd, 0.75);
   assert.equal(controller.lastGateway?.modelAlias, "onecomputer-assistant");
   assert.equal(gateway.grants, 1);
   assert.equal(controller.lastPolicy?.policyHash, policy.policyHash);

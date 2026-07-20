@@ -24,5 +24,5 @@ test("owned persistence does not depend on Kasm, LiteLLM, or the browser", async
 
 test("browser source contains no server authority or credential names", async () => {
   const web = await sourceTree("apps/web/src");
-  assert.doesNotMatch(web, /LITELLM_MASTER_KEY|CONTROLLER_INTERNAL_TOKEN|FIXTURE_APPROVAL_SECRET|DOCKER_SOCKET|POSTGRES_PASSWORD/);
+  assert.doesNotMatch(web, /ONECOMPUTER_OPENAI_API_KEY|LITELLM_MASTER_KEY|CONTROLLER_INTERNAL_TOKEN|FIXTURE_APPROVAL_SECRET|DOCKER_SOCKET|POSTGRES_PASSWORD/);
 });

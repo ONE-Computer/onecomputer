@@ -55,7 +55,7 @@ services:
 
   litellm:
     image: ghcr.io/berriai/litellm:v1.93.0@sha256:a1745e629abfb17d434426ff48b115f54f4f4c4a0f5af241de569e93c63c411e
-    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1", "--log_config", "/app/log-config.yaml"]
     environment:
       LITELLM_MASTER_KEY: ${ONECOMPUTER_LITELLM_MASTER_KEY:?set ONECOMPUTER_LITELLM_MASTER_KEY}
       LITELLM_SALT_KEY: ${ONECOMPUTER_LITELLM_SALT_KEY:?set ONECOMPUTER_LITELLM_SALT_KEY}
@@ -68,6 +68,7 @@ services:
     ports: ["127.0.0.1:4000:4000"]
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro
+      - ./litellm-log-config.yaml:/app/log-config.yaml:ro
     depends_on:
       litellm-postgres: { condition: service_healthy }
       gateway-fixture: { condition: service_healthy }

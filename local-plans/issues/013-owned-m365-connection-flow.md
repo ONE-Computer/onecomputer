@@ -55,16 +55,19 @@ custodian for the `onecomputer_ms365` MCP server.
 - [x] The OAuth start uses a mapped ONEComputer `user_id` and a narrow
   connection key; that key cannot administer models, arbitrary keys, or other
   MCP servers.
-- [ ] Synthetic authorization-code plus PKCE stores a per-user credential and
+- [x] Synthetic authorization-code plus PKCE stores a per-user credential and
   the safe status endpoint reports it without returning token material.
 - [x] A second user cannot finish, inspect, or disconnect the first user's
   attempt or credential.
 - [x] Expired, replayed, missing, malformed, and provider-denied callbacks fail
   closed.
 - [x] Disconnect removes only the calling user's Microsoft 365 credential.
-- [ ] Real Microsoft OAuth is completed by the user and bounded read-only
-  OneDrive, Mail, and Calendar discovery succeeds through the sandbox agent key.
-- [ ] Tests, build, deployed inspection, and log scans contain no prohibited
+- [x] Real Microsoft OAuth is completed by the user and bounded read-only
+  OneDrive, Mail, and Calendar discovery succeeds through a temporary exact-tool
+  key mapped to the same ONEComputer user.
+- [ ] The persistent sandbox agent key discovers and invokes the qualified
+  read-only Microsoft tools without receiving the delegated credential.
+- [x] Tests, build, deployed inspection, and post-hardening log scans contain no prohibited
   credential material.
 
 ## Evidence required
@@ -85,8 +88,12 @@ and the remaining production ingress limitation.
 
 ## Completion record
 
-Not complete. The owned page, identity-bound PKCE flow, narrow connection key,
-safe status, disconnect, replay/cross-user denials, build, local deployment,
-redirect chain, and pre-consent log scan passed on 2026-07-20. Evidence is in
-`infra/issue-013/qualification-pre-oauth-2026-07-20.md`. The final live OAuth
-and bounded Microsoft read probes require the user's interactive consent.
+Not complete. Real delegated OAuth for `mike@metech.dev`, bounded Mail,
+Calendar, and OneDrive reads through a temporary same-user exact-tool key,
+gateway-restart persistence, build, tests, and post-hardening credential/log
+scans passed on 2026-07-20. The initial live callback exposed the one-time code
+in LiteLLM's generic access log; `uvicorn.access` is now disabled while gateway
+operational/error logging remains enabled. The remaining Issue 013 gate is a
+bounded discovery and read through the persistent sandbox agent key. Evidence
+is in `infra/issue-013/qualification-pre-oauth-2026-07-20.md` and
+`infra/issue-013/qualification-live-oauth-2026-07-20.md`.

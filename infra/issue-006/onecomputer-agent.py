@@ -4,6 +4,7 @@
 import json
 import hashlib
 import os
+import shlex
 import sys
 import urllib.error
 import urllib.request
@@ -133,7 +134,7 @@ def main():
     if command != "shell":
         raise RuntimeError("Usage: onecomputer-agent [status|chat PROMPT|stream PROMPT|mail|calendar|drives|tool NAME JSON|shell]")
     print("ONEComputer Agent — policy-scoped models and Microsoft 365 access")
-    print("Commands: status, chat PROMPT, stream PROMPT, mail, calendar, drives, quit")
+    print("Commands: status, chat PROMPT, stream PROMPT, mail, calendar, drives, tool NAME JSON, quit")
     while True:
         try:
             line = input("onecomputer> ").strip()
@@ -141,7 +142,7 @@ def main():
                 return
             if not line:
                 continue
-            main_command = line.split(maxsplit=1)
+            main_command = shlex.split(line)
             sys.argv = [sys.argv[0], *main_command]
             main()
         except (RuntimeError, ValueError) as error:

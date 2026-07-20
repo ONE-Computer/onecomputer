@@ -32,5 +32,7 @@ test("the sandbox agent uses only the assigned alias and supports normal and str
   assert.match(agent, /ONECOMPUTER_MODEL_ALIAS/);
   assert.match(agent, /command in \("chat", "stream"\)/);
   assert.match(agent, /"stream": stream/);
+  assert.match(agent, /shlex\.split\(line\)/);
+  assert.match(agent, /tool NAME JSON/);
   assert.doesNotMatch(agent, /gpt-5\.6-luna|ONECOMPUTER_OPENAI_API_KEY/);
 });

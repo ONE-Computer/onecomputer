@@ -30,6 +30,8 @@ Control functionality.
 
 ## Consequences
 
+- ADR-004 defines the separate user, agent, and workspace identities used for
+  delegated Microsoft OAuth and per-agent gateway policy.
 - Continue to Issue 003 after human acceptance of this partial decision.
 - Issues 003–005 own durable operations, policy decisions, approval fixtures,
   single execution leases, and the full protected-failure matrix.

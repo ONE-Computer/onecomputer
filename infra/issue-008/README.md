@@ -121,6 +121,9 @@ be pasted into chat, committed, or passed to a workspace.
   capabilities dropped, and `no-new-privileges` enabled;
 - the locked production dependency tree reported zero npm audit findings.
 
-Live Entra consent, per-user OAuth through LiteLLM, wrong-tenant behavior,
-Graph throttling/errors, data bounding, and credential-leak scans remain
-unverified.
+Live Entra consent and one interactive LiteLLM connection have now been
+completed locally. That proves only the browser authorization path; agent-key
+identity propagation, per-agent policy separation, credential durability,
+wrong-identity/tenant behavior, Graph throttling/errors, data bounding, and
+credential-leak scans remain unverified. ADR-004 records the selected design
+and the qualification boundary.

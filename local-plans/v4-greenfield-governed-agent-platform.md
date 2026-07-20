@@ -62,8 +62,8 @@ workspace, or unrestricted public egress directly.
 
 ### Non-negotiable invariants
 
-1. Every workspace request has authenticated tenant, subject, workspace, and
-   audience context.
+1. Every workspace request has authenticated tenant, user/credential owner,
+   agent actor, workspace, and audience context.
 2. Removing proxy variables or modifying the workspace cannot create direct
    provider/MCP access.
 3. A workspace credential is short-lived and cannot be reused by another
@@ -125,7 +125,7 @@ No OneCLI runtime or database is required by the MVP.
 | `packages/litellm-adapter` | Versioned admin/policy/data-plane contract | Enterprise approval authority |
 | `packages/openvtc-adapter` | Task transport and signed-decision verification | Operation truth or provider execution |
 | `packages/kasm-adapter` | Workspace runtime implementation | Product policy and browser auth |
-| LiteLLM | Model/MCP routing, scoped keys, OAuth, quotas, baseline guardrails | Final capability policy and approval truth |
+| LiteLLM | Model/MCP routing, scoped keys, encrypted per-user delegated OAuth, quotas, baseline guardrails | Canonical user/agent identity, final capability policy, and approval truth |
 | MCP server | Provider protocol translation | Approval authority or tenant policy |
 | Network enforcement | Reachability and egress boundary | Product-level capability decisions |
 
@@ -137,7 +137,9 @@ Do not create a microservice for every domain object.
 Use a new, independently deployed PostgreSQL database. The minimum durable
 entities are:
 
-- tenant and user identity mapping;
+- tenant, user, and external identity mapping;
+- agent identity, ownership/delegation, and workspace assignment;
+- vendor user and gateway-key mapping;
 - workspace and workspace grant;
 - capability and capability assignment;
 - policy and version;

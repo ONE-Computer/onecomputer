@@ -28,6 +28,9 @@ owned wrapper required for the golden paths.
   mutation, and exact file delete as governed write operations.
 - Verify LiteLLM registration, scoped discovery, pre-execution policy context,
   result metadata, and credential isolation.
+- Qualify the identity and credential-custody decision in ADR-004: each agent
+  has a unique virtual key/gateway principal while the associated LiteLLM
+  `user_id` selects the owning user's delegated Microsoft credential.
 
 ## Out of scope
 
@@ -49,6 +52,21 @@ owned wrapper required for the golden paths.
   typed governed-operation contract.
 - [ ] OAuth tokens remain in the selected gateway/provider seam and are absent
   from workspace, browser, policy payloads, logs, and evidence.
+- [ ] LiteLLM uses a durable credential database and a dedicated stable
+  encryption salt independent from its master key; backup, replacement, and
+  recovery behavior is recorded.
+- [ ] ONEComputer user -> LiteLLM `user_id` and agent/workspace -> virtual-key
+  mappings are deterministic, unique where required, revocable, and auditable.
+- [ ] Two agents belonging to one user can share the user's delegated OAuth
+  connection while retaining different server/tool policies and distinct keys.
+- [ ] Cross-user, cross-agent, cross-workspace, cross-tenant, missing-identity,
+  and deliberately mismatched-key probes deny without returning or using the
+  wrong credential.
+- [ ] OAuth refresh, expiry, revoke, disconnect, key rotation, LiteLLM restart,
+  and connector restart behavior is verified fail-closed.
+- [ ] Authenticated tenant, user, agent, workspace, key, and operation identity
+  reaches Control's policy/evidence seam without treating LiteLLM `user_id` as
+  ONEComputer's policy authority.
 - [ ] Wrong tenant, site/drive/item, scope, schema drift, stale eTag, timeout,
   throttling, and provider error behaviors are classified.
 - [ ] A human accepts `candidate`, `narrow_wrapper`, or `decision_required`.

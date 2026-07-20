@@ -58,7 +58,7 @@ must disconnect and reconnect once to consent to the new scope.
 
 The connector is reachable only from `gateway-private`; only the connector
 joins `ms365-egress`. Workspaces can reach LiteLLM but cannot reach Softeria,
-Graph, PostgreSQL, Docker, or Control directly. Port 3001 is a loopback-only
+Graph, PostgreSQL, Docker, or Control directly. Port 4311 is a loopback-only
 local OAuth browser bridge. Replace it with authenticated HTTPS before
 production.
 

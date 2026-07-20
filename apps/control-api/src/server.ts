@@ -24,7 +24,7 @@ const envSchema = z.object({
   LITELLM_MASTER_KEY: z.string().min(24).optional(),
   LITELLM_CREDENTIAL_SECRET: z.string().min(32).optional(),
   PUBLIC_WEB_URL: z.string().url().default("http://localhost:4174"),
-  M365_AUTHORIZATION_ORIGIN: z.string().url().default("http://localhost:3001"),
+  M365_AUTHORIZATION_ORIGIN: z.string().url().default("http://localhost:4311"),
   FIXTURE_APPROVAL_SECRET: z.string().min(32).default("local-disabled-fixture-approval-secret-32-chars"),
   ENTRA_TENANT_ID: z.string().min(1),
   ENTRA_CLIENT_ID: z.string().min(1),
@@ -92,7 +92,7 @@ export function createControlServer(
     : undefined;
   const connections = oauthGateway ? new Microsoft365ConnectionService(oauthGateway, {
     publicWebUrl: connectionOptions.publicWebUrl ?? "http://localhost:4174",
-    authorizationOrigin: connectionOptions.authorizationOrigin ?? "http://localhost:3001",
+    authorizationOrigin: connectionOptions.authorizationOrigin ?? "http://localhost:4311",
   }) : undefined;
   const requireConnections = () => {
     if (!connections) throw new OneComputerError("M365_CONNECTION_NOT_CONFIGURED", "Microsoft 365 connections are not configured", 503, true);

@@ -1,4 +1,10 @@
 services:
+  control-api:
+    environment:
+      # Dedicated ONEComputer loopback bridge. Keep this independent from
+      # unrelated local application development ports.
+      M365_AUTHORIZATION_ORIGIN: http://localhost:4311
+
   litellm:
     environment:
       ONECOMPUTER_MCP_POLICY_URL: http://control-api:4100/internal/v1/mcp/authorize
@@ -36,7 +42,7 @@ services:
       MS365_MCP_CLIENT_ID: ${ONECOMPUTER_MS365_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
       MS365_MCP_TENANT_ID: ${ONECOMPUTER_MS365_TENANT_ID:-organizations}
       MS365_MCP_CLIENT_SECRET: ${ONECOMPUTER_MS365_CLIENT_SECRET:-}
-      MS365_MCP_PUBLIC_URL: http://localhost:3001
+      MS365_MCP_PUBLIC_URL: http://localhost:4311
       MS365_MCP_ALLOWED_REDIRECT_URIS: http://localhost:4000/callback
       MS365_MCP_MAX_TOP: "25"
       MS365_MCP_MAX_PAGES: "4"
@@ -48,7 +54,7 @@ services:
     networks: [gateway-private, ms365-egress]
     # Local OAuth browser bridge only. Remove when an authenticated production
     # reverse-proxy route supplies the public authorization endpoint.
-    ports: ["127.0.0.1:3001:3000"]
+    ports: ["127.0.0.1:4311:3000"]
     read_only: true
     tmpfs:
       - /tmp

@@ -38,7 +38,7 @@ mcp_servers:
     oauth2_flow: authorization_code
     client_id: onecomputer-litellm
     # Browser-facing local-development route. Token exchange stays private.
-    authorization_url: http://localhost:3001/authorize
+    authorization_url: http://localhost:4311/authorize
     token_url: http://ms365-mcp:3000/token
     scopes:
       - User.Read

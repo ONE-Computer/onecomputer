@@ -1,6 +1,6 @@
 # 006: launch a policy-built managed agent workspace
 
-Status: `blocked`
+Status: `ready`
 
 Gate: E
 Depends on: 005
@@ -74,4 +74,5 @@ container/network inspection, lifecycle/restart inventory, and secret scan.
 
 ## Completion record
 
-Not complete. Blocked on Issue 005.
+Not complete. Issue 005 was accepted on 2026-07-20; this is the next ready
+issue.

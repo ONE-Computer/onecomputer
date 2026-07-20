@@ -23,8 +23,8 @@ replaced it with the active sequential Issue 005–011 MVP path below. Historica
 specifications are preserved under `archive/retired-2026-07-20/`; they are not
 active dependencies. Existing Kasm, UI, LiteLLM, governed-operation, Microsoft
 OAuth, and bounded Microsoft-read evidence is carried forward and must not be
-needlessly repeated. Issue 005 is in human verification; Issue 006 remains
-blocked. Completing an issue may
+needlessly repeated. Issue 005 passed human review and Issue 006 is the next
+ready issue. Completing an issue may
 make only its immediate successor ready. Gate-closing issues require explicit
 human review.
 

@@ -1,6 +1,6 @@
 # 005: establish real identity and durable policy assignments
 
-Status: `verification`
+Status: `complete`
 
 Gate: D
 Depends on: 004
@@ -47,7 +47,7 @@ policy authority.
 
 ## Required verification
 
-- [ ] `mike@metech.dev` signs in and resolves to one durable tenant/user across
+- [x] `mike@metech.dev` signs in and resolves to one durable tenant/user across
   browser, Control, PostgreSQL, LiteLLM `user_id`, and Microsoft connection.
 - [x] Caller-supplied tenant, subject, role, agent, workspace, or policy headers
   cannot override the authenticated server session.
@@ -79,7 +79,9 @@ credential/redaction scan.
 
 ## Completion record
 
-Implementation and automated qualification completed on 2026-07-20. Evidence is
-recorded in `infra/issue-005/qualification-2026-07-20.md`. Final completion is
-waiting on one human Entra sign-in as `mike@metech.dev` after adding the owned
-Web callback URI. Issue 006 remains blocked until that review passes.
+Completed and accepted on 2026-07-20. `mike@metech.dev` signed in through the
+owned Entra flow and resolved to the existing `acme / alex-morgan` user,
+persistent workspace, deterministic LiteLLM user, administrator role, and
+immutable policy version 1. Control restarted healthy and the active server
+session remained durable. Evidence is recorded in
+`infra/issue-005/qualification-2026-07-20.md`.

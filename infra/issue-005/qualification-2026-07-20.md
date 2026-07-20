@@ -6,8 +6,7 @@ Branch: `mike/greenfield-v1`
 
 Base revision before Issue 005: `aa4e97b`
 
-Status: automated qualification passed; one real Entra sign-in remains for
-human review.
+Status: complete; automated qualification and real Entra sign-in passed.
 
 ## Implemented boundary
 
@@ -90,25 +89,31 @@ Migration SHA-256 after qualification:
 a8cb4ca2148c08db95c7dcbd47c839c9b01aa251802ba8014d071540977fa4f2
 ```
 
-## Human review required
+## Human review result
 
-In the Entra app registration, add this additional **Web** redirect URI:
+The Entra app registration was configured with this additional **Web** redirect
+URI:
 
 ```text
 http://localhost:4174/api/v1/auth/callback
 ```
 
-Then open `http://localhost:4174`, choose **Sign in with Microsoft**, select
-`mike@metech.dev`, and verify:
+The product owner then signed in as `mike@metech.dev` and accepted the flow as
+workable. Owned-database inspection confirmed:
 
-1. the home page shows Mike/ME TECH rather than the prototype Alex identity;
-2. the existing persistent workspace is still present;
-3. Connections shows the existing Microsoft 365 connection;
-4. Admin shows Mike as administrator with policy version 1 assigned;
-5. after a Control restart, refreshing the browser keeps the same session,
-   workspace, mapping, and policy projection.
+1. owned user `acme / alex-morgan` maps to `mike@metech.dev` and display name
+   `Mike Sun`;
+2. employee and administrator roles are durable;
+3. the existing persistent workspace `b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508`
+   is bound to the owned workspace identity;
+4. the LiteLLM vendor mapping remains
+   `oc-user-aMVPwxiHlLXIspDKz3MXWZaOq1y30t5HdG1_Ac_Ncq8`;
+5. policy version 1 is assigned by the owned user and has immutable document
+   hash `67fe1f40303431136d58e6399202a563e8cb13bf284a633831101438e8701650`;
+6. one active session existed before and after a Control restart, and Control
+   returned healthy afterward.
 
-Do not disconnect Microsoft 365 or delete the workspace during this review.
+The Microsoft connection and persistent workspace were not deleted or moved.
 
 ## Residual risks
 

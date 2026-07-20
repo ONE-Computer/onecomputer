@@ -81,13 +81,11 @@ Secret and retention scans found:
 - `npm test`: 55 passed.
 - `npm run build`: passed for all workspaces and the production Web bundle.
 
-## Human review remaining
+## Human review
 
-1. Use ONEComputer Web to **Restart** the workspace so it receives image
-   `sha256:381953bc61e7ebd18dde078f8a1a849f9fd9b071478b44fe31766c5396717243`.
-2. In the workspace terminal, run `onecomputer-agent status`.
-3. Run `onecomputer-agent chat "Reply with: normal route ready"`.
-4. Run `onecomputer-agent stream "Reply with: streaming route ready"`.
-5. In ONEComputer Web, confirm the AI capability shows the alias and remaining
-   budget, then open **Check AI availability** and confirm it shows limits and
-   `None — fails closed` without a model response body.
+The product owner restarted onto image
+`sha256:381953bc61e7ebd18dde078f8a1a849f9fd9b071478b44fe31766c5396717243`,
+accepted `status`, normal chat, and streaming chat from the sandbox agent, and
+confirmed the safe Web alias, remaining budget, 30 RPM, and no-fallback state.
+The current presentation was accepted as sufficient for the MVP, with visual
+polish deferred.

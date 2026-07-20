@@ -1,6 +1,6 @@
 # 007: enable one governed real-model route
 
-Status: `verification`
+Status: `complete`
 
 Gate: F
 Depends on: 006
@@ -57,6 +57,7 @@ records, restart result, and secret/retention scan.
 
 ## Completion record
 
-Machine qualification passed on 2026-07-20. The issue is paused for the required
-human review of the rebuilt workspace image, sandbox CLI, and safe Web budget
-surface before it can be marked complete.
+Completed on 2026-07-20. Machine qualification passed, and the product owner
+accepted normal and streaming sandbox calls plus the safe Web alias, budget,
+rate-limit, and no-fallback surface. The current UI representation is adequate
+for the MVP and may be polished later without reopening this gate.

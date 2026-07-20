@@ -1,6 +1,6 @@
 # 008: govern the Microsoft 365 MCP capability surface
 
-Status: `blocked`
+Status: `ready`
 
 Gate: G
 Depends on: 007
@@ -72,4 +72,5 @@ negative/mutation/restart matrix, receipt projection, and credential scan.
 
 ## Completion record
 
-Not complete. Blocked on Issue 007.
+Not complete. Issue 007 was accepted on 2026-07-20; this is the next ready
+issue.

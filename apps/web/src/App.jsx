@@ -18,7 +18,9 @@ import { ShieldCheckmark24Regular } from "@fluentui/react-icons/svg/shield-check
 import { Info24Regular } from "@fluentui/react-icons/svg/info";
 import { Bot24Regular } from "@fluentui/react-icons/svg/bot";
 import { PlugConnected24Regular } from "@fluentui/react-icons/svg/plug-connected";
-import { operationApi, workspaceApi, connectionApi } from "./workspace-api.js";
+import { Settings24Regular } from "@fluentui/react-icons/svg/settings";
+import { SignOut24Regular } from "@fluentui/react-icons/svg/sign-out";
+import { operationApi, workspaceApi, connectionApi, authApi, adminApi } from "./workspace-api.js";
 
 const capabilities = [
   {
@@ -124,7 +126,7 @@ function Drawer({ title, children, onClose }) {
   );
 }
 
-function HomeScreen({ workspace, workspaceState, apiError, operation, operationBusy, onOpen, onRestart, onStop, onDelete, onCapabilities, onOpenOperation, onCreateOperation, onTestGateway, testingGateway }) {
+function HomeScreen({ userName, workspace, workspaceState, apiError, operation, operationBusy, onOpen, onRestart, onStop, onDelete, onCapabilities, onOpenOperation, onCreateOperation, onTestGateway, testingGateway }) {
   const isRestarting = workspaceState === "restarting";
   const isOpen = workspaceState === "open";
   const busy = busyStates.has(workspaceState);
@@ -158,7 +160,7 @@ function HomeScreen({ workspace, workspaceState, apiError, operation, operationB
   return (
     <div className="home-screen">
       <header className="page-heading">
-        <p>Good morning, Alex</p>
+        <p>Good morning, {userName}</p>
         <h1>{title}</h1>
         <span>{description}</span>
       </header>
@@ -260,6 +262,54 @@ function HomeScreen({ workspace, workspaceState, apiError, operation, operationB
             </div>
           )}
         </div>
+      </section>
+    </div>
+  );
+}
+
+function SignInScreen({ error }) {
+  return (
+    <main className="signin-screen">
+      <section className="signin-card">
+        <div className="brand signin-brand" aria-label="ONEComputer"><strong>ONE</strong><span>Computer</span></div>
+        <p>Your managed work computer</p>
+        <h1>Sign in to continue</h1>
+        <span>Use your ME TECH Microsoft account. Your organization’s workspace and agent policy will be applied after sign-in.</span>
+        {error && <div className="connection-error" role="alert"><Info24Regular aria-hidden="true" /><span><strong>Sign-in was not completed</strong>{error}</span></div>}
+        <a className="primary-button signin-button" href={authApi.loginUrl}><Person24Regular aria-hidden="true" />Sign in with Microsoft</a>
+        <small><ShieldCheckmark24Regular aria-hidden="true" />ONEComputer uses a secure server session. Microsoft tokens are not stored in your browser.</small>
+      </section>
+    </main>
+  );
+}
+
+function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion }) {
+  return (
+    <div className="secondary-screen admin-screen">
+      <header className="page-heading compact">
+        <p>Organization administration</p>
+        <h1>Workspace policy</h1>
+        <span>Inspect and assign the single versioned MVP policy bundle. Changes affect downstream authority without deleting persistent workspaces.</span>
+      </header>
+      <div className="admin-toolbar">
+        <div><strong>MVP standard workspace</strong><small>Workspace, agent, model, network, Microsoft 365 read, and protected-operation rules</small></div>
+        <button className="secondary-button" type="button" onClick={onVersion}>Create new version</button>
+      </div>
+      <section className="admin-user-list" aria-label="Organization users">
+        {loading ? <p>Loading organization users…</p> : users.map((item) => (
+          <article key={item.userId}>
+            <div className="admin-user-copy">
+              <strong>{item.displayName}</strong><small>{item.email}</small>
+              <span>{item.roles.includes("administrator") ? "Administrator" : "Employee"}</span>
+            </div>
+            <div className="admin-policy-copy">
+              {item.effectivePolicy ? <><strong>Version {item.effectivePolicy.version} assigned</strong><small>Immutable policy {item.effectivePolicy.documentHash.slice(0, 12)}…</small></> : <><strong>No active policy</strong><small>Workspace and agent authority is revoked.</small></>}
+            </div>
+            {item.effectivePolicy
+              ? <button className="secondary-button danger-button" type="button" disabled={busyUserId === item.userId} onClick={() => onRevoke(item.userId)}>Revoke</button>
+              : <button className="primary-button compact-button" type="button" disabled={busyUserId === item.userId} onClick={() => onAssign(item.userId)}>Assign policy</button>}
+          </article>
+        ))}
       </section>
     </div>
   );
@@ -384,6 +434,9 @@ function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisc
 }
 
 export function App() {
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [activeNav, setActiveNav] = useState("Home");
   const [workspace, setWorkspace] = useState(null);
   const [workspaceState, setWorkspaceState] = useState("loading");
@@ -400,6 +453,18 @@ export function App() {
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionError, setConnectionError] = useState("");
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminBusyUserId, setAdminBusyUserId] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("signin") === "error") setAuthError("Microsoft could not verify this sign-in. Please try again.");
+    authApi.session()
+      .then((value) => { setSession(value); setAuthError(""); })
+      .catch((error) => { if (error.code !== "UNAUTHENTICATED") setAuthError(error.message); })
+      .finally(() => setAuthLoading(false));
+  }, []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -419,6 +484,7 @@ export function App() {
   };
 
   useEffect(() => {
+    if (!session) return;
     workspaceApi.current().then(applyWorkspace).catch((error) => {
       if (error.code === "WORKSPACE_NOT_FOUND") applyWorkspace(null);
       else { setWorkspaceState("failed"); showApiError(error); }
@@ -428,9 +494,10 @@ export function App() {
       .then(setM365Connection)
       .catch((error) => setConnectionError(error.message))
       .finally(() => setConnectionLoading(false));
-  }, []);
+  }, [session?.user.id]);
 
   useEffect(() => {
+    if (!session) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("view") !== "connections") return;
     setActiveNav("Connections");
@@ -447,7 +514,13 @@ export function App() {
       setConnectionError(connectionReason[reason] ?? "Microsoft 365 could not complete the connection. Please try again.");
     }
     window.history.replaceState({}, "", window.location.pathname);
-  }, []);
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    if (activeNav !== "Admin" || !session?.roles.includes("administrator")) return;
+    setAdminLoading(true);
+    adminApi.users().then((value) => setAdminUsers(value.users)).catch(showApiError).finally(() => setAdminLoading(false));
+  }, [activeNav, session?.user.id]);
 
   useEffect(() => {
     const delay = ["provisioning", "restarting", "stopping"].includes(workspaceState)
@@ -581,6 +654,35 @@ export function App() {
     setMobileNavOpen(false);
   };
 
+  const refreshAdminUsers = () => adminApi.users().then((value) => setAdminUsers(value.users));
+  const assignPolicy = async (userId) => {
+    setAdminBusyUserId(userId);
+    try { await adminApi.assignPolicy(userId); await refreshAdminUsers(); setToast("The MVP policy is assigned."); }
+    catch (error) { showApiError(error); }
+    finally { setAdminBusyUserId(""); }
+  };
+  const revokePolicy = async (userId) => {
+    if (!window.confirm("Revoke this user’s workspace and agent authority? Their persistent workspace will not be deleted.")) return;
+    setAdminBusyUserId(userId);
+    try { await adminApi.revokePolicy(userId); await refreshAdminUsers(); setToast("Workspace and agent authority was revoked."); }
+    catch (error) { showApiError(error); }
+    finally { setAdminBusyUserId(""); }
+  };
+  const createPolicyVersion = async () => {
+    const revisionNote = window.prompt("Describe this immutable policy version:", "MVP policy review");
+    if (!revisionNote) return;
+    try { const version = await adminApi.createPolicyVersion(revisionNote); setToast(`Policy version ${version.version} created. Existing assignments remain pinned.`); }
+    catch (error) { showApiError(error); }
+  };
+  const logout = async () => {
+    try { await authApi.logout(); } finally { window.location.assign("/"); }
+  };
+
+  if (authLoading) return <main className="signin-screen"><div className="signin-loading">Checking your work account…</div></main>;
+  if (!session) return <SignInScreen error={authError} />;
+  const firstName = session.user.displayName.split(" ")[0] || session.user.displayName;
+  const initials = session.user.displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+
   return (
     <div className="app-shell">
       <aside className={`sidebar${mobileNavOpen ? " mobile-open" : ""}`}>
@@ -591,12 +693,13 @@ export function App() {
           <NavButton active={activeNav === "Home"} icon={activeNav === "Home" ? Home24Filled : Home24Regular} label="Home" onClick={() => selectNav("Home")} />
           <NavButton active={activeNav === "Activity"} icon={Clock24Regular} label="Activity" onClick={() => selectNav("Activity")} />
           <NavButton active={activeNav === "Connections"} icon={PlugConnected24Regular} label="Connections" onClick={() => selectNav("Connections")} />
+          {session.roles.includes("administrator") && <NavButton active={activeNav === "Admin"} icon={Settings24Regular} label="Admin" onClick={() => selectNav("Admin")} />}
           <ExternalNavLink icon={Bot24Regular} label="Gateway" href={gatewayAdminUrl} />
           <NavButton active={activeNav === "Help"} icon={QuestionCircle24Regular} label="Help" onClick={() => selectNav("Help")} />
         </nav>
         <div className="sidebar-profile">
           <Person24Regular aria-hidden="true" />
-          <span><strong>Alex Morgan</strong><small>Acme Corporation</small></span>
+          <span><strong>{session.user.displayName}</strong><small>{session.tenant.displayName}</small></span>
           <ChevronDown16Regular aria-hidden="true" />
         </div>
       </aside>
@@ -611,20 +714,21 @@ export function App() {
           <time dateTime="2026-07-19">July 19, 2026</time>
           <span className="topbar-divider" />
           <button className="account-button" type="button" onClick={() => setProfileOpen((value) => !value)} aria-expanded={profileOpen}>
-            <span>AM</span>
+            <span>{initials}</span>
             <ChevronDown16Regular aria-hidden="true" />
           </button>
           {profileOpen && (
             <div className="profile-menu">
-              <strong>Alex Morgan</strong>
-              <span>alex.morgan@acme.example</span>
-              <button type="button" onClick={() => { setProfileOpen(false); setToast("Profile settings are ready for the next product slice."); }}>Profile settings</button>
+              <strong>{session.user.displayName}</strong>
+              <span>{session.user.email}</span>
+              <button type="button" onClick={logout}><SignOut24Regular aria-hidden="true" />Sign out</button>
             </div>
           )}
         </header>
 
         {activeNav === "Home" && (
           <HomeScreen
+            userName={firstName}
             workspaceState={workspaceState}
             workspace={workspace}
             apiError={apiError}
@@ -652,6 +756,7 @@ export function App() {
             onDisconnect={disconnectMicrosoft365}
           />
         )}
+        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} />}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 
@@ -683,7 +788,7 @@ export function App() {
             <div><dt>Action</dt><dd>{operation.action}</dd></div>
             <div><dt>File</dt><dd>{operation.resourceName}</dd></div>
             <div><dt>Location</dt><dd>{operation.resourceLocation}</dd></div>
-            <div><dt>Requested by</dt><dd>Alex Morgan</dd></div>
+            <div><dt>Requested by</dt><dd>{session.user.displayName}</dd></div>
             <div><dt>Operation binding</dt><dd><code>{operation.operationDigest.slice(0, 12)}…</code></dd></div>
           </dl>
           {operation.receipt && (

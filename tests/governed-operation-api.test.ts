@@ -11,9 +11,8 @@ const proxyToken = "proxy-test-token-at-least-24-characters";
 const identity: IdentityContext = { tenantId: "acme", subjectId: "alex-morgan", audience: "onecomputer-control" };
 const authHeaders = {
   "x-onecomputer-proxy-token": proxyToken,
-  "x-onecomputer-tenant-id": identity.tenantId,
-  "x-onecomputer-subject-id": identity.subjectId,
-  "x-onecomputer-audience": identity.audience,
+  "x-onecomputer-test-tenant-id": identity.tenantId,
+  "x-onecomputer-test-user-id": identity.subjectId,
 };
 
 test("Control API exposes a durable approval-required operation and fixture decision", async () => {
@@ -32,7 +31,7 @@ test("Control API exposes a durable approval-required operation and fixture deci
     },
   };
   const controller = {} as ControllerClient;
-  const app = createControlServer(store, controller, proxyToken, gateway, "api-fixture-approval-secret-at-least-32-characters");
+  const app = createControlServer(store, controller, proxyToken, gateway, "api-fixture-approval-secret-at-least-32-characters", {}, { testIdentityMode: true });
 
   const empty = await app.inject({ method: "GET", url: "/v1/operations/recent", headers: authHeaders });
   assert.equal(empty.statusCode, 204);

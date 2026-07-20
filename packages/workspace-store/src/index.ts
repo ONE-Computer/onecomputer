@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import type { GovernedOperationState, IdentityContext, OwnedJson, WorkspaceState } from "@onecomputer/contracts";
+export * from "./identity-policy.js";
 
 export type WorkspaceRecord = {
   id: string;
@@ -157,7 +158,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore {
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }

@@ -1,6 +1,6 @@
 # 005: establish real identity and durable policy assignments
 
-Status: `ready`
+Status: `verification`
 
 Gate: D
 Depends on: 004
@@ -49,18 +49,18 @@ policy authority.
 
 - [ ] `mike@metech.dev` signs in and resolves to one durable tenant/user across
   browser, Control, PostgreSQL, LiteLLM `user_id`, and Microsoft connection.
-- [ ] Caller-supplied tenant, subject, role, agent, workspace, or policy headers
+- [x] Caller-supplied tenant, subject, role, agent, workspace, or policy headers
   cannot override the authenticated server session.
-- [ ] Cross-tenant/user/role direct URL and API attempts deny.
-- [ ] Agent ownership, workspace assignment, vendor mapping, capability
+- [x] Cross-tenant/user/role direct URL and API attempts deny.
+- [x] Agent ownership, workspace assignment, vendor mapping, capability
   assignment, and policy version survive Control and database restarts.
-- [ ] Every effective workspace/agent grant references one immutable policy
+- [x] Every effective workspace/agent grant references one immutable policy
   version and records who assigned it.
-- [ ] An administrator can assign/revoke the MVP policy through the owned
+- [x] An administrator can assign/revoke the MVP policy through the owned
   surface; an employee and a direct unauthenticated API caller cannot.
-- [ ] Removing or changing an assignment revokes/renews downstream authority
+- [x] Removing or changing an assignment revokes/renews downstream authority
   without deleting the persistent workspace.
-- [ ] Browser storage, bundles, logs, database evidence, and API responses
+- [x] Browser storage, bundles, logs, database evidence, and API responses
   contain no Entra client secret, Microsoft token, LiteLLM master key, or
   workspace credential.
 
@@ -79,4 +79,7 @@ credential/redaction scan.
 
 ## Completion record
 
-Not complete. This is the next active issue.
+Implementation and automated qualification completed on 2026-07-20. Evidence is
+recorded in `infra/issue-005/qualification-2026-07-20.md`. Final completion is
+waiting on one human Entra sign-in as `mike@metech.dev` after adding the owned
+Web callback URI. Issue 006 remains blocked until that review passes.

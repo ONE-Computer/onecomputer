@@ -10,9 +10,8 @@ const proxyToken = "proxy-test-token-at-least-24-characters";
 const alpha: IdentityContext = { tenantId: "acme", subjectId: "alpha", audience: "onecomputer-control" };
 const headersFor = (identity: IdentityContext) => ({
   "x-onecomputer-proxy-token": proxyToken,
-  "x-onecomputer-tenant-id": identity.tenantId,
-  "x-onecomputer-subject-id": identity.subjectId,
-  "x-onecomputer-audience": identity.audience,
+  "x-onecomputer-test-tenant-id": identity.tenantId,
+  "x-onecomputer-test-user-id": identity.subjectId,
 });
 
 test("Control exposes an owned Microsoft 365 redirect, callback, status, and disconnect surface", async () => {
@@ -45,6 +44,7 @@ test("Control exposes an owned Microsoft 365 redirect, callback, status, and dis
     gateway,
     "api-fixture-approval-secret-at-least-32-characters",
     { publicWebUrl: "http://localhost:4174", authorizationOrigin: "http://localhost:3001" },
+    { testIdentityMode: true },
   );
   try {
     const status = await app.inject({ method: "GET", url: "/v1/connections/microsoft-365", headers: headersFor(alpha) });

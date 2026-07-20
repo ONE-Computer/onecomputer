@@ -1427,6 +1427,73 @@ summary:focus-visible {
   }
 }
 
+.signin-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #f7f7f5;
+}
+
+.signin-card {
+  width: min(520px, 100%);
+  padding: 48px;
+  border: 1px solid #dededb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 36px rgba(15, 35, 58, 0.08);
+}
+
+.signin-brand { margin-bottom: 56px; }
+.signin-card > p { margin: 0 0 10px; color: #4c5662; }
+.signin-card h1 { margin: 0; color: #0d1a2b; font-size: clamp(34px, 6vw, 48px); letter-spacing: -0.04em; }
+.signin-card > span { display: block; margin: 18px 0 30px; color: #5d6670; line-height: 1.55; }
+.signin-button { width: 100%; text-decoration: none; }
+.signin-card > small { display: flex; gap: 9px; align-items: flex-start; margin-top: 24px; color: #606975; line-height: 1.45; }
+.signin-card > small svg { flex: 0 0 auto; color: #0b4a8f; }
+.signin-loading { color: #3f4a57; font-size: 15px; }
+
+.profile-menu button svg { width: 18px; height: 18px; margin-right: 8px; vertical-align: middle; }
+
+.admin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid #dededb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-toolbar div,
+.admin-user-copy,
+.admin-policy-copy { display: grid; gap: 5px; }
+.admin-toolbar small,
+.admin-user-copy small,
+.admin-policy-copy small { color: #68727d; }
+
+.admin-user-list { margin-top: 20px; border-top: 1px solid #dededb; }
+.admin-user-list > p { padding: 28px 0; color: #68727d; }
+.admin-user-list article {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  min-height: 104px;
+  border-bottom: 1px solid #dededb;
+}
+.admin-user-copy span { width: fit-content; padding: 3px 8px; border-radius: 999px; background: #eef3f8; color: #244a73; font-size: 12px; }
+.compact-button { min-width: 150px; min-height: 44px; }
+
+@media (max-width: 700px) {
+  .signin-screen { padding: 16px; }
+  .signin-card { padding: 30px 24px; }
+  .signin-brand { margin-bottom: 38px; }
+  .admin-toolbar { align-items: stretch; flex-direction: column; }
+  .admin-user-list article { grid-template-columns: 1fr; gap: 14px; padding: 22px 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

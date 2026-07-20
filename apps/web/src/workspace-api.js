@@ -41,3 +41,16 @@ export const connectionApi = {
   microsoft365AuthorizeUrl: "/api/v1/connections/microsoft-365/authorize",
   disconnectMicrosoft365: () => request("/api/v1/connections/microsoft-365", mutation("DELETE")),
 };
+
+export const authApi = {
+  session: () => request("/api/v1/auth/session"),
+  loginUrl: "/api/v1/auth/login",
+  logout: () => request("/api/v1/auth/logout", mutation()),
+};
+
+export const adminApi = {
+  users: () => request("/api/v1/admin/users"),
+  assignPolicy: (userId) => request(`/api/v1/admin/users/${encodeURIComponent(userId)}/policy`, mutation()),
+  revokePolicy: (userId) => request(`/api/v1/admin/users/${encodeURIComponent(userId)}/policy`, mutation("DELETE")),
+  createPolicyVersion: (revisionNote) => request("/api/v1/admin/policy/versions", mutation("POST", { revisionNote })),
+};

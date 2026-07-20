@@ -13,6 +13,7 @@
     "@onecomputer/litellm-adapter": "*",
     "@onecomputer/workspace-store": "*",
     "fastify": "5.10.0",
+    "jose": "6.1.3",
     "pg": "8.22.0",
     "zod": "4.4.3"
   }

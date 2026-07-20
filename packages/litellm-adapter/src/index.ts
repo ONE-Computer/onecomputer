@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { OneComputerError, type IdentityContext, type OwnedJson } from "@onecomputer/contracts";
 
 export type GatewayGrant = {
@@ -22,10 +22,10 @@ export type GatewayTestResult = {
 };
 
 export interface GatewayClient {
-  ensureGrant(input: { workspaceId: string; identity: IdentityContext }): Promise<GatewayGrant>;
-  readiness(workspaceId: string): Promise<GatewayReadiness>;
-  test(workspaceId: string): Promise<GatewayTestResult>;
-  revoke(workspaceId: string): Promise<void>;
+  ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string }): Promise<GatewayGrant>;
+  readiness(workspaceId: string, agentId?: string): Promise<GatewayReadiness>;
+  test(workspaceId: string, agentId?: string): Promise<GatewayTestResult>;
+  revoke(workspaceId: string, agentId?: string): Promise<void>;
 }
 
 export type GovernedToolExecutionInput = {
@@ -35,6 +35,7 @@ export type GovernedToolExecutionInput = {
   operationId: string;
   operationDigest: string;
   leaseId: string;
+  agentId?: string;
   serverName: string;
   toolName: string;
   arguments: OwnedJson;
@@ -89,9 +90,25 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     this.workspaceGrantRenewalMs = config.workspaceGrantRenewalMs ?? 60 * 60 * 1000;
   }
 
-  credentialFor(workspaceId: string) {
+  userIdFor(identity: IdentityContext) {
+    const digest = createHash("sha256")
+      .update(`onecomputer:litellm:user:${identity.tenantId}:${identity.subjectId}`)
+      .digest("base64url");
+    return `oc-user-${digest}`;
+  }
+
+  agentIdFor(workspaceId: string, agentId?: string) {
+    const digest = createHash("sha256")
+      .update(`onecomputer:litellm:agent:${workspaceId}:${agentId ?? "default"}`)
+      .digest("base64url");
+    return `oc-agent-${digest}`;
+  }
+
+  credentialFor(workspaceId: string, agentId?: string) {
     const digest = createHmac("sha256", this.config.credentialSecret)
-      .update(`onecomputer:litellm:workspace:${workspaceId}`)
+      .update(agentId
+        ? `onecomputer:litellm:workspace:${workspaceId}:agent:${agentId}`
+        : `onecomputer:litellm:workspace:${workspaceId}`)
       .digest("base64url");
     return `sk-ocw-${digest}`;
   }
@@ -103,9 +120,11 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     return `sk-oce-${digest}`;
   }
 
-  async ensureGrant(input: { workspaceId: string; identity: IdentityContext }): Promise<GatewayGrant> {
-    const credential = this.credentialFor(input.workspaceId);
-    const cachedExpiry = this.workspaceGrantExpiries.get(input.workspaceId) ?? 0;
+  async ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string }): Promise<GatewayGrant> {
+    const credential = this.credentialFor(input.workspaceId, input.agentId);
+    const gatewayUserId = this.userIdFor(input.identity);
+    const gatewayAgentId = this.agentIdFor(input.workspaceId, input.agentId);
+    const cachedExpiry = this.workspaceGrantExpiries.get(credential) ?? 0;
     if (cachedExpiry > Date.now() + this.workspaceGrantRenewalMs) {
       return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: new Date(cachedExpiry).toISOString() };
     }
@@ -113,8 +132,10 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     const durationSeconds = Math.max(60, Math.ceil(this.workspaceGrantTtlMs / 1_000));
     const grant = {
       key: credential,
-      key_alias: `onecomputer-workspace-${input.workspaceId}`,
+      key_alias: `onecomputer-agent-${gatewayAgentId}`,
       key_type: "llm_api",
+      user_id: gatewayUserId,
+      agent_id: gatewayAgentId,
       duration: `${durationSeconds}s`,
       models: [this.modelAlias],
       max_budget: 1,
@@ -124,6 +145,9 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         onecomputer_workspace_id: input.workspaceId,
         onecomputer_tenant_id: input.identity.tenantId,
         onecomputer_subject_id: input.identity.subjectId,
+        onecomputer_agent_id: input.agentId ?? `workspace-default:${input.workspaceId}`,
+        onecomputer_gateway_user_id: gatewayUserId,
+        onecomputer_gateway_agent_id: gatewayAgentId,
       },
       object_permission: {
         mcp_servers: [this.mcpServer],
@@ -133,20 +157,37 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
 
     const generated = await this.adminCall("/key/generate", { method: "POST", body: grant }, true);
     if (!generated.ok) {
-      const updated = await this.adminCall("/key/update", { method: "POST", body: grant });
-      if (!updated.ok) throw this.upstreamError("GATEWAY_GRANT_FAILED", updated.status, updated.payload);
+      const existing = await this.adminCall(`/key/list?return_full_object=true&key_alias=${encodeURIComponent(grant.key_alias)}`, { method: "GET" }, true);
+      const keys = Array.isArray(asObject(existing.payload).keys) ? asObject(existing.payload).keys as unknown[] : [];
+      const tokenHash = createHash("sha256").update(credential).digest("hex");
+      const current = keys.map(asObject).find((key) => key.token === tokenHash);
+      const metadata = asObject(current?.metadata);
+      const identityMatches = current?.user_id === gatewayUserId
+        && current?.agent_id === gatewayAgentId
+        && metadata.onecomputer_tenant_id === input.identity.tenantId
+        && metadata.onecomputer_subject_id === input.identity.subjectId
+        && metadata.onecomputer_workspace_id === input.workspaceId
+        && metadata.onecomputer_agent_id === (input.agentId ?? `workspace-default:${input.workspaceId}`);
+      if (!identityMatches) {
+        await this.adminCall("/key/delete", { method: "POST", body: { keys: [credential] } }, true);
+        const replaced = await this.adminCall("/key/generate", { method: "POST", body: grant }, true);
+        if (!replaced.ok) throw this.upstreamError("GATEWAY_GRANT_IDENTITY_MISMATCH", replaced.status, replaced.payload);
+      } else {
+        const updated = await this.adminCall("/key/update", { method: "POST", body: grant });
+        if (!updated.ok) throw this.upstreamError("GATEWAY_GRANT_FAILED", updated.status, updated.payload);
+      }
     }
-    this.workspaceGrantExpiries.set(input.workspaceId, expiresAt.getTime());
+    this.workspaceGrantExpiries.set(credential, expiresAt.getTime());
     return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: expiresAt.toISOString() };
   }
 
-  async readiness(workspaceId: string): Promise<GatewayReadiness> {
-    const credential = this.credentialFor(workspaceId);
+  async readiness(workspaceId: string, agentId?: string): Promise<GatewayReadiness> {
+    const credential = this.credentialFor(workspaceId, agentId);
     const [models, tools] = await Promise.all([
       this.dataCall("/v1/models", credential),
       this.dataCall("/mcp-rest/tools/list", credential),
     ]);
-    if (!models.ok || !tools.ok) this.workspaceGrantExpiries.delete(workspaceId);
+    if (!models.ok || !tools.ok) this.workspaceGrantExpiries.delete(credential);
     const modelIds = Array.isArray(asObject(models.payload).data)
       ? (asObject(models.payload).data as unknown[]).map((item) => String(asObject(item).id ?? ""))
       : [];
@@ -159,8 +200,8 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     };
   }
 
-  async test(workspaceId: string): Promise<GatewayTestResult> {
-    const credential = this.credentialFor(workspaceId);
+  async test(workspaceId: string, agentId?: string): Promise<GatewayTestResult> {
+    const credential = this.credentialFor(workspaceId, agentId);
     const [completion, toolList] = await Promise.all([
       this.dataCall("/v1/chat/completions", credential, {
         method: "POST",
@@ -195,12 +236,16 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
 
   async executeGovernedTool(input: GovernedToolExecutionInput): Promise<GovernedToolExecutionResult> {
     const credential = this.executionCredential(input.operationId, input.leaseId);
+    const gatewayUserId = this.userIdFor({ tenantId: input.tenantId, subjectId: input.subjectId, audience: "onecomputer-control" });
+    const gatewayAgentId = this.agentIdFor(input.workspaceId, input.agentId);
     const grant = await this.adminCall("/key/generate", {
       method: "POST",
       body: {
         key: credential,
         key_alias: `onecomputer-execution-${input.operationId}`,
         key_type: "llm_api",
+        user_id: gatewayUserId,
+        agent_id: gatewayAgentId,
         duration: "60s",
         models: [],
         max_budget: 0.01,
@@ -209,6 +254,9 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
           onecomputer_tenant_id: input.tenantId,
           onecomputer_subject_id: input.subjectId,
           onecomputer_workspace_id: input.workspaceId,
+          onecomputer_agent_id: input.agentId ?? `workspace-default:${input.workspaceId}`,
+          onecomputer_gateway_user_id: gatewayUserId,
+          onecomputer_gateway_agent_id: gatewayAgentId,
           onecomputer_operation_id: input.operationId,
           onecomputer_operation_digest: input.operationDigest,
           onecomputer_lease_id: input.leaseId,
@@ -249,12 +297,13 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     }
   }
 
-  async revoke(workspaceId: string) {
+  async revoke(workspaceId: string, agentId?: string) {
+    const credential = this.credentialFor(workspaceId, agentId);
     const result = await this.adminCall("/key/delete", {
       method: "POST",
-      body: { keys: [this.credentialFor(workspaceId)] },
+      body: { keys: [credential] },
     }, true);
-    this.workspaceGrantExpiries.delete(workspaceId);
+    this.workspaceGrantExpiries.delete(credential);
     if (!result.ok && result.status !== 404) throw this.upstreamError("GATEWAY_REVOKE_FAILED", result.status, result.payload);
   }
 

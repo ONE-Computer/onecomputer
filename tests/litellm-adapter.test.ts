@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
@@ -19,6 +20,25 @@ test("workspace credentials are deterministic, scoped by workspace, and not the 
   assert.notEqual(first, adapter.credentialFor("workspace-b"));
   assert.notEqual(first, "sk-master-test-not-used-00001");
   assert.match(first, /^sk-ocw-[A-Za-z0-9_-]+$/);
+});
+
+test("gateway identity separates OAuth owner, agent actor, and workspace", () => {
+  const sameUser = adapter.userIdFor(identity);
+  assert.equal(sameUser, adapter.userIdFor(identity));
+  assert.notEqual(sameUser, adapter.userIdFor({ ...identity, subjectId: "another-user" }));
+  assert.notEqual(sameUser, adapter.userIdFor({ ...identity, tenantId: "another-tenant" }));
+  assert.notEqual(adapter.agentIdFor("workspace-a", "research"), adapter.agentIdFor("workspace-a", "calendar"));
+  assert.notEqual(adapter.agentIdFor("workspace-a", "research"), adapter.agentIdFor("workspace-b", "research"));
+  assert.notEqual(adapter.credentialFor("workspace-a", "research"), adapter.credentialFor("workspace-a", "calendar"));
+  const rotatedCredentialAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: "http://litellm.internal:4000",
+    workspaceUrl: "http://litellm:4000",
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "a-different-credential-secret-000001",
+  });
+  assert.equal(rotatedCredentialAdapter.userIdFor(identity), sameUser);
+  assert.equal(rotatedCredentialAdapter.agentIdFor("workspace-a", "research"), adapter.agentIdFor("workspace-a", "research"));
+  assert.notEqual(rotatedCredentialAdapter.credentialFor("workspace-a", "research"), adapter.credentialFor("workspace-a", "research"));
 });
 
 test("workspace grant expiry renews independently of workspace lifetime", async () => {
@@ -44,6 +64,84 @@ test("workspace grant expiry renews independently of workspace lifetime", async 
     assert.equal(reused.credential, first.credential);
     assert.equal(reused.expiresAt, first.expiresAt);
     assert.equal(grantRequests, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("workspace grants bind LiteLLM user and agent identities without making either policy authority", async () => {
+  let grantBody: Record<string, unknown> = {};
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    grantBody = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  try {
+    await liveAdapter.ensureGrant({ workspaceId: "workspace-a", identity, agentId: "research" });
+    assert.equal(grantBody.user_id, liveAdapter.userIdFor(identity));
+    assert.equal(grantBody.agent_id, liveAdapter.agentIdFor("workspace-a", "research"));
+    assert.equal((grantBody.metadata as Record<string, unknown>).onecomputer_agent_id, "research");
+    assert.equal((grantBody.metadata as Record<string, unknown>).onecomputer_subject_id, "alex-morgan");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("a pre-existing key with mismatched identity is replaced rather than updated", async () => {
+  const requests: string[] = [];
+  let generateCalls = 0;
+  const server = createServer(async (request, response) => {
+    requests.push(request.url ?? "");
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/key/generate") {
+      generateCalls += 1;
+      response.statusCode = generateCalls === 1 ? 409 : 200;
+      response.end(JSON.stringify(generateCalls === 1 ? { error: "duplicate key" } : { ok: true }));
+      return;
+    }
+    if (request.url?.startsWith("/key/list?")) {
+      const credential = new LiteLLMGatewayAdapter({
+        adminUrl: "http://unused",
+        workspaceUrl: "http://unused",
+        masterKey: "sk-master-test-not-used-00001",
+        credentialSecret: "credential-secret-for-tests-00000001",
+      }).credentialFor("workspace-a");
+      response.end(JSON.stringify({
+        keys: [{
+          token: createHash("sha256").update(credential).digest("hex"),
+          user_id: "wrong-user",
+          agent_id: "wrong-agent",
+          metadata: { onecomputer_workspace_id: "workspace-a" },
+        }],
+      }));
+      return;
+    }
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  try {
+    await liveAdapter.ensureGrant({ workspaceId: "workspace-a", identity });
+    assert.equal(generateCalls, 2);
+    assert.ok(requests.some((url) => url.startsWith("/key/list?")));
+    assert.ok(requests.includes("/key/delete"));
+    assert.ok(!requests.includes("/key/update"));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -88,6 +186,8 @@ test("governed execution uses one exact-tool key, resolved server id, and revoca
     const grant = requests.find((item) => item.url === "/key/generate")!;
     const call = requests.find((item) => item.url === "/mcp-rest/tools/call")!;
     assert.deepEqual((grant.body.object_permission as Record<string, unknown>).mcp_tool_permissions, { onecomputer_fixture: ["delete_file"] });
+    assert.equal(grant.body.user_id, liveAdapter.userIdFor(identity));
+    assert.equal(grant.body.agent_id, liveAdapter.agentIdFor("b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508"));
     assert.notEqual(call.authorization, "Bearer sk-master-test-not-used-00001");
     assert.match(call.authorization, /^Bearer sk-oce-/);
     assert.deepEqual(call.body, { server_id: "fixture-server-id", name: "delete_file", arguments: { path: "/Finance/2026/Q3-draft.docx" } });

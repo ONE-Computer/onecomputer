@@ -24,7 +24,8 @@ services:
       POSTGRES_USER: litellm
       POSTGRES_PASSWORD: ${ONECOMPUTER_LITELLM_POSTGRES_PASSWORD:?set ONECOMPUTER_LITELLM_POSTGRES_PASSWORD}
     networks: [gateway-private]
-    tmpfs: [/var/lib/postgresql]
+    volumes:
+      - onecomputer-v4-litellm-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
       interval: 2s
@@ -57,6 +58,7 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
     environment:
       LITELLM_MASTER_KEY: ${ONECOMPUTER_LITELLM_MASTER_KEY:?set ONECOMPUTER_LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${ONECOMPUTER_LITELLM_SALT_KEY:?set ONECOMPUTER_LITELLM_SALT_KEY}
       DATABASE_URL: postgres://litellm:${ONECOMPUTER_LITELLM_POSTGRES_PASSWORD}@litellm-postgres:5432/litellm
       DISABLE_ADMIN_UI: "false"
       UI_USERNAME: ${ONECOMPUTER_LITELLM_UI_USERNAME:-admin}
@@ -163,3 +165,5 @@ volumes:
   onecomputer-v4-postgres-data:
     name: onecomputer-v4-postgres-data
     external: true
+  onecomputer-v4-litellm-postgres-data:
+    name: onecomputer-v4-litellm-postgres-data

@@ -11,6 +11,26 @@ mcp_servers:
     url: http://gateway-fixture:4200/mcp
     description: ONEComputer Issue 002 read and destructive tool fixture
 
+  # Qualification-only server for proving per-user OAuth custody and isolation
+  # without placing real Microsoft tokens in a synthetic negative test.
+  onecomputer_oauth_fixture:
+    transport: http
+    url: http://gateway-fixture:4200/oauth-mcp
+    description: ONEComputer per-user OAuth isolation fixture
+    auth_type: oauth2
+    oauth2_flow: authorization_code
+    client_id: onecomputer-oauth-fixture
+    authorization_url: http://gateway-fixture:4200/oauth/authorize
+    token_url: http://gateway-fixture:4200/oauth/token
+    scopes:
+      - fixture.read
+    allowed_tools:
+      - credential_identity
+      - credential_secondary
+    allow_all_keys: false
+    available_on_public_internet: false
+    delegate_auth_to_upstream: false
+
   onecomputer_ms365:
     transport: http
     url: http://ms365-mcp:3000/mcp

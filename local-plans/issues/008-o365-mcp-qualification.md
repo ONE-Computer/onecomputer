@@ -40,30 +40,41 @@ owned wrapper required for the golden paths.
 
 ## Required verification
 
-- [ ] Candidate identity, version/digest/commit, license, scopes, endpoint,
+- [x] Candidate identity, version/digest/commit, license, scopes, endpoint,
   schema snapshot, and requalification triggers are recorded.
 - [ ] Workspace discovers only the mapped tools with a scoped non-master key.
 - [ ] Control receives stable server/tool/schema identity and exact canonical
   arguments before provider execution.
 - [ ] Read is bounded; delete binds item identity and version/eTag and returns a
   usable receipt or explicit limitation.
+- [x] Deployment-level page/item caps are active and all Microsoft write tools
+  remain absent from the qualified surface.
 - [ ] Mail and calendar reads are bounded by user, time/query window, selected
   fields, page count, and item count; write tools remain absent until each has a
   typed governed-operation contract.
 - [ ] OAuth tokens remain in the selected gateway/provider seam and are absent
   from workspace, browser, policy payloads, logs, and evidence.
-- [ ] LiteLLM uses a durable credential database and a dedicated stable
-  encryption salt independent from its master key; backup, replacement, and
-  recovery behavior is recorded.
-- [ ] ONEComputer user -> LiteLLM `user_id` and agent/workspace -> virtual-key
-  mappings are deterministic, unique where required, revocable, and auditable.
-- [ ] Two agents belonging to one user can share the user's delegated OAuth
+- [x] LiteLLM uses a durable credential database and a dedicated stable
+  encryption salt independent from its master key; process and database restart
+  behavior passed.
+- [ ] Backup/restore, database replacement, salt-loss recovery, and rotation
+  procedures are recorded and tested.
+- [x] Adapter-generated ONEComputer user -> LiteLLM `user_id` and
+  agent/workspace -> virtual-key mappings are deterministic, unique where
+  required, revocable, and visible in gateway audit metadata.
+- [ ] Durable owned agent, delegation, and vendor-key mapping records exist in
+  ONEComputer PostgreSQL rather than only gateway metadata.
+- [x] Two agents belonging to one user can share the user's delegated OAuth
   connection while retaining different server/tool policies and distinct keys.
-- [ ] Cross-user, cross-agent, cross-workspace, cross-tenant, missing-identity,
-  and deliberately mismatched-key probes deny without returning or using the
-  wrong credential.
-- [ ] OAuth refresh, expiry, revoke, disconnect, key rotation, LiteLLM restart,
-  and connector restart behavior is verified fail-closed.
+- [x] Synthetic cross-user, cross-agent, missing-credential, and revoked-key
+  probes deny without returning or using the wrong credential.
+- [ ] Real cross-workspace, cross-tenant, missing-identity, and deliberately
+  mismatched-key probes deny through the complete Control -> gateway path.
+- [x] OAuth refresh, expiry, user revoke, agent-key revoke, LiteLLM restart,
+  database restart, and connector restart behavior is verified fail-closed with
+  the synthetic OAuth provider.
+- [ ] Real Microsoft disconnect, consent revocation, key rotation, and provider
+  restart behavior is verified fail-closed.
 - [ ] Authenticated tenant, user, agent, workspace, key, and operation identity
   reaches Control's policy/evidence seam without treating LiteLLM `user_id` as
   ONEComputer's policy authority.
@@ -86,7 +97,11 @@ wrapper contract if conditional.
 
 ## Completion record
 
-Not complete.
+Not complete. The pinned LiteLLM per-user credential-custody mechanism received
+a conditional synthetic pass on 2026-07-20. Evidence is in
+`infra/issue-008/qualification-2026-07-20.md`. A real Entra reconnection under
+the mapped ONEComputer user, bounded Graph probes, the owned connection journey,
+and the remaining provider/error/isolation matrix still block completion.
 
 ## Early candidate deployment
 

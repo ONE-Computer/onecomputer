@@ -98,6 +98,12 @@ retain each user's OAuth tokens; the connector receives a bearer token only for
 that user's tool call. The server is not assigned to existing workspace keys,
 so registration does not grant a sandbox access.
 
+LiteLLM PostgreSQL now uses the named
+`onecomputer-v4-litellm-postgres-data` volume and LiteLLM requires the dedicated
+stable `ONECOMPUTER_LITELLM_SALT_KEY`. Losing or changing that value makes
+stored OAuth credentials undecryptable. It must come from a durable secret
+store in production and must remain distinct from the LiteLLM master key.
+
 The gateway can discover the read-only tool catalog before Microsoft consent,
 but real tool execution requires the dedicated Entra client ID/tenant ID and a
 user-completed browser consent flow. No OAuth token or Microsoft password should
@@ -121,9 +127,13 @@ be pasted into chat, committed, or passed to a workspace.
   capabilities dropped, and `no-new-privileges` enabled;
 - the locked production dependency tree reported zero npm audit findings.
 
-Live Entra consent and one interactive LiteLLM connection have now been
-completed locally. That proves only the browser authorization path; agent-key
-identity propagation, per-agent policy separation, credential durability,
-wrong-identity/tenant behavior, Graph throttling/errors, data bounding, and
-credential-leak scans remain unverified. ADR-004 records the selected design
-and the qualification boundary.
+One interactive Entra connection was completed before persistent storage was
+enabled, but the disposable database already contained zero OAuth rows when
+this was discovered. That connection must be repeated under the mapped
+ONEComputer user identity; connecting as the generic LiteLLM administrator is
+not sufficient for an agent key with a different `user_id`.
+
+The repeatable synthetic custody qualification and its conditional result are
+recorded in `qualification-2026-07-20.md`. Real identity-bound Graph reads,
+wrong-tenant/provider behavior, production connection UI, and real-token leak
+scans remain unverified.

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -14,10 +14,23 @@ export type FixtureCounters = {
   toolsList: number;
   searchFiles: number;
   deleteFile: number;
+  oauthToolsList: number;
+  oauthToolCall: number;
+  oauthTokenRefresh: number;
+  oauthCredentialFingerprints: string[];
 };
 
 export function createGatewayFixture() {
-  const counters: FixtureCounters = { model: 0, toolsList: 0, searchFiles: 0, deleteFile: 0 };
+  const counters: FixtureCounters = {
+    model: 0,
+    toolsList: 0,
+    searchFiles: 0,
+    deleteFile: 0,
+    oauthToolsList: 0,
+    oauthToolCall: 0,
+    oauthTokenRefresh: 0,
+    oauthCredentialFingerprints: [],
+  };
   const app = Fastify({ logger: true, bodyLimit: 64 * 1024 });
 
   app.get("/healthz", async () => ({ status: "ok" }));
@@ -27,6 +40,10 @@ export function createGatewayFixture() {
     counters.toolsList = 0;
     counters.searchFiles = 0;
     counters.deleteFile = 0;
+    counters.oauthToolsList = 0;
+    counters.oauthToolCall = 0;
+    counters.oauthTokenRefresh = 0;
+    counters.oauthCredentialFingerprints = [];
     return { ...counters };
   });
 
@@ -139,6 +156,61 @@ export function createGatewayFixture() {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     const body = request.body as Record<string, unknown> | undefined;
     if (body?.method === "tools/list") counters.toolsList += 1;
+    await server.connect(transport);
+    await transport.handleRequest(request.raw, reply.raw, request.body);
+    reply.hijack();
+  });
+
+  app.get("/oauth/authorize", async (_request, reply) => {
+    return reply.code(400).send({ error: "qualification_fixture_has_no_browser_flow" });
+  });
+
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => done(null, body));
+
+  app.post("/oauth/token", async (request, reply) => {
+    const form = new URLSearchParams(typeof request.body === "string" ? request.body : "");
+    const refreshToken = form.get("refresh_token");
+    if (form.get("grant_type") !== "refresh_token" || !refreshToken) {
+      return reply.code(400).send({ error: "unsupported_fixture_grant" });
+    }
+    counters.oauthTokenRefresh += 1;
+    const accessToken = `ocq-refreshed-${createHash("sha256").update(refreshToken).digest("hex").slice(0, 24)}`;
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_type: "Bearer",
+      expires_in: 3_600,
+      scope: "fixture.read",
+    };
+  });
+
+  app.all("/oauth-mcp", async (request, reply) => {
+    const authorization = String(request.headers.authorization ?? "");
+    if (!authorization.startsWith("Bearer ") || authorization.length <= "Bearer ".length) {
+      return reply.code(401).header("www-authenticate", "Bearer").send({ error: "missing_bearer" });
+    }
+    const credentialFingerprint = createHash("sha256")
+      .update(authorization.slice("Bearer ".length))
+      .digest("hex")
+      .slice(0, 16);
+    counters.oauthCredentialFingerprints.push(credentialFingerprint);
+
+    const server = new McpServer({ name: "onecomputer-oauth-fixture", version: "0.1.0" });
+    const credentialResult = () => {
+      counters.oauthToolCall += 1;
+      return { content: [{ type: "text" as const, text: JSON.stringify({ credentialFingerprint }) }] };
+    };
+    server.registerTool("credential_identity", {
+      description: "Return a safe fingerprint of the resolved per-user fixture credential.",
+      inputSchema: {},
+    }, credentialResult);
+    server.registerTool("credential_secondary", {
+      description: "A separately assignable tool using the same per-user fixture credential.",
+      inputSchema: {},
+    }, credentialResult);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const body = request.body as Record<string, unknown> | undefined;
+    if (body?.method === "tools/list") counters.oauthToolsList += 1;
     await server.connect(transport);
     await transport.handleRequest(request.raw, reply.raw, request.body);
     reply.hijack();

@@ -1,7 +1,10 @@
 # Issue 002 local gateway slice
 
 This stack extends the completed Kasm lifecycle with a pinned LiteLLM data
-plane, disposable LiteLLM PostgreSQL, and a private model/MCP fixture.
+plane, LiteLLM PostgreSQL, and a private model/MCP fixture. The database began
+as disposable qualification storage; Issue 008 moved it to the named
+`onecomputer-v4-litellm-postgres-data` volume because per-user OAuth credentials
+must survive service replacement and restart.
 
 The browser reaches only the Web proxy. Control owns the LiteLLM master key and
 derives a renewable short-lived key for each persistent workspace. A workspace
@@ -26,7 +29,9 @@ credentials.
 
 LiteLLM is pinned to `v1.93.0` and OCI index digest
 `sha256:a1745e629abfb17d434426ff48b115f54f4f4c4a0f5af241de569e93c63c411e`.
-Its database is deliberately disposable for this qualification slice.
+Its database now requires a dedicated stable `LITELLM_SALT_KEY` supplied by
+`ONECOMPUTER_LITELLM_SALT_KEY`. The salt and persistent volume are part of the
+Issue 008 OAuth custody boundary and are not optional in that deployment.
 
 ## Governed operation extension
 

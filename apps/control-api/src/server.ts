@@ -1,8 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema } from "@onecomputer/contracts";
+import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, type RuntimePolicy } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
-import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
+import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
 import { FixtureApprovalAuthority, GovernedOperationService } from "./operations.js";
 import { Microsoft365ConnectionService } from "./connections.js";
@@ -55,6 +55,19 @@ export function createControlServer(
     testIdentityMode?: boolean;
   } = {},
 ) {
+  const testRuntimePolicy: RuntimePolicy = {
+    schemaVersion: 1,
+    policyVersionId: "test-policy-v1",
+    policyVersion: 1,
+    policyHash: "0".repeat(64),
+    workspaceProfile: "kasm-persistent-standard",
+    agentId: "test-default-agent",
+    agentProfile: "onecomputer-default-agent",
+    networkProfile: "controlled-egress-v1",
+    modelAlias: "onecomputer-assistant",
+    mcpServer: "onecomputer_fixture",
+    allowedTools: ["search_files"],
+  };
   const app = Fastify({
     logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] },
     logController: new LogController({
@@ -115,10 +128,9 @@ export function createControlServer(
   };
   const requirePolicy = async (request: object) => {
     const value = principal(request);
-    if (security.identityPolicyStore && !await security.identityPolicyStore.getEffectivePolicy(value.userId)) {
-      throw new OneComputerError("POLICY_NOT_ASSIGNED", "No active workspace policy is assigned", 403);
-    }
-    return value;
+    const effective = security.identityPolicyStore ? await security.identityPolicyStore.getEffectivePolicy(value.userId) : null;
+    if (security.identityPolicyStore && !effective) throw new OneComputerError("POLICY_NOT_ASSIGNED", "No active workspace policy is assigned", 403);
+    return { principal: value, policy: effective ? runtimePolicyFor(effective) : testRuntimePolicy };
   };
   const idempotency = (headers: Record<string, unknown>) => {
     const key = headers["idempotency-key"];
@@ -207,24 +219,24 @@ export function createControlServer(
   });
   app.delete("/v1/connections/microsoft-365", async (request) => requireConnections().disconnect(identity(request)));
   app.get("/v1/workspaces/current", async (request, reply) => {
-    await requirePolicy(request);
-    const current = await service.current(identity(request), "personal");
+    const { policy } = await requirePolicy(request);
+    const current = await service.current(identity(request), policy, "personal");
     return current ? reply.send(current) : reply.code(404).send({ error: { code: "WORKSPACE_NOT_FOUND", message: "Workspace not found", correlationId: request.id, retryable: false } });
   });
   app.post("/v1/workspaces", async (request, reply) => {
     const input = createWorkspaceSchema.parse(request.body ?? {});
-    const actor = await requirePolicy(request);
-    const workspace = await service.create(identity(request), input.grantId, idempotency(request.headers), request.id);
+    const { principal: actor, policy } = await requirePolicy(request);
+    const workspace = await service.create(identity(request), policy, input.grantId, idempotency(request.headers), request.id);
     await security.identityPolicyStore?.bindWorkspaceIdentity(actor.userId, workspace.id);
     return reply.code(201).send(workspace);
   });
-  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/open", async (request) => { await requirePolicy(request); return service.open(identity(request), request.params.workspaceId); });
-  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/restart", async (request) => { await requirePolicy(request); return service.restart(identity(request), request.params.workspaceId, request.id); });
-  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/stop", async (request) => { await requirePolicy(request); return service.stop(identity(request), request.params.workspaceId); });
-  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/gateway/test", async (request) => { await requirePolicy(request); return service.testGateway(identity(request), request.params.workspaceId); });
+  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/open", async (request) => { const { policy } = await requirePolicy(request); return service.open(identity(request), policy, request.params.workspaceId); });
+  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/restart", async (request) => { const { policy } = await requirePolicy(request); return service.restart(identity(request), policy, request.params.workspaceId, request.id); });
+  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/stop", async (request) => { const { policy } = await requirePolicy(request); return service.stop(identity(request), policy, request.params.workspaceId); });
+  app.post<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId/gateway/test", async (request) => { const { policy } = await requirePolicy(request); return service.testGateway(identity(request), policy, request.params.workspaceId); });
   app.delete<{ Params: { workspaceId: string } }>("/v1/workspaces/:workspaceId", async (request, reply) => {
-    await requirePolicy(request);
-    await service.delete(identity(request), request.params.workspaceId);
+    const { policy } = await requirePolicy(request);
+    await service.delete(identity(request), policy, request.params.workspaceId);
     return reply.code(204).send();
   });
   app.get("/v1/operations/recent", async (request, reply) => {

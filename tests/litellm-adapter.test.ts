@@ -196,6 +196,49 @@ test("workspace grant expiry renews independently of workspace lifetime", async 
   }
 });
 
+test("a policy projection change bypasses the grant cache immediately", async () => {
+  let grantRequests = 0;
+  const server = createServer((_request, response) => {
+    grantRequests += 1;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+    workspaceGrantTtlMs: 120_000,
+    workspaceGrantRenewalMs: 30_000,
+  });
+  const basePolicy = {
+    schemaVersion: 1 as const,
+    policyVersionId: "policy-version-1",
+    policyVersion: 1,
+    policyHash: "1".repeat(64),
+    workspaceProfile: "kasm-persistent-standard" as const,
+    agentId: "persisted-agent-id",
+    agentProfile: "onecomputer-default-agent" as const,
+    networkProfile: "controlled-egress-v1" as const,
+    modelAlias: "onecomputer-assistant",
+    mcpServer: "onecomputer_ms365",
+    allowedTools: ["list-mail-folders"],
+  };
+  try {
+    await liveAdapter.ensureGrant({ workspaceId: "workspace-a", identity, policy: basePolicy });
+    await liveAdapter.ensureGrant({
+      workspaceId: "workspace-a",
+      identity,
+      policy: { ...basePolicy, policyVersionId: "policy-version-2", policyVersion: 2, policyHash: "2".repeat(64), allowedTools: ["list-calendars"] },
+    });
+    assert.equal(grantRequests, 2);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("workspace grants bind LiteLLM user and agent identities without making either policy authority", async () => {
   let grantBody: Record<string, unknown> = {};
   const server = createServer(async (request, response) => {
@@ -219,6 +262,54 @@ test("workspace grants bind LiteLLM user and agent identities without making eit
     assert.equal(grantBody.agent_id, liveAdapter.agentIdFor("workspace-a", "research"));
     assert.equal((grantBody.metadata as Record<string, unknown>).onecomputer_agent_id, "research");
     assert.equal((grantBody.metadata as Record<string, unknown>).onecomputer_subject_id, "alex-morgan");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("workspace grant materializes the exact Control policy rather than adapter defaults", async () => {
+  let grantBody: Record<string, unknown> = {};
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    grantBody = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  const policy = {
+    schemaVersion: 1 as const,
+    policyVersionId: "policy-version-6",
+    policyVersion: 6,
+    policyHash: "b".repeat(64),
+    workspaceProfile: "kasm-persistent-standard" as const,
+    agentId: "persisted-agent-id",
+    agentProfile: "onecomputer-default-agent" as const,
+    networkProfile: "controlled-egress-v1" as const,
+    modelAlias: "onecomputer-assistant",
+    mcpServer: "onecomputer_ms365",
+    allowedTools: ["list-mail-folders", "list-calendars", "list-drives"],
+  };
+  try {
+    await liveAdapter.ensureGrant({ workspaceId: "workspace-a", identity, policy });
+    assert.deepEqual(grantBody.models, ["onecomputer-assistant"]);
+    assert.deepEqual(grantBody.object_permission, {
+      mcp_servers: ["onecomputer_ms365"],
+      mcp_tool_permissions: {
+        onecomputer_ms365: ["list-mail-folders", "list-calendars", "list-drives"],
+      },
+    });
+    assert.equal(grantBody.agent_id, liveAdapter.agentIdFor("workspace-a", "persisted-agent-id"));
+    const metadata = grantBody.metadata as Record<string, unknown>;
+    assert.equal(metadata.onecomputer_policy_version_id, "policy-version-6");
+    assert.equal(metadata.onecomputer_policy_hash, "b".repeat(64));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

@@ -1,6 +1,6 @@
 # 006: launch a policy-built managed agent workspace
 
-Status: `ready`
+Status: `review`
 
 Gate: E
 Depends on: 005
@@ -42,16 +42,16 @@ network profile. The workspace remains wholly managed by the ONEComputer UI.
 
 ## Required verification
 
-- [ ] A newly started Kasm workspace contains the pinned agent client already
+- [x] A newly started Kasm workspace contains the pinned agent client already
   configured for ONEComputer's LiteLLM endpoint; no user secret setup is needed.
-- [ ] The persistent agent key discovers only its assigned Microsoft read tools
+- [x] The persistent agent key discovers only its assigned Microsoft read tools
   and completes bounded Mail, Calendar, and OneDrive reads as the owning user.
-- [ ] The workspace never receives the Microsoft token, LiteLLM master key,
+- [x] The workspace never receives the Microsoft token, LiteLLM master key,
   Entra client secret, Docker authority, or PostgreSQL credentials.
-- [ ] Direct model provider, Microsoft Graph, upstream MCP, PostgreSQL, Docker,
+- [x] Direct model provider, Microsoft Graph, upstream MCP, PostgreSQL, Docker,
   metadata/link-local, host gateway, alternate DNS/QUIC, other workspace, and
   unapproved public egress probes fail.
-- [ ] Proxy removal, client reconfiguration, raw hostname/IP use, and expired,
+- [x] Proxy removal, client reconfiguration, raw hostname/IP use, and expired,
   revoked, cross-user, cross-workspace, or wrong-audience keys cannot bypass the
   boundary.
 - [ ] Grant renewal and full service restart preserve the workspace; Stop and
@@ -74,5 +74,8 @@ container/network inspection, lifecycle/restart inventory, and secret scan.
 
 ## Completion record
 
-Not complete. Issue 005 was accepted on 2026-07-20; this is the next ready
-issue.
+Implementation and automated/live qualification completed on 2026-07-20.
+Evidence is recorded in `infra/issue-006/qualification-2026-07-20.md`.
+
+Waiting for human review of the UI Restart/Stop/Start lifecycle, persistent
+home file, and minimal desktop before closing the issue.

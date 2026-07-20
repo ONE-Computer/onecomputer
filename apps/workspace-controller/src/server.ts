@@ -16,8 +16,9 @@ const envSchema = z.object({
   KASM_IMAGE_ID: z.string().optional(),
   DOCKER_SOCKET_PATH: z.string().default("/var/run/docker.sock"),
   KASM_LOCAL_IMAGE: z.string().default("kasmweb/ubuntu-jammy-desktop@sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580"),
-  KASM_LOCAL_NETWORK: z.string().default("onecomputer-v4-sandbox"),
+  KASM_LOCAL_NETWORK_PREFIX: z.string().default("onecomputer-v4-ws"),
   KASM_LOCAL_CONTROL_NETWORK: z.string().default("onecomputer-v4-control"),
+  KASM_LOCAL_GATEWAY_CONTAINER: z.string().default("onecomputer-v4-issue-002-litellm-1"),
   KASM_LOCAL_RELAY_IMAGE: z.string().default("node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2"),
   KASM_PUBLIC_HOST: z.string().default("127.0.0.1"),
 });
@@ -47,6 +48,7 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
     const input = controllerCreateSchema.parse(request.body);
     return reply.code(201).send(await adapter.create({
       workspaceId: input.workspaceId,
+      policy: input.policy,
       gateway: input.gateway,
     }));
   });
@@ -54,6 +56,10 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
   app.post<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId/open", async (request) => adapter.open(request.params.providerId));
   app.delete<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId", async (request, reply) => {
     await adapter.destroy(request.params.providerId);
+    return reply.code(204).send();
+  });
+  app.delete<{ Params: { workspaceId: string } }>("/internal/v1/workspaces/:workspaceId/storage", async (request, reply) => {
+    await adapter.purgeWorkspace(request.params.workspaceId);
     return reply.code(204).send();
   });
 
@@ -75,8 +81,9 @@ export function adapterFromEnv(env: z.infer<typeof envSchema>): SandboxAdapter {
     return new KasmLocalAdapter({
       socketPath: env.DOCKER_SOCKET_PATH,
       image: env.KASM_LOCAL_IMAGE,
-      network: env.KASM_LOCAL_NETWORK,
+      networkPrefix: env.KASM_LOCAL_NETWORK_PREFIX,
       controlNetwork: env.KASM_LOCAL_CONTROL_NETWORK,
+      gatewayContainer: env.KASM_LOCAL_GATEWAY_CONTAINER,
       relayImage: env.KASM_LOCAL_RELAY_IMAGE,
       publicHost: env.KASM_PUBLIC_HOST,
     });

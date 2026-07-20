@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { OneComputerError, type IdentityContext, type OwnedJson } from "@onecomputer/contracts";
+import { OneComputerError, type IdentityContext, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
 
 export type GatewayGrant = {
   baseUrl: string;
@@ -22,9 +22,9 @@ export type GatewayTestResult = {
 };
 
 export interface GatewayClient {
-  ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string }): Promise<GatewayGrant>;
-  readiness(workspaceId: string, agentId?: string): Promise<GatewayReadiness>;
-  test(workspaceId: string, agentId?: string): Promise<GatewayTestResult>;
+  ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string; policy?: RuntimePolicy }): Promise<GatewayGrant>;
+  readiness(workspaceId: string, agentId?: string, policy?: RuntimePolicy): Promise<GatewayReadiness>;
+  test(workspaceId: string, agentId?: string, policy?: RuntimePolicy): Promise<GatewayTestResult>;
   revoke(workspaceId: string, agentId?: string): Promise<void>;
 }
 
@@ -104,7 +104,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
   private readonly workspaceGrantTtlMs: number;
   private readonly workspaceGrantRenewalMs: number;
   private readonly connectionGrantTtlMs: number;
-  private readonly workspaceGrantExpiries = new Map<string, number>();
+  private readonly workspaceGrantStates = new Map<string, { expiresAt: number; projection: string }>();
 
   constructor(private readonly config: LiteLLMConfig) {
     this.adminUrl = config.adminUrl.replace(/\/$/, "");
@@ -346,13 +346,25 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     return `sk-oce-${digest}`;
   }
 
-  async ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string }): Promise<GatewayGrant> {
-    const credential = this.credentialFor(input.workspaceId, input.agentId);
+  async ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string; policy?: RuntimePolicy }): Promise<GatewayGrant> {
+    const agentId = input.policy?.agentId ?? input.agentId;
+    const modelAlias = input.policy?.modelAlias ?? this.modelAlias;
+    const mcpServer = input.policy?.mcpServer ?? this.mcpServer;
+    const allowedTools = input.policy?.allowedTools ?? this.allowedTools;
+    const projection = JSON.stringify({
+      agentId,
+      modelAlias,
+      mcpServer,
+      allowedTools,
+      policyVersionId: input.policy?.policyVersionId ?? null,
+      policyHash: input.policy?.policyHash ?? null,
+    });
+    const credential = this.credentialFor(input.workspaceId, agentId);
     const gatewayUserId = this.userIdFor(input.identity);
-    const gatewayAgentId = this.agentIdFor(input.workspaceId, input.agentId);
-    const cachedExpiry = this.workspaceGrantExpiries.get(credential) ?? 0;
-    if (cachedExpiry > Date.now() + this.workspaceGrantRenewalMs) {
-      return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: new Date(cachedExpiry).toISOString() };
+    const gatewayAgentId = this.agentIdFor(input.workspaceId, agentId);
+    const cached = this.workspaceGrantStates.get(credential);
+    if (cached && cached.projection === projection && cached.expiresAt > Date.now() + this.workspaceGrantRenewalMs) {
+      return { baseUrl: this.workspaceUrl, credential, modelAlias, expiresAt: new Date(cached.expiresAt).toISOString() };
     }
     const expiresAt = new Date(Date.now() + this.workspaceGrantTtlMs);
     const durationSeconds = Math.max(60, Math.ceil(this.workspaceGrantTtlMs / 1_000));
@@ -363,7 +375,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       user_id: gatewayUserId,
       agent_id: gatewayAgentId,
       duration: `${durationSeconds}s`,
-      models: [this.modelAlias],
+      models: [modelAlias],
       max_budget: 1,
       rpm_limit: 60,
       tpm_limit: 100_000,
@@ -371,13 +383,18 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         onecomputer_workspace_id: input.workspaceId,
         onecomputer_tenant_id: input.identity.tenantId,
         onecomputer_subject_id: input.identity.subjectId,
-        onecomputer_agent_id: input.agentId ?? `workspace-default:${input.workspaceId}`,
+        onecomputer_agent_id: agentId ?? `workspace-default:${input.workspaceId}`,
+        ...(input.policy ? {
+          onecomputer_policy_version_id: input.policy.policyVersionId,
+          onecomputer_policy_version: input.policy.policyVersion,
+          onecomputer_policy_hash: input.policy.policyHash,
+        } : {}),
         onecomputer_gateway_user_id: gatewayUserId,
         onecomputer_gateway_agent_id: gatewayAgentId,
       },
       object_permission: {
-        mcp_servers: [this.mcpServer],
-        mcp_tool_permissions: { [this.mcpServer]: this.allowedTools },
+        mcp_servers: [mcpServer],
+        mcp_tool_permissions: { [mcpServer]: allowedTools },
       },
     };
 
@@ -393,7 +410,9 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         && metadata.onecomputer_tenant_id === input.identity.tenantId
         && metadata.onecomputer_subject_id === input.identity.subjectId
         && metadata.onecomputer_workspace_id === input.workspaceId
-        && metadata.onecomputer_agent_id === (input.agentId ?? `workspace-default:${input.workspaceId}`);
+        && metadata.onecomputer_agent_id === (agentId ?? `workspace-default:${input.workspaceId}`)
+        && (!input.policy || (metadata.onecomputer_policy_version_id === input.policy.policyVersionId
+          && metadata.onecomputer_policy_hash === input.policy.policyHash));
       if (!identityMatches) {
         await this.adminCall("/key/delete", { method: "POST", body: { keys: [credential] } }, true);
         const replaced = await this.adminCall("/key/generate", { method: "POST", body: grant }, true);
@@ -403,17 +422,20 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         if (!updated.ok) throw this.upstreamError("GATEWAY_GRANT_FAILED", updated.status, updated.payload);
       }
     }
-    this.workspaceGrantExpiries.set(credential, expiresAt.getTime());
-    return { baseUrl: this.workspaceUrl, credential, modelAlias: this.modelAlias, expiresAt: expiresAt.toISOString() };
+    this.workspaceGrantStates.set(credential, { expiresAt: expiresAt.getTime(), projection });
+    return { baseUrl: this.workspaceUrl, credential, modelAlias, expiresAt: expiresAt.toISOString() };
   }
 
-  async readiness(workspaceId: string, agentId?: string): Promise<GatewayReadiness> {
-    const credential = this.credentialFor(workspaceId, agentId);
+  async readiness(workspaceId: string, agentId?: string, policy?: RuntimePolicy): Promise<GatewayReadiness> {
+    const effectiveAgentId = policy?.agentId ?? agentId;
+    const modelAlias = policy?.modelAlias ?? this.modelAlias;
+    const allowedTools = policy?.allowedTools ?? this.allowedTools;
+    const credential = this.credentialFor(workspaceId, effectiveAgentId);
     const [models, tools] = await Promise.all([
       this.dataCall("/v1/models", credential),
       this.dataCall("/mcp-rest/tools/list", credential),
     ]);
-    if (!models.ok || !tools.ok) this.workspaceGrantExpiries.delete(credential);
+    if (!models.ok || !tools.ok) this.workspaceGrantStates.delete(credential);
     const modelIds = Array.isArray(asObject(models.payload).data)
       ? (asObject(models.payload).data as unknown[]).map((item) => String(asObject(item).id ?? ""))
       : [];
@@ -421,18 +443,20 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       ? (asObject(tools.payload).tools as unknown[]).map((item) => String(asObject(item).name ?? ""))
       : [];
     return {
-      models: models.ok && modelIds.includes(this.modelAlias) ? "ready" : "failed",
-      tools: tools.ok && this.allowedTools.every((tool) => toolNames.includes(tool)) ? "ready" : "failed",
+      models: models.ok && modelIds.includes(modelAlias) ? "ready" : "failed",
+      tools: tools.ok && allowedTools.length === toolNames.length && allowedTools.every((tool) => toolNames.includes(tool)) ? "ready" : "failed",
     };
   }
 
-  async test(workspaceId: string, agentId?: string): Promise<GatewayTestResult> {
-    const credential = this.credentialFor(workspaceId, agentId);
+  async test(workspaceId: string, agentId?: string, policy?: RuntimePolicy): Promise<GatewayTestResult> {
+    const effectiveAgentId = policy?.agentId ?? agentId;
+    const modelAlias = policy?.modelAlias ?? this.modelAlias;
+    const credential = this.credentialFor(workspaceId, effectiveAgentId);
     const [completion, toolList] = await Promise.all([
       this.dataCall("/v1/chat/completions", credential, {
         method: "POST",
         body: {
-          model: this.modelAlias,
+          model: modelAlias,
           messages: [{ role: "user", content: "Confirm that the ONEComputer model route is ready." }],
           max_tokens: 80,
         },
@@ -452,7 +476,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         }).filter((tool) => tool.name.length > 0)
       : [];
     return {
-      model: this.modelAlias,
+      model: modelAlias,
       response: content,
       tools,
       apiBaseUrl: `${this.workspaceUrl}/v1`,
@@ -529,7 +553,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       method: "POST",
       body: { keys: [credential] },
     }, true);
-    this.workspaceGrantExpiries.delete(credential);
+    this.workspaceGrantStates.delete(credential);
     if (!result.ok && result.status !== 404) throw this.upstreamError("GATEWAY_REVOKE_FAILED", result.status, result.payload);
   }
 

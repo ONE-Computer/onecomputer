@@ -47,9 +47,25 @@ export const identityContextSchema = z.object({
 });
 export type IdentityContext = z.infer<typeof identityContextSchema>;
 
+export const runtimePolicySchema = z.object({
+  schemaVersion: z.literal(1),
+  policyVersionId: z.string().min(1),
+  policyVersion: z.number().int().positive(),
+  policyHash: z.string().regex(/^[a-f0-9]{64}$/),
+  workspaceProfile: z.literal("kasm-persistent-standard"),
+  agentId: z.string().min(1),
+  agentProfile: z.literal("onecomputer-default-agent"),
+  networkProfile: z.literal("controlled-egress-v1"),
+  modelAlias: z.string().min(1).max(128),
+  mcpServer: z.string().min(1).max(128),
+  allowedTools: z.array(z.string().min(1).max(128)).min(1),
+});
+export type RuntimePolicy = z.infer<typeof runtimePolicySchema>;
+
 export const controllerCreateSchema = z.object({
   workspaceId: z.uuid(),
   correlationId: z.string().min(1).max(128),
+  policy: runtimePolicySchema,
   gateway: z.object({
     baseUrl: z.url(),
     credential: z.string().min(24),

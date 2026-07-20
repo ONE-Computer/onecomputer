@@ -1,12 +1,13 @@
-import { OneComputerError, readinessFor, type IdentityContext, type Launch, type Sandbox, type WorkspaceView } from "@onecomputer/contracts";
+import { OneComputerError, readinessFor, type IdentityContext, type Launch, type RuntimePolicy, type Sandbox, type WorkspaceView } from "@onecomputer/contracts";
 import type { GatewayClient, GatewayGrant, GatewayReadiness } from "@onecomputer/litellm-adapter";
 import type { WorkspaceRecord, WorkspaceStore } from "@onecomputer/workspace-store";
 
 export interface ControllerClient {
-  create(input: { workspaceId: string; correlationId: string; gateway?: GatewayGrant }): Promise<Sandbox>;
+  create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant }): Promise<Sandbox>;
   status(providerId: string): Promise<Sandbox>;
   open(providerId: string): Promise<Launch>;
   destroy(providerId: string): Promise<void>;
+  purgeWorkspace(workspaceId: string): Promise<void>;
 }
 
 export class HttpControllerClient implements ControllerClient {
@@ -24,12 +25,13 @@ export class HttpControllerClient implements ControllerClient {
     }
     return response.status === 204 ? {} : response.json();
   }
-  async create(input: { workspaceId: string; correlationId: string; gateway?: GatewayGrant }) {
+  async create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant }) {
     return await this.call("/internal/v1/sandboxes", { method: "POST", body: JSON.stringify(input) }) as Sandbox;
   }
   async status(providerId: string) { return await this.call(`/internal/v1/sandboxes/${encodeURIComponent(providerId)}`) as Sandbox; }
   async open(providerId: string) { return await this.call(`/internal/v1/sandboxes/${encodeURIComponent(providerId)}/open`, { method: "POST" }) as Launch; }
   async destroy(providerId: string) { await this.call(`/internal/v1/sandboxes/${encodeURIComponent(providerId)}`, { method: "DELETE" }); }
+  async purgeWorkspace(workspaceId: string) { await this.call(`/internal/v1/workspaces/${encodeURIComponent(workspaceId)}/storage`, { method: "DELETE" }); }
 }
 
 export const toView = (record: WorkspaceRecord, gateway?: GatewayReadiness): WorkspaceView => ({
@@ -49,13 +51,13 @@ export class WorkspaceService {
     private readonly gateway?: GatewayClient,
   ) {}
 
-  private async view(record: WorkspaceRecord) {
+  private async view(record: WorkspaceRecord, policy: RuntimePolicy) {
     if (!this.gateway || !["ready", "open"].includes(record.state)) return toView(record);
-    const gateway = await this.gateway.readiness(record.id).catch(() => ({ models: "failed" as const, tools: "failed" as const }));
+    const gateway = await this.gateway.readiness(record.id, policy.agentId, policy).catch(() => ({ models: "failed" as const, tools: "failed" as const }));
     return toView(record, gateway);
   }
 
-  async current(identity: IdentityContext, grantId = "personal") {
+  async current(identity: IdentityContext, policy: RuntimePolicy, grantId = "personal") {
     let record = await this.store.getCurrent(identity, grantId);
     if (!record) return null;
     if (record.providerId && ["provisioning", "ready", "open", "restarting", "stopping"].includes(record.state)) {
@@ -67,75 +69,76 @@ export class WorkspaceService {
       });
     }
     if (this.gateway && ["ready", "open"].includes(record.state)) {
-      await this.gateway.ensureGrant({ workspaceId: record.id, identity }).catch(() => undefined);
+      await this.gateway.ensureGrant({ workspaceId: record.id, identity, agentId: policy.agentId, policy }).catch(() => undefined);
     }
-    return this.view(record);
+    return this.view(record, policy);
   }
 
-  async create(identity: IdentityContext, grantId: string, idempotencyKey: string, correlationId: string) {
+  async create(identity: IdentityContext, policy: RuntimePolicy, grantId: string, idempotencyKey: string, correlationId: string) {
     let record = await this.store.createOrGet(identity, grantId, idempotencyKey);
-    if (["ready", "open", "provisioning", "restarting"].includes(record.state)) return this.view(record);
+    if (["ready", "open", "provisioning", "restarting"].includes(record.state)) return this.view(record, policy);
     const claimed = await this.store.claim(record.id, ["not_created", "stopped", "failed"], "provisioning");
-    if (!claimed) return this.view((await this.store.getOwned(identity, record.id))!);
+    if (!claimed) return this.view((await this.store.getOwned(identity, record.id))!, policy);
     try {
-      const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity });
-      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, gateway });
+      const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity, agentId: policy.agentId, policy });
+      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway });
       record = await this.store.finish(claimed.id, claimed.operationToken!, { state: sandbox.state === "ready" ? "ready" : "provisioning", providerId: sandbox.providerId, failureCode: sandbox.failureCode });
-      return this.view(record);
+      return this.view(record, policy);
     } catch (error) {
-      await this.gateway?.revoke(claimed.id).catch(() => undefined);
+      await this.gateway?.revoke(claimed.id, policy.agentId).catch(() => undefined);
       await this.store.finish(claimed.id, claimed.operationToken!, { state: "failed", failureCode: error instanceof OneComputerError ? error.code : "PROVISION_FAILED" });
       throw error;
     }
   }
 
-  async open(identity: IdentityContext, workspaceId: string) {
+  async open(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string) {
     const record = await this.owned(identity, workspaceId);
     if (!record.providerId || !["ready", "open"].includes(record.state)) throw new OneComputerError("WORKSPACE_NOT_READY", "The workspace is not ready to open", 409, true);
-    await this.gateway?.ensureGrant({ workspaceId: record.id, identity });
+    await this.gateway?.ensureGrant({ workspaceId: record.id, identity, agentId: policy.agentId, policy });
     const launch = await this.controller.open(record.providerId);
     const updated = await this.store.update(record.id, { state: "open", failureCode: null });
-    return { workspace: await this.view(updated), launch };
+    return { workspace: await this.view(updated, policy), launch };
   }
 
-  async restart(identity: IdentityContext, workspaceId: string, correlationId: string) {
+  async restart(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string, correlationId: string) {
     const record = await this.owned(identity, workspaceId);
     const claimed = await this.store.claim(record.id, ["ready", "open", "stopped", "failed"], "restarting");
     if (!claimed) throw new OneComputerError("WORKSPACE_BUSY", "A workspace operation is already running", 409, true);
     try {
       if (claimed.providerId) await this.controller.destroy(claimed.providerId);
-      const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity });
-      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, gateway });
-      return this.view(await this.store.finish(claimed.id, claimed.operationToken!, { state: sandbox.state === "ready" ? "ready" : "restarting", providerId: sandbox.providerId, failureCode: sandbox.failureCode }));
+      const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity, agentId: policy.agentId, policy });
+      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway });
+      return this.view(await this.store.finish(claimed.id, claimed.operationToken!, { state: sandbox.state === "ready" ? "ready" : "restarting", providerId: sandbox.providerId, failureCode: sandbox.failureCode }), policy);
     } catch (error) {
       await this.store.finish(claimed.id, claimed.operationToken!, { state: "failed", providerId: null, failureCode: error instanceof OneComputerError ? error.code : "RESTART_FAILED" });
       throw error;
     }
   }
 
-  async stop(identity: IdentityContext, workspaceId: string) {
+  async stop(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string) {
     const record = await this.owned(identity, workspaceId);
     if (record.state === "stopped") return toView(record);
     const claimed = await this.store.claim(record.id, ["ready", "open", "provisioning", "restarting", "failed"], "stopping");
     if (!claimed) throw new OneComputerError("WORKSPACE_BUSY", "A workspace operation is already running", 409, true);
     if (claimed.providerId) await this.controller.destroy(claimed.providerId);
-    await this.gateway?.revoke(claimed.id);
+    await this.gateway?.revoke(claimed.id, policy.agentId);
     return toView(await this.store.finish(claimed.id, claimed.operationToken!, { state: "stopped", providerId: null, failureCode: null }));
   }
 
-  async delete(identity: IdentityContext, workspaceId: string) {
+  async delete(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string) {
     const record = await this.owned(identity, workspaceId);
     if (record.providerId) await this.controller.destroy(record.providerId);
-    await this.gateway?.revoke(record.id);
+    await this.controller.purgeWorkspace(record.id);
+    await this.gateway?.revoke(record.id, policy.agentId);
     await this.store.remove(identity, record.id);
   }
 
-  async testGateway(identity: IdentityContext, workspaceId: string) {
+  async testGateway(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string) {
     const record = await this.owned(identity, workspaceId);
     if (!["ready", "open"].includes(record.state)) throw new OneComputerError("WORKSPACE_NOT_READY", "The workspace is not ready", 409, true);
     if (!this.gateway) throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The model gateway is not configured", 503, true);
-    await this.gateway.ensureGrant({ workspaceId: record.id, identity });
-    return this.gateway.test(record.id);
+    await this.gateway.ensureGrant({ workspaceId: record.id, identity, agentId: policy.agentId, policy });
+    return this.gateway.test(record.id, policy.agentId, policy);
   }
 
   private async owned(identity: IdentityContext, workspaceId: string) {

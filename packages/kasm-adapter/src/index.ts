@@ -1,15 +1,17 @@
 import http from "node:http";
-import { OneComputerError, type Launch, type Sandbox } from "@onecomputer/contracts";
+import { OneComputerError, type Launch, type RuntimePolicy, type Sandbox } from "@onecomputer/contracts";
 
 export interface SandboxAdapter {
   create(input: SandboxCreateInput): Promise<Sandbox>;
   status(providerId: string): Promise<Sandbox>;
   open(providerId: string): Promise<Launch>;
   destroy(providerId: string): Promise<void>;
+  purgeWorkspace(workspaceId: string): Promise<void>;
 }
 
 export type SandboxCreateInput = {
   workspaceId: string;
+  policy: RuntimePolicy;
   gateway?: {
     baseUrl: string;
     credential: string;
@@ -89,6 +91,11 @@ export class KasmDeveloperApiAdapter implements SandboxAdapter {
   async destroy(providerId: string) {
     await this.call("destroy_kasm", { kasm_id: providerId, user_id: this.config.userId });
   }
+
+  async purgeWorkspace(_workspaceId: string) {
+    // Kasm's Developer API owns persistent-profile retention and deletion.
+    // Local Docker storage is explicitly managed by KasmLocalAdapter below.
+  }
 }
 
 export function mapKasmState(value?: string): Sandbox["state"] {
@@ -110,8 +117,9 @@ export function mapKasmState(value?: string): Sandbox["state"] {
 type KasmLocalConfig = {
   socketPath?: string;
   image: string;
-  network: string;
+  networkPrefix: string;
   controlNetwork: string;
+  gatewayContainer: string;
   relayImage: string;
   publicHost?: string;
   portStart?: number;
@@ -125,12 +133,16 @@ export class KasmLocalAdapter implements SandboxAdapter {
   }
 
   async create(input: SandboxCreateInput): Promise<Sandbox> {
-    await this.ensureNetwork(this.config.network, true);
+    const workspaceNetwork = this.workspaceNetwork(input.workspaceId);
+    const workspaceVolume = this.workspaceVolume(input.workspaceId);
+    await this.ensureNetwork(workspaceNetwork, true, input.workspaceId);
+    await this.ensureVolume(workspaceVolume, input.workspaceId);
     await this.ensureNetwork(this.config.controlNetwork, false);
+    if (input.gateway) await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
     const name = `onecomputer-v4-sandbox-${input.workspaceId}`;
     const existing = await this.inspectByName(name);
     if (existing?.running) {
-      await this.ensureRelay(name, existing.id, existing.port ?? await this.allocatePort());
+      await this.ensureRelay(name, existing.id, existing.port ?? await this.allocatePort(), workspaceNetwork);
       return { providerId: existing.id, state: "ready", failureCode: null };
     }
     if (existing) await this.destroy(existing.id);
@@ -140,6 +152,12 @@ export class KasmLocalAdapter implements SandboxAdapter {
       Labels: {
         "com.onecomputer.sandbox.provider": "kasm-local",
         "com.onecomputer.workspace-id": input.workspaceId,
+        "com.onecomputer.workspace-network": workspaceNetwork,
+        "com.onecomputer.workspace-volume": workspaceVolume,
+        "com.onecomputer.gateway-attached": String(Boolean(input.gateway)),
+        "com.onecomputer.policy-version-id": input.policy.policyVersionId,
+        "com.onecomputer.policy-hash": input.policy.policyHash,
+        "com.onecomputer.agent-id": input.policy.agentId,
         "com.onecomputer.desktop-port": String(port),
       },
       Env: [
@@ -151,22 +169,30 @@ export class KasmLocalAdapter implements SandboxAdapter {
           `OPENAI_API_KEY=${input.gateway.credential}`,
           `ONECOMPUTER_LITELLM_URL=${input.gateway.baseUrl}`,
           `ONECOMPUTER_MODEL_ALIAS=${input.gateway.modelAlias}`,
+          `ONECOMPUTER_AGENT_ID=${input.policy.agentId}`,
+          `ONECOMPUTER_POLICY_VERSION=${input.policy.policyVersion}`,
+          `ONECOMPUTER_POLICY_HASH=${input.policy.policyHash}`,
+          `ONECOMPUTER_MCP_SERVER=${input.policy.mcpServer}`,
+          `ONECOMPUTER_ALLOWED_TOOLS=${input.policy.allowedTools.join(",")}`,
         ] : []),
       ],
       HostConfig: {
-        NetworkMode: this.config.network,
+        NetworkMode: workspaceNetwork,
         RestartPolicy: { Name: "unless-stopped" },
         ShmSize: 536_870_912,
         PidsLimit: 1024,
         Memory: 3_221_225_472,
         NanoCpus: 2_000_000_000,
+        CapDrop: ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"],
+        SecurityOpt: ["no-new-privileges"],
+        Mounts: [{ Type: "volume", Source: workspaceVolume, Target: "/home/kasm-user" }],
       },
     });
     const providerId = textValue(created, "Id");
     if (!providerId) throw new OneComputerError("DOCKER_INVALID_RESPONSE", "Docker did not return a container identifier", 502);
     try {
       await this.request("POST", `/containers/${providerId}/start`);
-      await this.ensureRelay(name, providerId, port);
+      await this.ensureRelay(name, providerId, port, workspaceNetwork);
       return { providerId, state: "provisioning", failureCode: null };
     } catch (error) {
       await this.destroy(providerId).catch(() => undefined);
@@ -179,6 +205,11 @@ export class KasmLocalAdapter implements SandboxAdapter {
       const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
       const state = asObject(inspected.State);
       const running = state.Running === true;
+      const labels = asObject(asObject(inspected.Config).Labels);
+      const workspaceNetwork = labels["com.onecomputer.workspace-network"];
+      if (running && typeof workspaceNetwork === "string" && workspaceNetwork.startsWith(`${this.config.networkPrefix}-`)) {
+        await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
+      }
       const failed = typeof state.ExitCode === "number" && state.ExitCode !== 0;
       return { providerId, state: running ? "ready" : failed ? "failed" : "stopped", failureCode: failed ? "FIXTURE_EXITED" : null };
     } catch (error) {
@@ -197,14 +228,27 @@ export class KasmLocalAdapter implements SandboxAdapter {
 
   async destroy(providerId: string) {
     let name: string | undefined;
+    let workspaceNetwork: string | undefined;
+    let gatewayAttached = false;
     try {
       const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
       name = textValue(inspected, "Name")?.replace(/^\//, "");
+      const labels = asObject(asObject(inspected.Config).Labels);
+      workspaceNetwork = typeof labels["com.onecomputer.workspace-network"] === "string" ? String(labels["com.onecomputer.workspace-network"]) : undefined;
+      gatewayAttached = labels["com.onecomputer.gateway-attached"] === "true";
     } catch (error) {
       if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
     }
     if (name) await this.removeContainer(`${name}-relay`);
     await this.removeContainer(providerId);
+    if (workspaceNetwork?.startsWith(`${this.config.networkPrefix}-`)) {
+      if (gatewayAttached) await this.disconnectContainer(workspaceNetwork, this.config.gatewayContainer);
+      await this.removeNetwork(workspaceNetwork);
+    }
+  }
+
+  async purgeWorkspace(workspaceId: string) {
+    await this.removeVolume(this.workspaceVolume(workspaceId));
   }
 
   private async removeContainer(id: string) {
@@ -215,7 +259,15 @@ export class KasmLocalAdapter implements SandboxAdapter {
     }
   }
 
-  private async ensureNetwork(name: string, internal: boolean) {
+  private workspaceNetwork(workspaceId: string) {
+    return `${this.config.networkPrefix}-${workspaceId.toLowerCase()}`;
+  }
+
+  private workspaceVolume(workspaceId: string) {
+    return `${this.config.networkPrefix}-home-${workspaceId.toLowerCase()}`;
+  }
+
+  private async ensureNetwork(name: string, internal: boolean, workspaceId?: string) {
     const networks = await this.request("GET", `/networks/${encodeURIComponent(name)}`).catch(() => null);
     if (networks) return;
     await this.request("POST", "/networks/create", {
@@ -223,8 +275,59 @@ export class KasmLocalAdapter implements SandboxAdapter {
       Driver: "bridge",
       Internal: internal,
       Attachable: true,
-      Labels: { "com.onecomputer.issue": "001" },
+      Labels: {
+        "com.onecomputer.issue": "006",
+        ...(workspaceId ? { "com.onecomputer.workspace-id": workspaceId } : {}),
+      },
     });
+  }
+
+  private async ensureVolume(name: string, workspaceId: string) {
+    const volume = await this.request("GET", `/volumes/${encodeURIComponent(name)}`).catch(() => null);
+    if (volume) return;
+    await this.request("POST", "/volumes/create", {
+      Name: name,
+      Driver: "local",
+      Labels: {
+        "com.onecomputer.issue": "006",
+        "com.onecomputer.workspace-id": workspaceId,
+      },
+    });
+  }
+
+  private async removeVolume(name: string) {
+    try {
+      await this.request("DELETE", `/volumes/${encodeURIComponent(name)}?force=true`);
+    } catch (error) {
+      if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
+    }
+  }
+
+  private async connectContainer(network: string, container: string, aliases: string[] = []) {
+    try {
+      await this.request("POST", `/networks/${encodeURIComponent(network)}/connect`, {
+        Container: container,
+        EndpointConfig: aliases.length ? { Aliases: aliases } : {},
+      });
+    } catch (error) {
+      if (!(error instanceof OneComputerError && error.statusCode === 409)) throw error;
+    }
+  }
+
+  private async disconnectContainer(network: string, container: string) {
+    try {
+      await this.request("POST", `/networks/${encodeURIComponent(network)}/disconnect`, { Container: container, Force: true });
+    } catch (error) {
+      if (!(error instanceof OneComputerError && [404, 409].includes(error.statusCode))) throw error;
+    }
+  }
+
+  private async removeNetwork(network: string) {
+    try {
+      await this.request("DELETE", `/networks/${encodeURIComponent(network)}`);
+    } catch (error) {
+      if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
+    }
   }
 
   private async inspectByName(name: string) {
@@ -252,7 +355,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     throw new OneComputerError("KASM_PORTS_EXHAUSTED", "No local Kasm desktop ports are available", 503, true);
   }
 
-  private async ensureRelay(sandboxName: string, sandboxId: string, port: number) {
+  private async ensureRelay(sandboxName: string, sandboxId: string, port: number, workspaceNetwork: string) {
     const relayName = `${sandboxName}-relay`;
     const existing = await this.inspectByName(relayName);
     if (existing?.running) return;
@@ -278,7 +381,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     const relayId = textValue(created, "Id");
     if (!relayId) throw new OneComputerError("DOCKER_INVALID_RESPONSE", "Docker did not return a relay identifier", 502);
     await this.request("POST", `/containers/${relayId}/start`);
-    await this.request("POST", `/networks/${encodeURIComponent(this.config.network)}/connect`, { Container: relayId });
+    await this.connectContainer(workspaceNetwork, relayId);
   }
 
   private request(method: string, path: string, body?: JsonObject): Promise<JsonObject> {

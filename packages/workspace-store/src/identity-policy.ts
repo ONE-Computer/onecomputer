@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
-import type { IdentityContext, OwnedJson } from "@onecomputer/contracts";
+import { OneComputerError, runtimePolicySchema, type IdentityContext, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
 
 export type OneComputerRole = "employee" | "administrator";
 
@@ -33,6 +33,30 @@ export type EffectivePolicy = {
   workspaceId: string | null;
   vendorUserId: string;
   document: OwnedJson;
+};
+
+export const runtimePolicyFor = (policy: EffectivePolicy): RuntimePolicy => {
+  const document = policy.document as Record<string, unknown>;
+  const mcp = document.mcp as Record<string, unknown> | undefined;
+  const servers = mcp?.servers as Record<string, unknown> | undefined;
+  const entries = Object.entries(servers ?? {});
+  if (entries.length !== 1) throw new OneComputerError("POLICY_INVALID", "The active workspace policy must assign exactly one MCP server", 500);
+  const [mcpServer, serverPolicy] = entries[0]!;
+  const tools = (serverPolicy as Record<string, unknown>)?.tools;
+  const modelAliases = document.modelAliases;
+  return runtimePolicySchema.parse({
+    schemaVersion: 1,
+    policyVersionId: policy.policyVersionId,
+    policyVersion: policy.version,
+    policyHash: policy.documentHash,
+    workspaceProfile: document.workspaceProfile,
+    agentId: policy.agentId,
+    agentProfile: document.agentProfile,
+    networkProfile: document.networkProfile,
+    modelAlias: Array.isArray(modelAliases) ? modelAliases[0] : undefined,
+    mcpServer,
+    allowedTools: tools,
+  });
 };
 
 export type AdminUserSummary = {

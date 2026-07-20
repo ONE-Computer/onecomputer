@@ -13,18 +13,19 @@ and the minimum proof required before proceeding.
   required.
 - `complete`: all acceptance and evidence requirements passed.
 
-Issue 000 is the accepted architecture baseline. Issue 001 completed the first
-product slice. Issue 002 and its partial LiteLLM decision were accepted on
-2026-07-19. The user-visible governed-operation implementation spans Issues
-003–005 and is in verification. Its human product acceptance was recorded on
-2026-07-20 and does not need to be repeated; the remaining gaps are automated
-engineering and evidence work. Issue 006 remains blocked. Completing an issue
-may make only its immediate successor ready.
-Gate-closing issues require explicit human review.
+Issues 000–004 are the accepted architecture, Kasm, LiteLLM, owned governance,
+and approval foundation. Their product-visible fixture journey was accepted on
+2026-07-20; broader policy and physical-delivery concerns are now explicit work
+in active Issues 005 and 009 rather than hidden verification tails.
 
-Issue 013 is the user-authorized product sub-slice that supplies the owned
-Microsoft 365 connection journey required to finish Issue 008. Its automated
-and pre-consent checks are in verification; interactive Entra consent remains.
+On 2026-07-20 the product owner retired the drifted Issue 005–013 roadmap and
+replaced it with the active sequential Issue 005–011 MVP path below. Historical
+specifications are preserved under `archive/retired-2026-07-20/`; they are not
+active dependencies. Existing Kasm, UI, LiteLLM, governed-operation, Microsoft
+OAuth, and bounded Microsoft-read evidence is carried forward and must not be
+needlessly repeated. Issue 005 is the next ready issue. Completing an issue may
+make only its immediate successor ready. Gate-closing issues require explicit
+human review.
 
 ## Execution rules
 
@@ -52,14 +53,14 @@ and pre-consent checks are in verification; interactive Entra consent remains.
 13. Never import or copy code from the legacy OneCLI branch. Reimplement only
     independently justified contracts and behavior.
 
-## Accepted vertical-delivery amendment
+## Roadmap reset and carry-forward rule
 
-On 2026-07-19 the user authorized Issues 003–005 to be delivered as one
-product-visible governed-operation feature rather than as three disconnected
-backend tasks. Their individual acceptance criteria and dependency order still
-apply: governance storage is proven before approval state, and approval state
-is proven before the gateway execution slice is closed. Issue 006 remains
-blocked until all three completion records are satisfied.
+The active roadmap is deliberately product-sequential: identity/policy,
+policy-built workspace, real model, governed Microsoft tools, physical
+approval, golden path, then clean acceptance. A replacement issue may cite
+historical evidence, but it passes only its own unchecked requirements. Old
+issue numbers in `infra/issue-*` evidence remain historical labels and do not
+re-enter the active dependency chain.
 
 ## Common evidence protocol
 
@@ -106,15 +107,13 @@ task contents in chat.
 | 002 | B | Qualify and integrate the LiteLLM gateway slice | 001 | Yes |
 | 003 | C | Extend governance contracts and owned PostgreSQL | 002 | No |
 | 004 | C | Build durable operations and fixture approvals | 003 | No |
-| 005 | C | Prove mock MCP governance vertical slice | 004 | Yes |
-| 006 | D | Harden Kasm containment and connect governed paths | 005 | Yes |
-| 007 | E | Productionize the owned MVP UI | 006 | Yes |
-| 008 | F | Qualify O365 MCP candidates | 007 | No |
-| 009 | F | Integrate physical OpenVTC/VTA | 008 | Yes |
-| 010 | G | Prove governed OneDrive read/delete | 009 | Yes |
-| 011 | H | Add model routing, budgets, and guardrails | 010 | No |
-| 012 | H | Run clean-state MVP acceptance | 011 | Yes |
-| 013 | F | Own the Microsoft 365 connection journey | 002 + 008 conditional pass | No |
+| 005 | D | Establish real identity and durable policy assignments | 004 | Yes |
+| 006 | E | Launch a policy-built managed agent workspace | 005 | Yes |
+| 007 | F | Enable one governed real-model route | 006 | Yes |
+| 008 | G | Govern the Microsoft 365 MCP capability surface | 007 | Yes |
+| 009 | H | Integrate OpenVTC physical approval and durable evidence | 008 | Yes |
+| 010 | I | Complete the end-to-end Microsoft 365 MVP journey | 009 | Yes |
+| 011 | J | Run clean-state MVP acceptance | 010 | Yes |
 
 ## Assignment template
 

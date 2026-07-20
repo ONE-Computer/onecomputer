@@ -55,8 +55,8 @@ the ONEComputer policy, approval, or evidence authority.
 - [ ] Policy receives authenticated tenant/subject/workspace/audience plus exact
   server, endpoint identity, tool, schema identity, and canonical arguments.
 - [ ] The full deny, timeout, outage, malformed, mismatch, and mutation matrix
-  reaches the mock MCP upstream zero times. This remains Issue 005 work; Issue
-  002 proved unassigned tool and unknown-model denial before upstream.
+  reaches the mock MCP upstream zero times. This remains active Issue 008 work;
+  Issue 002 proved unassigned tool and unknown-model denial before upstream.
 - [x] Allow reaches the expected upstream exactly once.
 - [x] Approval-required returns a stable operation reference or documents the
   exact missing seam without client/provider execution.
@@ -103,7 +103,7 @@ the ONEComputer policy, approval, or evidence authority.
 | Destructive tool call | pass | 403 and `deleteFile=0` |
 | Unassigned key MCP discovery | pass | HTTP 200 with zero tools |
 | Stop/revoke | pass | Sandbox removed; prior key returned 401 |
-| Immediate ONEComputer policy callback | not proven | Exact authenticated callback contract remains required before Issue 005 closes |
+| Immediate ONEComputer policy callback | not proven | Exact authenticated callback contract remains required before active Issue 008 closes |
 | Stable approval reference and safe resume | missing | Must be owned by Control operations and execution leases in Issues 003–005 |
 
 ## Closing decision
@@ -113,7 +113,7 @@ discovery/execution, rate/budget primitives, and usage telemetry. Use the narrow
 owned adapter for key lifecycle, readiness, and normalized product errors.
 
 Do not use LiteLLM UI approvals, client-side tool approval, or MCP-server logic
-as enterprise authority. Before the governed MCP slice can close, Issue 005 must
+as enterprise authority. Before the governed Microsoft slice can close, active Issue 008 must
 prove an immediate fail-closed Control decision containing canonical identity,
 server/tool/schema/arguments and a stable operation reference. If the pinned
 LiteLLM hook cannot provide that contract, add only a version-tested execution

@@ -1,6 +1,6 @@
 # 003: build governance contracts and owned PostgreSQL
 
-Status: `verification`
+Status: `complete`
 
 Gate: C
 Depends on: 002
@@ -34,14 +34,14 @@ and evidence.
 
 ## Required verification
 
-- [ ] Canonical fixtures hash identically across all callers and after restart.
-- [ ] Mutation of tenant, subject, workspace, audience, capability, resource
+- [x] Canonical fixtures hash identically across all callers and after restart.
+- [x] Mutation of tenant, subject, workspace, audience, capability, resource
   version, server, tool, schema, arguments, nonce, or expiry changes the digest.
-- [ ] Clean database migration and empty-state boot pass twice.
-- [ ] Repository tenant scoping prevents cross-tenant reads and writes.
-- [ ] Architecture tests prevent vendor, UI, Docker, and database imports from
+- [x] Clean database migration and empty-state boot pass twice.
+- [x] Repository tenant scoping prevents cross-tenant reads and writes.
+- [x] Architecture tests prevent vendor, UI, Docker, and database imports from
   crossing forbidden package boundaries.
-- [ ] Raw secrets and complete sensitive arguments are excluded from evidence
+- [x] Raw secrets and complete sensitive arguments are excluded from evidence
   records by contract.
 
 ## Evidence required
@@ -62,10 +62,13 @@ The governed-operation foundation is implemented and machine-verified on
 tenant-scoped PostgreSQL repositories, operations, approvals, leases, receipts,
 safe events, two-pass clean migration, and package-boundary tests.
 
-This issue remains in verification because the broader authoritative schema for
-general capability assignments, reusable policy records, cancellation, and
-outbox delivery has not been implemented. The delivered fixture path does not
-pretend those product-wide concerns are complete.
+This foundation issue is complete for its accepted governed-operation slice.
+The broader product records for identity, agent/workspace ownership, reusable
+capability assignments, and versioned policy are deliberately specified in the
+replacement Issue 005. Cancellation and physical delivery outbox behavior is
+specified in Issues 008–009. Moving those product features does not weaken or
+repeat the verified canonicalization, tenant-scoping, migration, and dependency
+boundary evidence delivered here.
 
 ### Human product acceptance
 
@@ -73,5 +76,4 @@ Accepted by the product owner on 2026-07-20. The user verified the persisted
 workspace and completed governed-operation presentation in the running product:
 owned action and resource details, operation binding, terminal status, and an
 execution receipt were all visible after completion. This sign-off is complete
-and does not need to be repeated; the issue remains in verification only for
-the engineering gaps listed above.
+and does not need to be repeated.

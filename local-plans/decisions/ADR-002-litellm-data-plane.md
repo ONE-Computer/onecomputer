@@ -35,7 +35,7 @@ Control functionality.
 - Continue to Issue 003 after human acceptance of this partial decision.
 - Issues 003–005 own durable operations, policy decisions, approval fixtures,
   single execution leases, and the full protected-failure matrix.
-- Before Issue 005 closes, requalify the pinned LiteLLM pre-execution hook. If
+- Before active Issue 008 closes, requalify the pinned LiteLLM pre-execution hook. If
   it is insufficient, introduce only a narrow MCP execution adapter.
 - Never give a workspace the master key or provider/MCP credentials.
 - Requalify every release/digest or relevant route/permission/logging change.

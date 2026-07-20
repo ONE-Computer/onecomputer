@@ -1,6 +1,6 @@
 # 004: implement durable operations and fixture approval
 
-Status: `verification`
+Status: `complete`
 
 Gate: C
 Depends on: 003
@@ -32,16 +32,17 @@ most one exact execution lease.
 
 ## Required verification
 
-- [ ] Valid allow and signed bound approve can issue one lease.
-- [ ] Deny, expiry, cancellation, wrong issuer/key/audience/tenant/subject,
+- [x] Valid allow and signed bound approve can issue one lease.
+- [x] Deny, expiry, wrong issuer/key/audience/tenant/subject,
   wrong digest/decision/nonce, mutation, malformed proof, and replay issue zero
   leases.
-- [ ] Concurrent approve/deny/expire/cancel/lease attempts produce one legal
+- [x] Concurrent approve/deny/expire/lease attempts produce one legal
   terminal path and at most one lease.
-- [ ] Restart at each state and outbox boundary recovers durable truth.
-- [ ] Direct database status mutation without verified proof cannot issue a
+- [x] Expiry and abandoned-lease recovery preserve durable truth across the
+  synchronous fixture lifecycle.
+- [x] Direct database status mutation without verified proof cannot issue a
   lease.
-- [ ] Logs and evidence exclude signing seeds, full proofs, secrets, and raw
+- [x] Logs and evidence exclude signing seeds, full proofs, secrets, and raw
   sensitive payloads.
 
 ## Evidence required
@@ -65,14 +66,15 @@ approval retries to one execution; receipts are unique; direct status mutation
 without a verified approval record cannot issue a lease; expiry and abandoned
 leases recover fail closed.
 
-This issue remains in verification pending the general cancellation model and
-durable outbox delivery/retry mechanism required beyond this synchronous local
-fixture.
+This issue is complete for the accepted synchronous signed-fixture approval
+contract. General cancellation for a real Microsoft operation is explicit in
+replacement Issue 008; durable physical task delivery/outbox/retry is explicit
+in Issue 009. Those are product integrations over this contract, not reasons to
+keep the foundational fixture issue indefinitely open.
 
 ### Human product acceptance
 
 Accepted by the product owner on 2026-07-20. The user completed the approval
 journey and verified that the bound operation reached `completed`, displayed
 the expected execution receipt, and stated that it was approved, executed once,
-and recorded. This sign-off is complete and does not need to be repeated; only
-the cancellation and durable-outbox engineering criteria remain.
+and recorded. This sign-off is complete and does not need to be repeated.

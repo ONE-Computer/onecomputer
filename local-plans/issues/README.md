@@ -22,6 +22,10 @@ engineering and evidence work. Issue 006 remains blocked. Completing an issue
 may make only its immediate successor ready.
 Gate-closing issues require explicit human review.
 
+Issue 013 is the user-authorized product sub-slice that supplies the owned
+Microsoft 365 connection journey required to finish Issue 008. Its automated
+and pre-consent checks are in verification; interactive Entra consent remains.
+
 ## Execution rules
 
 1. Work only on the first ready issue and do not implement its successor in the
@@ -110,6 +114,7 @@ task contents in chat.
 | 010 | G | Prove governed OneDrive read/delete | 009 | Yes |
 | 011 | H | Add model routing, budgets, and guardrails | 010 | No |
 | 012 | H | Run clean-state MVP acceptance | 011 | Yes |
+| 013 | F | Own the Microsoft 365 connection journey | 002 + 008 conditional pass | No |
 
 ## Assignment template
 

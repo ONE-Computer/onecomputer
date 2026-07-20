@@ -41,6 +41,133 @@ test("gateway identity separates OAuth owner, agent actor, and workspace", () =>
   assert.notEqual(rotatedCredentialAdapter.credentialFor("workspace-a", "research"), adapter.credentialFor("workspace-a", "research"));
 });
 
+test("connection credentials are deterministic per user and MCP server without reusing agent keys", () => {
+  const connection = adapter.connectionCredentialFor(identity, "onecomputer_ms365");
+  assert.equal(connection, adapter.connectionCredentialFor(identity, "onecomputer_ms365"));
+  assert.notEqual(connection, adapter.connectionCredentialFor({ ...identity, subjectId: "another-user" }, "onecomputer_ms365"));
+  assert.notEqual(connection, adapter.connectionCredentialFor(identity, "another-server"));
+  assert.notEqual(connection, adapter.credentialFor("workspace-a"));
+  assert.notEqual(connection, "sk-master-test-not-used-00001");
+  assert.match(connection, /^sk-occ-[A-Za-z0-9_-]+$/);
+});
+
+test("owned OAuth uses a narrow per-user connection key and returns only the upstream redirect", async () => {
+  const requests: Array<{ url: string; authorization: string; body: Record<string, unknown> }> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = chunks.length && request.headers["content-type"]?.includes("application/json")
+      ? JSON.parse(Buffer.concat(chunks).toString("utf8"))
+      : {};
+    requests.push({ url: request.url ?? "", authorization: String(request.headers.authorization ?? ""), body });
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/v1/mcp/server") {
+      response.end(JSON.stringify([{ server_id: "ms365-server-id", server_name: "onecomputer_ms365" }]));
+      return;
+    }
+    if (request.url?.startsWith("/v1/mcp/server/oauth/ms365-server-id/authorize?")) {
+      response.statusCode = 307;
+      response.setHeader("location", "http://localhost:3001/authorize?opaque=upstream-state");
+      response.setHeader("set-cookie", "mcp_oauth_state=opaque; Path=/callback; HttpOnly; SameSite=lax");
+      response.end();
+      return;
+    }
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  try {
+    const started = await liveAdapter.beginUserOAuthConnection({
+      identity,
+      serverName: "onecomputer_ms365",
+      redirectUri: "http://localhost:4174/api/v1/connections/microsoft-365/callback",
+      state: "opaque-onecomputer-state",
+      codeChallenge: "a".repeat(43),
+      authorizationOrigin: "http://localhost:3001",
+    });
+    assert.equal(started.location, "http://localhost:3001/authorize?opaque=upstream-state");
+    assert.equal(started.cookies.length, 1);
+    const grant = requests.find((item) => item.url === "/key/generate")!;
+    const authorize = requests.find((item) => item.url.startsWith("/v1/mcp/server/oauth/"))!;
+    assert.equal(grant.body.user_id, liveAdapter.userIdFor(identity));
+    assert.deepEqual(grant.body.object_permission, { mcp_servers: ["onecomputer_ms365"] });
+    assert.deepEqual(grant.body.allowed_routes, [
+      "/v1/mcp/server/oauth/ms365-server-id/authorize",
+      "/v1/mcp/server/oauth/ms365-server-id/token",
+      "/v1/mcp/server/ms365-server-id/oauth-user-credential",
+      "/v1/mcp/server/ms365-server-id/oauth-user-credential/status",
+    ]);
+    assert.notEqual(authorize.authorization, "Bearer sk-master-test-not-used-00001");
+    assert.match(authorize.authorization, /^Bearer sk-occ-/);
+    assert.ok(!JSON.stringify(started).includes("sk-occ-"));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("OAuth token exchange stays inside the adapter response boundary and exposes only safe status", async () => {
+  const markerAccessToken = "oauth-access-token-must-not-escape";
+  const markerRefreshToken = "oauth-refresh-token-must-not-escape";
+  const requests: Array<{ url: string; authorization: string; body: string }> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = Buffer.concat(chunks).toString("utf8");
+    requests.push({ url: request.url ?? "", authorization: String(request.headers.authorization ?? ""), body });
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/v1/mcp/server") {
+      response.end(JSON.stringify([{ server_id: "ms365-server-id", server_name: "onecomputer_ms365" }]));
+      return;
+    }
+    if (request.url === "/v1/mcp/server/oauth/ms365-server-id/token") {
+      response.end(JSON.stringify({ access_token: markerAccessToken, refresh_token: markerRefreshToken, expires_in: 3600 }));
+      return;
+    }
+    if (request.url === "/v1/mcp/server/ms365-server-id/oauth-user-credential/status") {
+      response.end(JSON.stringify({ server_id: "ms365-server-id", has_credential: true, is_expired: false, connected_at: "2026-07-20T01:02:03Z", expires_at: "2026-07-20T02:02:03Z" }));
+      return;
+    }
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  try {
+    const status = await liveAdapter.completeUserOAuthConnection({
+      identity,
+      serverName: "onecomputer_ms365",
+      code: "one-time-authorization-code",
+      codeVerifier: "v".repeat(48),
+    });
+    assert.deepEqual(status, {
+      state: "connected",
+      connectedAt: "2026-07-20T01:02:03Z",
+      expiresAt: "2026-07-20T02:02:03Z",
+    });
+    assert.ok(!JSON.stringify(status).includes(markerAccessToken));
+    assert.ok(!JSON.stringify(status).includes(markerRefreshToken));
+    const exchange = requests.find((item) => item.url.endsWith("/token"))!;
+    assert.match(exchange.authorization, /^Bearer sk-occ-/);
+    assert.match(exchange.body, /grant_type=authorization_code/);
+    assert.match(exchange.body, /code=one-time-authorization-code/);
+    assert.match(exchange.body, /code_verifier=v+/);
+    assert.equal(requests.at(-1)?.url, "/key/delete");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("workspace grant expiry renews independently of workspace lifetime", async () => {
   let grantRequests = 0;
   const server = createServer((_request, response) => {

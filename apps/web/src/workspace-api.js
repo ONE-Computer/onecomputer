@@ -35,3 +35,9 @@ export const operationApi = {
   createDeleteFile: (workspaceId, path) => request("/api/v1/operations/delete-file", mutation("POST", { workspaceId, path })),
   decideWithFixture: (id, decision) => request(`/api/v1/operations/${encodeURIComponent(id)}/fixture-decision`, mutation("POST", { decision })),
 };
+
+export const connectionApi = {
+  microsoft365: () => request("/api/v1/connections/microsoft-365"),
+  microsoft365AuthorizeUrl: "/api/v1/connections/microsoft-365/authorize",
+  disconnectMicrosoft365: () => request("/api/v1/connections/microsoft-365", mutation("DELETE")),
+};

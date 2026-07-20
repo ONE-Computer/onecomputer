@@ -28,6 +28,31 @@ export interface GatewayClient {
   revoke(workspaceId: string, agentId?: string): Promise<void>;
 }
 
+export type OAuthConnectionStatus = {
+  state: "disconnected" | "connected" | "expired";
+  connectedAt: string | null;
+  expiresAt: string | null;
+};
+
+export interface OAuthConnectionGateway {
+  beginUserOAuthConnection(input: {
+    identity: IdentityContext;
+    serverName: string;
+    redirectUri: string;
+    state: string;
+    codeChallenge: string;
+    authorizationOrigin: string;
+  }): Promise<{ location: string; cookies: string[] }>;
+  completeUserOAuthConnection(input: {
+    identity: IdentityContext;
+    serverName: string;
+    code: string;
+    codeVerifier: string;
+  }): Promise<OAuthConnectionStatus>;
+  userOAuthConnectionStatus(identity: IdentityContext, serverName: string): Promise<OAuthConnectionStatus>;
+  disconnectUserOAuthConnection(identity: IdentityContext, serverName: string): Promise<OAuthConnectionStatus>;
+}
+
 export type GovernedToolExecutionInput = {
   tenantId: string;
   subjectId: string;
@@ -62,13 +87,14 @@ type LiteLLMConfig = {
   requestTimeoutMs?: number;
   workspaceGrantTtlMs?: number;
   workspaceGrantRenewalMs?: number;
+  connectionGrantTtlMs?: number;
 };
 
 type JsonObject = Record<string, unknown>;
 
 const asObject = (value: unknown): JsonObject => value && typeof value === "object" ? value as JsonObject : {};
 
-export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecutor {
+export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecutor, OAuthConnectionGateway {
   private readonly adminUrl: string;
   private readonly workspaceUrl: string;
   private readonly modelAlias: string;
@@ -77,6 +103,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
   private readonly timeoutMs: number;
   private readonly workspaceGrantTtlMs: number;
   private readonly workspaceGrantRenewalMs: number;
+  private readonly connectionGrantTtlMs: number;
   private readonly workspaceGrantExpiries = new Map<string, number>();
 
   constructor(private readonly config: LiteLLMConfig) {
@@ -88,6 +115,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     this.timeoutMs = config.requestTimeoutMs ?? 15_000;
     this.workspaceGrantTtlMs = config.workspaceGrantTtlMs ?? 8 * 60 * 60 * 1000;
     this.workspaceGrantRenewalMs = config.workspaceGrantRenewalMs ?? 60 * 60 * 1000;
+    this.connectionGrantTtlMs = config.connectionGrantTtlMs ?? 15 * 60 * 1000;
   }
 
   userIdFor(identity: IdentityContext) {
@@ -111,6 +139,204 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         : `onecomputer:litellm:workspace:${workspaceId}`)
       .digest("base64url");
     return `sk-ocw-${digest}`;
+  }
+
+  connectionCredentialFor(identity: IdentityContext, serverName: string) {
+    const digest = createHmac("sha256", this.config.credentialSecret)
+      .update(`onecomputer:litellm:connection:${identity.tenantId}:${identity.subjectId}:${serverName}`)
+      .digest("base64url");
+    return `sk-occ-${digest}`;
+  }
+
+  async beginUserOAuthConnection(input: {
+    identity: IdentityContext;
+    serverName: string;
+    redirectUri: string;
+    state: string;
+    codeChallenge: string;
+    authorizationOrigin: string;
+  }) {
+    const grant = await this.ensureConnectionGrant(input.identity, input.serverName);
+    const query = new URLSearchParams({
+      redirect_uri: input.redirectUri,
+      state: input.state,
+      code_challenge: input.codeChallenge,
+      code_challenge_method: "S256",
+      response_type: "code",
+    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.adminUrl}/v1/mcp/server/oauth/${encodeURIComponent(grant.serverId)}/authorize?${query}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${grant.credential}` },
+        redirect: "manual",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch {
+      throw new OneComputerError("GATEWAY_UNAVAILABLE", "The Microsoft 365 connection service is unavailable", 503, true);
+    }
+    if (response.status < 300 || response.status >= 400) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new OneComputerError("M365_AUTHORIZATION_REJECTED", "Microsoft 365 authorization could not be started", 502, true);
+    }
+    const location = response.headers.get("location");
+    if (!location) throw new OneComputerError("M365_AUTHORIZATION_INVALID", "The Microsoft 365 authorization response was invalid", 502, true);
+    let authorizationUrl: URL;
+    let expectedOrigin: string;
+    try {
+      authorizationUrl = new URL(location);
+      expectedOrigin = new URL(input.authorizationOrigin).origin;
+    } catch {
+      throw new OneComputerError("M365_AUTHORIZATION_INVALID", "The Microsoft 365 authorization response was invalid", 502, true);
+    }
+    if (authorizationUrl.origin !== expectedOrigin) {
+      throw new OneComputerError("M365_AUTHORIZATION_ORIGIN_MISMATCH", "The Microsoft 365 authorization origin was not approved", 502);
+    }
+    const cookieHeaders = response.headers as Headers & { getSetCookie?: () => string[] };
+    const cookies = cookieHeaders.getSetCookie?.() ?? (response.headers.get("set-cookie") ? [response.headers.get("set-cookie")!] : []);
+    return { location: authorizationUrl.toString(), cookies };
+  }
+
+  async completeUserOAuthConnection(input: {
+    identity: IdentityContext;
+    serverName: string;
+    code: string;
+    codeVerifier: string;
+  }): Promise<OAuthConnectionStatus> {
+    const grant = await this.ensureConnectionGrant(input.identity, input.serverName);
+    try {
+      const form = new URLSearchParams({
+        grant_type: "authorization_code",
+        code: input.code,
+        code_verifier: input.codeVerifier,
+      });
+      let response: Response;
+      try {
+        response = await fetch(`${this.adminUrl}/v1/mcp/server/oauth/${encodeURIComponent(grant.serverId)}/token`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${grant.credential}`,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: form,
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch {
+        throw new OneComputerError("GATEWAY_UNAVAILABLE", "The Microsoft 365 connection service is unavailable", 503, true);
+      }
+      await response.body?.cancel().catch(() => undefined);
+      if (!response.ok) {
+        throw new OneComputerError("M365_TOKEN_EXCHANGE_FAILED", "Microsoft 365 did not complete the connection", 502, true);
+      }
+      return await this.readConnectionStatus(grant.credential, grant.serverId);
+    } finally {
+      await this.deleteConnectionGrant(grant.credential).catch(() => undefined);
+    }
+  }
+
+  async userOAuthConnectionStatus(identity: IdentityContext, serverName: string): Promise<OAuthConnectionStatus> {
+    const grant = await this.ensureConnectionGrant(identity, serverName);
+    try {
+      return await this.readConnectionStatus(grant.credential, grant.serverId);
+    } finally {
+      await this.deleteConnectionGrant(grant.credential).catch(() => undefined);
+    }
+  }
+
+  async disconnectUserOAuthConnection(identity: IdentityContext, serverName: string): Promise<OAuthConnectionStatus> {
+    const grant = await this.ensureConnectionGrant(identity, serverName);
+    try {
+      const result = await this.dataCall(`/v1/mcp/server/${encodeURIComponent(grant.serverId)}/oauth-user-credential`, grant.credential, { method: "DELETE" });
+      if (!result.ok && result.status !== 404) throw this.upstreamError("M365_DISCONNECT_FAILED", result.status, result.payload);
+      return { state: "disconnected", connectedAt: null, expiresAt: null };
+    } finally {
+      await this.deleteConnectionGrant(grant.credential).catch(() => undefined);
+    }
+  }
+
+  private async resolveMcpServer(serverName: string) {
+    const result = await this.adminCall("/v1/mcp/server", { method: "GET" });
+    const servers = Array.isArray(result.payload) ? result.payload : [];
+    const server = servers.map(asObject).find((item) => item.server_name === serverName);
+    const serverId = server?.server_id;
+    if (typeof serverId !== "string" || !serverId) {
+      throw new OneComputerError("M365_MCP_NOT_REGISTERED", "The Microsoft 365 connector is not registered", 503, true);
+    }
+    return serverId;
+  }
+
+  private async ensureConnectionGrant(identity: IdentityContext, serverName: string) {
+    const serverId = await this.resolveMcpServer(serverName);
+    const credential = this.connectionCredentialFor(identity, serverName);
+    const userId = this.userIdFor(identity);
+    const keyAlias = `onecomputer-connection-${userId}`;
+    const credentialRoute = `/v1/mcp/server/${serverId}/oauth-user-credential`;
+    const allowedRoutes = [
+      `/v1/mcp/server/oauth/${serverId}/authorize`,
+      `/v1/mcp/server/oauth/${serverId}/token`,
+      credentialRoute,
+      `${credentialRoute}/status`,
+    ];
+    const durationSeconds = Math.max(60, Math.ceil(this.connectionGrantTtlMs / 1_000));
+    const grant = {
+      key: credential,
+      key_alias: keyAlias,
+      key_type: "default",
+      user_id: userId,
+      duration: `${durationSeconds}s`,
+      models: [],
+      max_budget: 0,
+      rpm_limit: 12,
+      allowed_routes: allowedRoutes,
+      metadata: {
+        onecomputer_tenant_id: identity.tenantId,
+        onecomputer_subject_id: identity.subjectId,
+        onecomputer_gateway_user_id: userId,
+        onecomputer_connection_credential: true,
+        onecomputer_connection_server: serverName,
+      },
+      object_permission: { mcp_servers: [serverName] },
+    };
+    const generated = await this.adminCall("/key/generate", { method: "POST", body: grant }, true);
+    if (!generated.ok) {
+      const existing = await this.adminCall(`/key/list?return_full_object=true&key_alias=${encodeURIComponent(keyAlias)}`, { method: "GET" }, true);
+      const keys = Array.isArray(asObject(existing.payload).keys) ? asObject(existing.payload).keys as unknown[] : [];
+      const tokenHash = createHash("sha256").update(credential).digest("hex");
+      const current = keys.map(asObject).find((key) => key.token === tokenHash);
+      const metadata = asObject(current?.metadata);
+      const identityMatches = current?.user_id === userId
+        && metadata.onecomputer_tenant_id === identity.tenantId
+        && metadata.onecomputer_subject_id === identity.subjectId
+        && metadata.onecomputer_connection_credential === true
+        && metadata.onecomputer_connection_server === serverName;
+      if (!identityMatches) {
+        await this.deleteConnectionGrant(credential);
+        const replaced = await this.adminCall("/key/generate", { method: "POST", body: grant }, true);
+        if (!replaced.ok) throw this.upstreamError("M365_CONNECTION_IDENTITY_MISMATCH", replaced.status, replaced.payload);
+      } else {
+        const updated = await this.adminCall("/key/update", { method: "POST", body: grant }, true);
+        if (!updated.ok) throw this.upstreamError("M365_CONNECTION_GRANT_FAILED", updated.status, updated.payload);
+      }
+    }
+    return { credential, serverId };
+  }
+
+  private async readConnectionStatus(credential: string, serverId: string): Promise<OAuthConnectionStatus> {
+    const result = await this.dataCall(`/v1/mcp/server/${encodeURIComponent(serverId)}/oauth-user-credential/status`, credential);
+    if (!result.ok) throw this.upstreamError("M365_CONNECTION_STATUS_FAILED", result.status, result.payload);
+    const payload = asObject(result.payload);
+    const hasCredential = payload.has_credential === true;
+    const isExpired = payload.is_expired === true;
+    return {
+      state: !hasCredential ? "disconnected" : isExpired ? "expired" : "connected",
+      connectedAt: typeof payload.connected_at === "string" ? payload.connected_at : null,
+      expiresAt: typeof payload.expires_at === "string" ? payload.expires_at : null,
+    };
+  }
+
+  private async deleteConnectionGrant(credential: string) {
+    const result = await this.adminCall("/key/delete", { method: "POST", body: { keys: [credential] } }, true);
+    if (!result.ok && result.status !== 404) throw this.upstreamError("M365_CONNECTION_GRANT_REVOKE_FAILED", result.status, result.payload);
   }
 
   private executionCredential(operationId: string, leaseId: string) {

@@ -17,7 +17,8 @@ import { Navigation24Regular } from "@fluentui/react-icons/svg/navigation";
 import { ShieldCheckmark24Regular } from "@fluentui/react-icons/svg/shield-checkmark";
 import { Info24Regular } from "@fluentui/react-icons/svg/info";
 import { Bot24Regular } from "@fluentui/react-icons/svg/bot";
-import { operationApi, workspaceApi } from "./workspace-api.js";
+import { PlugConnected24Regular } from "@fluentui/react-icons/svg/plug-connected";
+import { operationApi, workspaceApi, connectionApi } from "./workspace-api.js";
 
 const capabilities = [
   {
@@ -321,6 +322,67 @@ function HelpScreen() {
   );
 }
 
+const connectionReason = {
+  M365_OAUTH_DENIED: "Microsoft 365 access was not granted. You can try again when you’re ready.",
+  M365_OAUTH_STATE_INVALID: "That connection attempt expired or was already used. Please start again.",
+  M365_OAUTH_STATE_EXPIRED: "That connection attempt expired. Please start again.",
+  M365_OAUTH_IDENTITY_MISMATCH: "That connection attempt belongs to another signed-in user.",
+  M365_TOKEN_EXCHANGE_FAILED: "Microsoft 365 could not complete the connection. Please try again.",
+};
+
+function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect }) {
+  const connected = connection?.state === "connected";
+  const expired = connection?.state === "expired";
+  const connectedAt = connection?.connectedAt
+    ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(connection.connectedAt))
+    : null;
+  return (
+    <div className="secondary-screen connections-screen">
+      <header className="page-heading compact">
+        <p>Your connected services</p>
+        <h1>Connections</h1>
+        <span>Connect approved work services once. Your managed workspace receives scoped access without receiving your Microsoft credentials.</span>
+      </header>
+
+      {error && <div className="connection-error" role="alert"><Info24Regular aria-hidden="true" /><span><strong>Microsoft 365 was not connected</strong>{error}</span></div>}
+
+      <section className="connection-card" aria-labelledby="microsoft-365-title">
+        <div className="connection-logo"><PlugConnected24Regular aria-hidden="true" /></div>
+        <div className="connection-copy">
+          <div className="connection-title-row">
+            <div>
+              <h2 id="microsoft-365-title">Microsoft 365</h2>
+              <p>Outlook Mail, Calendar, and OneDrive</p>
+            </div>
+            <span className={`connection-status ${connected ? "connected" : expired ? "expired" : "disconnected"}`}>
+              {loading ? "Checking" : connected ? "Connected" : expired ? "Reconnect required" : "Not connected"}
+            </span>
+          </div>
+          <p className="connection-description">Use the approved read-only Microsoft 365 tools through the ONEComputer AI gateway.</p>
+          <div className="connection-services" aria-label="Included services">
+            <span>Outlook Mail</span><span>Calendar</span><span>OneDrive</span>
+          </div>
+          {connectedAt && <p className="connection-metadata">Connected {connectedAt}</p>}
+        </div>
+        <div className="connection-actions">
+          {connected ? (
+            <button className="secondary-button" type="button" onClick={onDisconnect} disabled={busy || loading}>
+              {busy ? "Disconnecting" : "Disconnect"}
+            </button>
+          ) : (
+            <button className="primary-button" type="button" onClick={onConnect} disabled={busy || loading}>
+              <PlugConnected24Regular aria-hidden="true" />
+              {busy ? "Opening Microsoft" : expired ? "Reconnect" : "Connect Microsoft 365"}
+            </button>
+          )}
+        </div>
+      </section>
+
+      <div className="connection-privacy-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>OAuth tokens stay encrypted in the LiteLLM MCP gateway. ONEComputer shows connection status only, and the workspace never receives the token.</p></div>
+    </div>
+  );
+}
+
 export function App() {
   const [activeNav, setActiveNav] = useState("Home");
   const [workspace, setWorkspace] = useState(null);
@@ -334,6 +396,10 @@ export function App() {
   const [gatewayResult, setGatewayResult] = useState(null);
   const [operation, setOperation] = useState(null);
   const [operationBusy, setOperationBusy] = useState(false);
+  const [m365Connection, setM365Connection] = useState(null);
+  const [connectionLoading, setConnectionLoading] = useState(true);
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -358,6 +424,29 @@ export function App() {
       else { setWorkspaceState("failed"); showApiError(error); }
     });
     operationApi.recent().then(setOperation).catch(showApiError);
+    connectionApi.microsoft365()
+      .then(setM365Connection)
+      .catch((error) => setConnectionError(error.message))
+      .finally(() => setConnectionLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("view") !== "connections") return;
+    setActiveNav("Connections");
+    const result = params.get("m365");
+    if (result === "connected") {
+      setToast("Microsoft 365 is connected.");
+      setConnectionLoading(true);
+      connectionApi.microsoft365()
+        .then((status) => { setM365Connection(status); setConnectionError(""); })
+        .catch((error) => setConnectionError(error.message))
+        .finally(() => setConnectionLoading(false));
+    } else if (result === "error") {
+      const reason = params.get("reason");
+      setConnectionError(connectionReason[reason] ?? "Microsoft 365 could not complete the connection. Please try again.");
+    }
+    window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
   useEffect(() => {
@@ -466,6 +555,27 @@ export function App() {
     }
   };
 
+  const connectMicrosoft365 = () => {
+    setConnectionBusy(true);
+    setConnectionError("");
+    window.location.assign(connectionApi.microsoft365AuthorizeUrl);
+  };
+
+  const disconnectMicrosoft365 = async () => {
+    if (!window.confirm("Disconnect Microsoft 365 from this ONEComputer user? Your Microsoft account and data will not be deleted.")) return;
+    setConnectionBusy(true);
+    setConnectionError("");
+    try {
+      const status = await connectionApi.disconnectMicrosoft365();
+      setM365Connection(status);
+      setToast("Microsoft 365 was disconnected.");
+    } catch (error) {
+      setConnectionError(error.message);
+    } finally {
+      setConnectionBusy(false);
+    }
+  };
+
   const selectNav = (name) => {
     setActiveNav(name);
     setMobileNavOpen(false);
@@ -480,6 +590,7 @@ export function App() {
         <nav aria-label="Primary navigation">
           <NavButton active={activeNav === "Home"} icon={activeNav === "Home" ? Home24Filled : Home24Regular} label="Home" onClick={() => selectNav("Home")} />
           <NavButton active={activeNav === "Activity"} icon={Clock24Regular} label="Activity" onClick={() => selectNav("Activity")} />
+          <NavButton active={activeNav === "Connections"} icon={PlugConnected24Regular} label="Connections" onClick={() => selectNav("Connections")} />
           <ExternalNavLink icon={Bot24Regular} label="Gateway" href={gatewayAdminUrl} />
           <NavButton active={activeNav === "Help"} icon={QuestionCircle24Regular} label="Help" onClick={() => selectNav("Help")} />
         </nav>
@@ -531,6 +642,16 @@ export function App() {
           />
         )}
         {activeNav === "Activity" && <ActivityScreen operation={operation} onOpenOperation={() => setDrawer("request")} />}
+        {activeNav === "Connections" && (
+          <ConnectionsScreen
+            connection={m365Connection}
+            loading={connectionLoading}
+            busy={connectionBusy}
+            error={connectionError}
+            onConnect={connectMicrosoft365}
+            onDisconnect={disconnectMicrosoft365}
+          />
+        )}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 

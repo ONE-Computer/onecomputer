@@ -1,10 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
-import Fastify from "fastify";
+import Fastify, { LogController } from "fastify";
 import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema } from "@onecomputer/contracts";
-import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor } from "@onecomputer/litellm-adapter";
+import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { PostgresWorkspaceStore, type GovernanceStore, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
 import { FixtureApprovalAuthority, GovernedOperationService } from "./operations.js";
+import { Microsoft365ConnectionService } from "./connections.js";
 import { HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
 
 const envSchema = z.object({
@@ -18,6 +19,8 @@ const envSchema = z.object({
   LITELLM_WORKSPACE_URL: z.string().url().optional(),
   LITELLM_MASTER_KEY: z.string().min(24).optional(),
   LITELLM_CREDENTIAL_SECRET: z.string().min(32).optional(),
+  PUBLIC_WEB_URL: z.string().url().default("http://localhost:4174"),
+  M365_AUTHORIZATION_ORIGIN: z.string().url().default("http://localhost:3001"),
   FIXTURE_APPROVAL_SECRET: z.string().min(32).default("local-disabled-fixture-approval-secret-32-chars"),
 });
 
@@ -34,13 +37,35 @@ export function createControlServer(
   proxyToken: string,
   gateway?: GatewayClient & Partial<GovernedToolExecutor>,
   fixtureApprovalSecret = "local-test-fixture-approval-secret-32-characters",
+  connectionOptions: { publicWebUrl?: string; authorizationOrigin?: string } = {},
 ) {
-  const app = Fastify({ logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] }, bodyLimit: 32 * 1024 });
+  const app = Fastify({
+    logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] },
+    logController: new LogController({
+      disableRequestLogging: (request) => request.url.startsWith("/v1/connections/microsoft-365/callback"),
+    }),
+    bodyLimit: 32 * 1024,
+  });
   const service = new WorkspaceService(store, controller, gateway);
   const executor: GovernedToolExecutor = gateway?.executeGovernedTool
     ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
     : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
   const operations = new GovernedOperationService(store, executor, new FixtureApprovalAuthority(fixtureApprovalSecret));
+  const oauthGateway = gateway
+    && typeof (gateway as Partial<OAuthConnectionGateway>).beginUserOAuthConnection === "function"
+    && typeof (gateway as Partial<OAuthConnectionGateway>).completeUserOAuthConnection === "function"
+    && typeof (gateway as Partial<OAuthConnectionGateway>).userOAuthConnectionStatus === "function"
+    && typeof (gateway as Partial<OAuthConnectionGateway>).disconnectUserOAuthConnection === "function"
+    ? gateway as GatewayClient & OAuthConnectionGateway
+    : undefined;
+  const connections = oauthGateway ? new Microsoft365ConnectionService(oauthGateway, {
+    publicWebUrl: connectionOptions.publicWebUrl ?? "http://localhost:4174",
+    authorizationOrigin: connectionOptions.authorizationOrigin ?? "http://localhost:3001",
+  }) : undefined;
+  const requireConnections = () => {
+    if (!connections) throw new OneComputerError("M365_CONNECTION_NOT_CONFIGURED", "Microsoft 365 connections are not configured", 503, true);
+    return connections;
+  };
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/healthz") return;
@@ -61,6 +86,27 @@ export function createControlServer(
   };
 
   app.get("/healthz", async () => ({ status: "ok" }));
+  app.get("/v1/connections/microsoft-365", async (request) => requireConnections().status(identity(request.headers)));
+  app.get("/v1/connections/microsoft-365/authorize", async (request, reply) => {
+    const started = await requireConnections().start(identity(request.headers));
+    if (started.cookies.length) reply.header("set-cookie", started.cookies);
+    return reply.code(302).header("location", started.location).send();
+  });
+  app.get<{ Querystring: { state?: string; code?: string; error?: string } }>("/v1/connections/microsoft-365/callback", async (request, reply) => {
+    const service = requireConnections();
+    try {
+      await service.complete(identity(request.headers), {
+        state: request.query.state,
+        code: request.query.code,
+        error: request.query.error,
+      });
+      return reply.code(303).header("location", service.resultUrl("connected")).send();
+    } catch (error) {
+      const reason = error instanceof OneComputerError ? error.code : "M365_CONNECTION_FAILED";
+      return reply.code(303).header("location", service.resultUrl("error", reason)).send();
+    }
+  });
+  app.delete("/v1/connections/microsoft-365", async (request) => requireConnections().disconnect(identity(request.headers)));
   app.get("/v1/workspaces/current", async (request, reply) => {
     const current = await service.current(identity(request.headers), "personal");
     return current ? reply.send(current) : reply.code(404).send({ error: { code: "WORKSPACE_NOT_FOUND", message: "Workspace not found", correlationId: request.id, retryable: false } });
@@ -118,7 +164,14 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         credentialSecret: env.LITELLM_CREDENTIAL_SECRET,
       })
     : undefined;
-  const app = createControlServer(store, new HttpControllerClient(env.CONTROLLER_URL, env.CONTROLLER_INTERNAL_TOKEN), env.WEB_PROXY_TOKEN, gateway, env.FIXTURE_APPROVAL_SECRET);
+  const app = createControlServer(
+    store,
+    new HttpControllerClient(env.CONTROLLER_URL, env.CONTROLLER_INTERNAL_TOKEN),
+    env.WEB_PROXY_TOKEN,
+    gateway,
+    env.FIXTURE_APPROVAL_SECRET,
+    { publicWebUrl: env.PUBLIC_WEB_URL, authorizationOrigin: env.M365_AUTHORIZATION_ORIGIN },
+  );
   app.addHook("onClose", async () => store.close());
   await app.listen({ host: env.CONTROL_HOST, port: env.CONTROL_PORT });
 }

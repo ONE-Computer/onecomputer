@@ -100,8 +100,10 @@ wrapper contract if conditional.
 Not complete. The pinned LiteLLM per-user credential-custody mechanism received
 a conditional synthetic pass on 2026-07-20. Evidence is in
 `infra/issue-008/qualification-2026-07-20.md`. A real Entra reconnection under
-the mapped ONEComputer user, bounded Graph probes, the owned connection journey,
-and the remaining provider/error/isolation matrix still block completion.
+the mapped ONEComputer user, bounded Graph probes, and the remaining
+provider/error/isolation matrix still block completion. The owned connection
+journey is now implemented and in pre-consent verification under Issue 013;
+evidence is in `infra/issue-013/qualification-pre-oauth-2026-07-20.md`.
 
 ## Early candidate deployment
 

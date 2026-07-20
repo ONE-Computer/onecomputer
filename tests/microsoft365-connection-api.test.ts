@@ -1,0 +1,86 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { IdentityContext } from "@onecomputer/contracts";
+import type { GatewayClient, OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
+import { MemoryWorkspaceStore } from "@onecomputer/workspace-store";
+import { createControlServer } from "../apps/control-api/src/server.js";
+import type { ControllerClient } from "../apps/control-api/src/service.js";
+
+const proxyToken = "proxy-test-token-at-least-24-characters";
+const alpha: IdentityContext = { tenantId: "acme", subjectId: "alpha", audience: "onecomputer-control" };
+const headersFor = (identity: IdentityContext) => ({
+  "x-onecomputer-proxy-token": proxyToken,
+  "x-onecomputer-tenant-id": identity.tenantId,
+  "x-onecomputer-subject-id": identity.subjectId,
+  "x-onecomputer-audience": identity.audience,
+});
+
+test("Control exposes an owned Microsoft 365 redirect, callback, status, and disconnect surface", async () => {
+  let oauthState = "";
+  const completions: string[] = [];
+  const disconnects: IdentityContext[] = [];
+  const gateway: GatewayClient & OAuthConnectionGateway = {
+    ensureGrant: async () => ({ baseUrl: "http://gateway", credential: "scoped-test-credential-000001", modelAlias: "test", expiresAt: new Date(Date.now() + 60_000).toISOString() }),
+    readiness: async () => ({ models: "ready", tools: "ready" }),
+    test: async () => ({ model: "test", response: "ready", tools: [], apiBaseUrl: "http://gateway/v1", mcpUrl: "http://gateway/mcp" }),
+    revoke: async () => undefined,
+    beginUserOAuthConnection: async (input) => {
+      oauthState = input.state;
+      return { location: "http://localhost:3001/authorize?safe=start", cookies: ["mcp_oauth_state=opaque; Path=/callback; HttpOnly"] };
+    },
+    completeUserOAuthConnection: async (input) => {
+      completions.push(input.code);
+      return { state: "connected", connectedAt: "2026-07-20T01:02:03Z", expiresAt: "2026-07-20T02:02:03Z" };
+    },
+    userOAuthConnectionStatus: async () => ({ state: "connected", connectedAt: "2026-07-20T01:02:03Z", expiresAt: "2026-07-20T02:02:03Z" }),
+    disconnectUserOAuthConnection: async (identity) => {
+      disconnects.push(identity);
+      return { state: "disconnected", connectedAt: null, expiresAt: null };
+    },
+  };
+  const app = createControlServer(
+    new MemoryWorkspaceStore(),
+    {} as ControllerClient,
+    proxyToken,
+    gateway,
+    "api-fixture-approval-secret-at-least-32-characters",
+    { publicWebUrl: "http://localhost:4174", authorizationOrigin: "http://localhost:3001" },
+  );
+  try {
+    const status = await app.inject({ method: "GET", url: "/v1/connections/microsoft-365", headers: headersFor(alpha) });
+    assert.equal(status.statusCode, 200);
+    assert.deepEqual(status.json(), { state: "connected", connectedAt: "2026-07-20T01:02:03Z", expiresAt: "2026-07-20T02:02:03Z" });
+
+    const start = await app.inject({ method: "GET", url: "/v1/connections/microsoft-365/authorize", headers: headersFor(alpha) });
+    assert.equal(start.statusCode, 302);
+    assert.equal(start.headers.location, "http://localhost:3001/authorize?safe=start");
+    assert.match(String(start.headers["set-cookie"]), /HttpOnly/);
+
+    const callbackCode = "provider-code-must-not-survive-the-redirect";
+    const callback = await app.inject({
+      method: "GET",
+      url: `/v1/connections/microsoft-365/callback?state=${encodeURIComponent(oauthState)}&code=${callbackCode}`,
+      headers: headersFor(alpha),
+    });
+    assert.equal(callback.statusCode, 303);
+    assert.equal(callback.headers.location, "http://localhost:4174/?view=connections&m365=connected");
+    assert.ok(!String(callback.headers.location).includes(callbackCode));
+    assert.deepEqual(completions, [callbackCode]);
+
+    const replay = await app.inject({
+      method: "GET",
+      url: `/v1/connections/microsoft-365/callback?state=${encodeURIComponent(oauthState)}&code=${callbackCode}`,
+      headers: headersFor(alpha),
+    });
+    assert.equal(replay.statusCode, 303);
+    assert.match(String(replay.headers.location), /m365=error/);
+    assert.deepEqual(completions, [callbackCode]);
+
+    const disconnected = await app.inject({ method: "DELETE", url: "/v1/connections/microsoft-365", headers: headersFor(alpha) });
+    assert.equal(disconnected.statusCode, 200);
+    assert.deepEqual(disconnected.json(), { state: "disconnected", connectedAt: null, expiresAt: null });
+    assert.deepEqual(disconnects, [alpha]);
+  } finally {
+    await app.close();
+  }
+});

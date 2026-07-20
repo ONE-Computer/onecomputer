@@ -67,6 +67,12 @@ dropped `NET_ADMIN`, `NET_RAW`, and `SYS_ADMIN`. Recreating the trusted LiteLLM
 service and polling workspace status restored its dynamic attachment to the
 workspace network without recreating the workspace.
 
+During human review, the local Docker daemon returned HTTP 403 when a status
+poll attempted to connect an already-attached LiteLLM container. The workspace
+itself was healthy. Network attachment now inspects membership first and is
+idempotent across daemon-specific duplicate-connect status codes; the
+regression is covered by the Kasm adapter test.
+
 ## Secret boundary
 
 Container configuration and the owned client were scanned for Microsoft OAuth

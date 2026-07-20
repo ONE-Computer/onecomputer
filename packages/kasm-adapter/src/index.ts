@@ -304,13 +304,28 @@ export class KasmLocalAdapter implements SandboxAdapter {
   }
 
   private async connectContainer(network: string, container: string, aliases: string[] = []) {
+    if (await this.networkContainsContainer(network, container)) return;
     try {
       await this.request("POST", `/networks/${encodeURIComponent(network)}/connect`, {
         Container: container,
         EndpointConfig: aliases.length ? { Aliases: aliases } : {},
       });
     } catch (error) {
-      if (!(error instanceof OneComputerError && error.statusCode === 409)) throw error;
+      if (await this.networkContainsContainer(network, container)) return;
+      throw error;
+    }
+  }
+
+  private async networkContainsContainer(network: string, container: string) {
+    try {
+      const inspected = await this.request("GET", `/networks/${encodeURIComponent(network)}`);
+      return Object.entries(asObject(inspected.Containers)).some(([id, value]) => {
+        const name = textValue(asObject(value), "Name");
+        return id === container || id.startsWith(container) || name === container;
+      });
+    } catch (error) {
+      if (error instanceof OneComputerError && error.statusCode === 404) return false;
+      throw error;
     }
   }
 

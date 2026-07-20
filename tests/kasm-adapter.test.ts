@@ -18,6 +18,8 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
   const socketPath = join(directory, "docker.sock");
   const requests: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
   let createCount = 0;
+  let workspaceNetworkExists = false;
+  let gatewayConnected = false;
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -36,6 +38,12 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
       }));
       return;
     }
+    if (request.method === "GET" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508" && workspaceNetworkExists) {
+      response.end(JSON.stringify({
+        Containers: gatewayConnected ? { "gateway-container-id": { Name: "onecomputer-v4-litellm" } } : {},
+      }));
+      return;
+    }
     if (request.method === "GET" && (path.startsWith("/networks/") || path.startsWith("/volumes/") || path.includes("/json"))) {
       response.statusCode = 404;
       response.end(JSON.stringify({ message: "not found" }));
@@ -46,6 +54,12 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
       response.statusCode = 201;
       response.end(JSON.stringify({ Id: createCount === 1 ? "sandbox-id" : "relay-id" }));
       return;
+    }
+    if (request.method === "POST" && path === "/networks/create" && body.Name === "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508") {
+      workspaceNetworkExists = true;
+    }
+    if (request.method === "POST" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-v4-litellm") {
+      gatewayConnected = true;
     }
     response.end(JSON.stringify({ ok: true }));
   });
@@ -106,7 +120,7 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
     assert.ok(!serialized.includes("DATABASE_URL"));
     assert.ok(!serialized.includes("DOCKER_HOST"));
     await adapter.status("sandbox-id");
-    assert.ok(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-litellm").length >= 2);
+    assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-litellm").length, 1);
     await adapter.purgeWorkspace("b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
     assert.ok(requests.some((item) => item.method === "DELETE" && item.path === `/volumes/${workspaceVolume}?force=true`));
   } finally {

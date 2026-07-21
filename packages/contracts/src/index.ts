@@ -245,7 +245,7 @@ export const operationViewSchema = z.object({
   expiresAt: z.iso.datetime(),
   approval: z.object({
     decision: z.enum(["approve", "deny"]),
-    channel: z.literal("local-fixture"),
+    channel: z.enum(["local-fixture", "openvtc-task-consent"]),
     decidedAt: z.iso.datetime(),
   }).nullable(),
   receipt: z.object({

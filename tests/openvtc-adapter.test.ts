@@ -3,6 +3,7 @@ import { generateKeyPairSync, sign as signBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import {
   TASK_CONSENT_DECISION_TYPE,
+  Ed25519DidKeySigner,
   base58btcEncode,
   buildTaskConsentRequest,
   didKeyFromEd25519PublicKey,
@@ -233,5 +234,15 @@ describe("OpenVTC canonical primitives", () => {
     ));
     assert.equal(JSON.stringify(request).includes("must-not-leave-control"), false);
     assert.match(String((request.proof as JsonObject).proofValue), /^z/);
+  });
+
+  it("loads a stable executor DID from a PKCS8 secret without exposing key material", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const encoded = privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+    const first = Ed25519DidKeySigner.fromPkcs8Base64(encoded);
+    const second = Ed25519DidKeySigner.fromPkcs8Base64(encoded);
+    assert.equal(first.did, second.did);
+    assert.equal(first.verificationMethod, `${first.did}#${first.did.slice("did:key:".length)}`);
+    assert.equal(first.sign(Buffer.from("proof input")).length, 64);
   });
 });

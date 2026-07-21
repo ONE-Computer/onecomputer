@@ -79,3 +79,11 @@ payload digest, recipient-specific signed request construction, strict
 requester-exclusion checks, and negative binding/time/proof tests. It neither
 delivers requests nor issues leases yet. The physical path still requires an
 explicit upstream iOS external-executor or official browser-agent choice.
+
+The browser agent was selected as the first physical surface. ADR-006 defines
+the bounded Trust Tasks HTTPS external-executor profile. PostgreSQL and the
+memory qualification store now persist one active approver, hashed transport
+mapping, signed task, delivery outbox/attempts, expiry/revocation, verified
+decision evidence, and the operation approval in one transaction. The browser
+enrollment ceremony, Control endpoints, minimal extension build, and physical
+approve/deny pass remain open.

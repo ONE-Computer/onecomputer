@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign as signBytes, type KeyObject, verify as verifySignature } from "node:crypto";
 
 export const TASK_CONSENT_REQUEST_TYPE = "https://trusttasks.org/spec/task-consent/request/0.1";
 export const TASK_CONSENT_DECISION_TYPE = "https://trusttasks.org/spec/task-consent/decision/0.1";
@@ -213,6 +213,31 @@ export function didKeyFromEd25519PublicKey(publicKey: Uint8Array): string {
   if (publicKey.length !== 32) throw new Error("Ed25519 public key must be 32 bytes");
   const multikey = base58btcEncode(Uint8Array.from([...ED25519_MULTICODEC_PREFIX, ...publicKey]));
   return `did:key:z${multikey}`;
+}
+
+export class Ed25519DidKeySigner {
+  readonly did: string;
+  readonly verificationMethod: string;
+
+  constructor(private readonly privateKey: KeyObject) {
+    if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("OpenVTC executor key must be Ed25519");
+    const spki = createPublicKey(privateKey).export({ format: "der", type: "spki" });
+    if (spki.length !== ED25519_SPKI_PREFIX.length + 32 || !spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)) {
+      throw new Error("OpenVTC executor public key has an unexpected encoding");
+    }
+    this.did = didKeyFromEd25519PublicKey(spki.subarray(ED25519_SPKI_PREFIX.length));
+    this.verificationMethod = `${this.did}#${this.did.slice("did:key:".length)}`;
+  }
+
+  static fromPkcs8Base64(value: string) {
+    const der = Buffer.from(value, "base64");
+    if (!der.length) throw new Error("OpenVTC executor private key is empty");
+    return new Ed25519DidKeySigner(createPrivateKey({ key: der, format: "der", type: "pkcs8" }));
+  }
+
+  sign(input: Uint8Array) {
+    return signBytes(null, input, this.privateKey);
+  }
 }
 
 /** Upstream VTA salted wire digest from policy/consent.rs. */

@@ -85,7 +85,6 @@ arguments, protected-operation persistence, mutation, exact lease dispatch,
 and replay. The live qualification record is
 `governed-policy-qualification-2026-07-20.md`.
 
-Final human review requires reconnecting Microsoft 365 for `Files.ReadWrite`,
-restarting the workspace from the ONEComputer UI so policy version 4 reaches
-the agent environment, and deleting one disposable file through the approval
-drawer. Do not use a production document.
+Human review completed on 2026-07-21 with one disposable file: the request
+remained pending before approval, executed once after the UI decision, deleted
+the bound Microsoft item, and produced a durable successful receipt.

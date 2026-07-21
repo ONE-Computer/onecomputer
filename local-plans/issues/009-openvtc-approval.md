@@ -1,6 +1,6 @@
 # 009: integrate OpenVTC physical approval and durable evidence
 
-Status: `blocked`
+Status: `ready`
 
 Gate: H
 Depends on: 008
@@ -64,4 +64,5 @@ correlation, redacted UI timeline, and cleanup result.
 
 ## Completion record
 
-Not complete. Blocked on Issue 008.
+Issue 008 completed human review on 2026-07-21. Ready for implementation; no
+Issue 009 work has begun.

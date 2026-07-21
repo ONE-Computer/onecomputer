@@ -1,6 +1,6 @@
 # 008: govern the Microsoft 365 MCP capability surface
 
-Status: `verification`
+Status: `complete`
 
 Gate: G
 Depends on: 007
@@ -47,12 +47,12 @@ denied, or requires approval immediately before execution.
   over-limit, wrong-server/tool/schema, and direct MCP/Graph attempts deny.
 - [x] Control receives and validates the exact authenticated identity and
   canonical arguments before any upstream connection.
-- [ ] The protected delete reaches Microsoft zero times before approval and
+- [x] The protected delete reaches Microsoft zero times before approval and
   once after one valid exact bound fixture decision.
-- [ ] Deny, expiry, cancellation, stale eTag/version, argument/item mutation,
+- [x] Deny, expiry, cancellation, stale eTag/version, argument/item mutation,
   replay, concurrency, gateway/Control outage, malformed/unknown policy result,
   and restart yield zero unsafe executions.
-- [ ] The provider result becomes an honest safe receipt; ambiguous completion
+- [x] The provider result becomes an honest safe receipt; ambiguous completion
   is not automatically retried.
 - [x] Workspace, browser, Control policy payloads, logs, and evidence contain no
   OAuth token or unrestricted Microsoft content.
@@ -74,8 +74,8 @@ negative/mutation/restart matrix, receipt projection, and credential scan.
 
 Implementation and automated/live fail-closed qualification completed on
 2026-07-20. The six-tool policy, including exact item metadata/eTag lookup, is
-promoted immutably to version 4.
-Final completion waits
-for the user to reconnect with `Files.ReadWrite`, restart the workspace from
-the UI, and approve deletion of one disposable OneDrive file. See
+promoted immutably to version 4. Human verification completed on 2026-07-21:
+the bound operation remained pending before approval, executed once after the
+UI decision, deleted only the disposable file, and persisted a successful
+receipt. See
 `infra/issue-008/governed-policy-qualification-2026-07-20.md`.

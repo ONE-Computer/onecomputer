@@ -29,6 +29,15 @@ export const workspaceApi = {
   delete: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}`, mutation("DELETE")),
 };
 
+export const sandboxApi = {
+  settings: () => request("/api/v1/sandbox-settings"),
+  save: (profileId, modelAlias) => request("/api/v1/sandbox-settings", {
+    method: "PUT",
+    headers: jsonHeaders,
+    body: JSON.stringify({ grantId: "personal", profileId, modelAlias }),
+  }),
+};
+
 export const operationApi = {
   recent: () => request("/api/v1/operations/recent"),
   get: (id) => request(`/api/v1/operations/${encodeURIComponent(id)}`),

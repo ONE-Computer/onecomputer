@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import type { GovernedOperationState, IdentityContext, OwnedJson, WorkspaceState } from "@onecomputer/contracts";
+import type { GovernedOperationState, IdentityContext, OwnedJson, SandboxModelAlias, SandboxProfileId, WorkspaceState } from "@onecomputer/contracts";
 export * from "./identity-policy.js";
 
 export type WorkspaceRecord = {
@@ -15,6 +15,15 @@ export type WorkspaceRecord = {
   failureCode: string | null;
   operationToken: string | null;
   createdAt: Date;
+  updatedAt: Date;
+};
+
+export type SandboxSettingsRecord = {
+  tenantId: string;
+  subjectId: string;
+  grantId: string;
+  profileId: SandboxProfileId;
+  modelAlias: SandboxModelAlias;
   updatedAt: Date;
 };
 
@@ -195,6 +204,8 @@ export interface WorkspaceStore {
   finish(workspaceId: string, operationToken: string, patch: Partial<Pick<WorkspaceRecord, "state" | "providerId" | "failureCode">>): Promise<WorkspaceRecord>;
   update(workspaceId: string, patch: Partial<Pick<WorkspaceRecord, "state" | "providerId" | "failureCode">>): Promise<WorkspaceRecord>;
   remove(identity: IdentityContext, workspaceId: string): Promise<boolean>;
+  getSandboxSettings?(identity: IdentityContext, grantId: string): Promise<SandboxSettingsRecord | null>;
+  saveSandboxSettings?(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias }): Promise<SandboxSettingsRecord>;
 }
 
 const mapRow = (row: Record<string, unknown>): WorkspaceRecord => ({
@@ -207,6 +218,15 @@ const mapRow = (row: Record<string, unknown>): WorkspaceRecord => ({
   failureCode: row.failure_code ? String(row.failure_code) : null,
   operationToken: row.operation_token ? String(row.operation_token) : null,
   createdAt: new Date(String(row.created_at)),
+  updatedAt: new Date(String(row.updated_at)),
+});
+
+const mapSandboxSettingsRow = (row: Record<string, unknown>): SandboxSettingsRecord => ({
+  tenantId: String(row.tenant_id),
+  subjectId: String(row.subject_id),
+  grantId: String(row.grant_id),
+  profileId: String(row.profile_id) as SandboxProfileId,
+  modelAlias: String(row.model_alias) as SandboxModelAlias,
   updatedAt: new Date(String(row.updated_at)),
 });
 
@@ -310,7 +330,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
@@ -394,6 +414,26 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
     );
     if (!result.rowCount) throw new Error("Workspace not found");
     return mapRow(result.rows[0]);
+  }
+
+  async getSandboxSettings(identity: IdentityContext, grantId: string) {
+    const result = await this.pool.query(
+      "SELECT * FROM sandbox_settings WHERE tenant_id=$1 AND subject_id=$2 AND grant_id=$3",
+      [identity.tenantId, identity.subjectId, grantId],
+    );
+    return result.rowCount ? mapSandboxSettingsRow(result.rows[0]) : null;
+  }
+
+  async saveSandboxSettings(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias }) {
+    const result = await this.pool.query(
+      `INSERT INTO sandbox_settings (tenant_id,subject_id,grant_id,profile_id,model_alias,updated_at)
+       VALUES ($1,$2,$3,$4,$5,now())
+       ON CONFLICT (tenant_id,subject_id,grant_id) DO UPDATE
+       SET profile_id=EXCLUDED.profile_id,model_alias=EXCLUDED.model_alias,updated_at=now()
+       RETURNING *`,
+      [identity.tenantId, identity.subjectId, input.grantId, input.profileId, input.modelAlias],
+    );
+    return mapSandboxSettingsRow(result.rows[0]);
   }
 
   async createGovernedOperation(input: CreateGovernedOperationRecord) {

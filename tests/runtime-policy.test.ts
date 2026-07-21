@@ -38,3 +38,24 @@ test("effective policy projects to the one approved workspace runtime", () => {
     allowedTools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"],
   });
 });
+
+test("an assigned sandbox selection can narrow a multi-model policy but cannot broaden it", () => {
+  const effective: EffectivePolicy = {
+    assignmentId: "assignment-2", policyBundleId: "bundle-1", policyVersionId: "version-2", version: 2,
+    documentHash: "d".repeat(64), assignedBy: "admin-1", assignedAt: "2026-07-21T00:00:00.000Z",
+    agentId: "agent-1", workspaceIdentityId: "workspace-identity-1", workspaceId: null, vendorUserId: "oc-user-1",
+    document: {
+      schemaVersion: 1,
+      workspaceProfile: "claude-desktop-standard-v1",
+      workspaceProfiles: ["claude-desktop-standard-v1"],
+      agentProfile: "claude-desktop-managed-v1",
+      modelAliases: ["onecomputer-claude", "onecomputer-openai", "onecomputer-glm"],
+      networkProfile: "controlled-egress-v1",
+      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders"] } } },
+    },
+  };
+  const selected = runtimePolicyFor(effective, "onecomputer-glm", "claude-desktop-standard-v1");
+  assert.equal(selected.modelAlias, "onecomputer-glm");
+  assert.equal(selected.workspaceProfile, "claude-desktop-standard-v1");
+  assert.throws(() => runtimePolicyFor(effective, "unassigned-model", "claude-desktop-standard-v1"), /not assigned/);
+});

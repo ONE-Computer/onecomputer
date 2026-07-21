@@ -20,7 +20,7 @@ import { Bot24Regular } from "@fluentui/react-icons/svg/bot";
 import { PlugConnected24Regular } from "@fluentui/react-icons/svg/plug-connected";
 import { Settings24Regular } from "@fluentui/react-icons/svg/settings";
 import { SignOut24Regular } from "@fluentui/react-icons/svg/sign-out";
-import { operationApi, workspaceApi, connectionApi, approvalApi, authApi, adminApi } from "./workspace-api.js";
+import { operationApi, workspaceApi, sandboxApi, connectionApi, approvalApi, authApi, adminApi } from "./workspace-api.js";
 import {
   clearBrowserApprover,
   enrollBrowserApprover,
@@ -381,6 +381,82 @@ function HelpScreen() {
   );
 }
 
+function SandboxScreen({ settings, loading, saving, error, workspaceState, onSave }) {
+  const [profileId, setProfileId] = useState("");
+  const [modelAlias, setModelAlias] = useState("");
+
+  useEffect(() => {
+    if (!settings) return;
+    setProfileId(settings.profileId);
+    setModelAlias(settings.modelAlias);
+  }, [settings?.profileId, settings?.modelAlias]);
+
+  const workspaceStopped = !["provisioning", "ready", "open", "restarting", "stopping"].includes(workspaceState);
+  const dirty = settings && (profileId !== settings.profileId || modelAlias !== settings.modelAlias);
+
+  return (
+    <div className="secondary-screen sandbox-screen">
+      <header className="page-heading compact">
+        <p>Your managed environment</p>
+        <h1>Sandbox</h1>
+        <span>Choose from the workspace and AI routes your organization has approved. Changes apply the next time the workspace starts.</span>
+      </header>
+      {error && <div className="workspace-error" role="alert"><Info24Regular aria-hidden="true" /><span><strong>Sandbox settings unavailable</strong>{error}</span></div>}
+      {loading || !settings ? <p className="sandbox-loading">Loading your assigned sandbox…</p> : (
+        <form className="sandbox-form" onSubmit={(event) => { event.preventDefault(); onSave(profileId, modelAlias); }}>
+          <section className="sandbox-section" aria-labelledby="sandbox-profile-heading">
+            <div className="sandbox-section-heading">
+              <span className="sandbox-section-icon"><Laptop24Regular aria-hidden="true" /></span>
+              <span><h2 id="sandbox-profile-heading">Workspace profile</h2><p>The application, resources, persistence, and network boundary are managed as one versioned profile.</p></span>
+            </div>
+            <fieldset className="profile-options">
+              <legend className="sr-only">Workspace profile</legend>
+              {settings.availableProfiles.map((profile) => (
+                <label className={`profile-option${profileId === profile.id ? " selected" : ""}`} key={profile.id}>
+                  <input type="radio" name="profile" value={profile.id} checked={profileId === profile.id} onChange={() => setProfileId(profile.id)} />
+                  <span className="profile-radio" aria-hidden="true" />
+                  <span className="profile-copy">
+                    <strong>{profile.displayName}</strong>
+                    <small>{profile.description}</small>
+                    <span>{profile.client} {profile.clientVersion} · {profile.resources.cpus} CPUs · {profile.resources.memoryGiB} GB · Persistent home</span>
+                  </span>
+                  <span className="profile-version">v{profile.version}</span>
+                </label>
+              ))}
+            </fieldset>
+          </section>
+
+          <section className="sandbox-section" aria-labelledby="sandbox-model-heading">
+            <div className="sandbox-section-heading">
+              <span className="sandbox-section-icon"><Bot24Regular aria-hidden="true" /></span>
+              <span><h2 id="sandbox-model-heading">AI route</h2><p>Claude Desktop receives this alias. Provider credentials remain in LiteLLM and are never copied into the sandbox.</p></span>
+            </div>
+            <div className="model-options" role="radiogroup" aria-labelledby="sandbox-model-heading">
+              {settings.availableModels.map((model) => (
+                <label className={modelAlias === model.alias ? "selected" : ""} key={model.alias}>
+                  <input type="radio" name="model" value={model.alias} checked={modelAlias === model.alias} onChange={() => setModelAlias(model.alias)} />
+                  <span><strong>{model.displayName}</strong><small>{model.provider} through ONEComputer</small></span>
+                  {modelAlias === model.alias && <CheckmarkCircle24Regular aria-hidden="true" />}
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <div className="sandbox-summary">
+            <ShieldCheckmark24Regular aria-hidden="true" />
+            <span><strong>Effective boundary</strong><small>Persistent home · gateway-only network · one workspace-scoped agent identity · no direct provider login</small></span>
+          </div>
+          {!workspaceStopped && <p className="sandbox-stop-note"><Info24Regular aria-hidden="true" />Stop the workspace before changing its profile or model route.</p>}
+          <div className="sandbox-actions">
+            <button className="primary-button" type="submit" disabled={!dirty || saving || !workspaceStopped}>{saving ? "Saving settings" : "Save sandbox settings"}</button>
+            <small>{settings.updatedAt ? `Last saved ${new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(settings.updatedAt))}` : "Using the policy default until you save."}</small>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 const connectionReason = {
   M365_OAUTH_DENIED: "Microsoft 365 access was not granted. You can try again when you’re ready.",
   M365_OAUTH_STATE_INVALID: "That connection attempt expired or was already used. Please start again.",
@@ -551,6 +627,10 @@ export function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminBusyUserId, setAdminBusyUserId] = useState("");
+  const [sandboxSettings, setSandboxSettings] = useState(null);
+  const [sandboxLoading, setSandboxLoading] = useState(false);
+  const [sandboxSaving, setSandboxSaving] = useState(false);
+  const [sandboxError, setSandboxError] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -615,6 +695,15 @@ export function App() {
     if (activeNav !== "Admin" || !session?.roles.includes("administrator")) return;
     setAdminLoading(true);
     adminApi.users().then((value) => setAdminUsers(value.users)).catch(showApiError).finally(() => setAdminLoading(false));
+  }, [activeNav, session?.user.id]);
+
+  useEffect(() => {
+    if (activeNav !== "Sandbox" || !session) return;
+    setSandboxLoading(true);
+    sandboxApi.settings()
+      .then((value) => { setSandboxSettings(value); setSandboxError(""); })
+      .catch((error) => setSandboxError(error.message))
+      .finally(() => setSandboxLoading(false));
   }, [activeNav, session?.user.id]);
 
   useEffect(() => {
@@ -798,6 +887,20 @@ export function App() {
     }
   };
 
+  const saveSandboxSettings = async (profileId, modelAlias) => {
+    setSandboxSaving(true);
+    setSandboxError("");
+    try {
+      const saved = await sandboxApi.save(profileId, modelAlias);
+      setSandboxSettings(saved);
+      setToast("Sandbox settings saved. Start the workspace to apply them.");
+    } catch (error) {
+      setSandboxError(error.message);
+    } finally {
+      setSandboxSaving(false);
+    }
+  };
+
   const selectNav = (name) => {
     setActiveNav(name);
     setMobileNavOpen(false);
@@ -841,6 +944,7 @@ export function App() {
         <nav aria-label="Primary navigation">
           <NavButton active={activeNav === "Home"} icon={activeNav === "Home" ? Home24Filled : Home24Regular} label="Home" onClick={() => selectNav("Home")} />
           <NavButton active={activeNav === "Activity"} icon={Clock24Regular} label="Activity" onClick={() => selectNav("Activity")} />
+          <NavButton active={activeNav === "Sandbox"} icon={Laptop24Regular} label="Sandbox" onClick={() => selectNav("Sandbox")} />
           <NavButton active={activeNav === "Connections"} icon={PlugConnected24Regular} label="Connections" onClick={() => selectNav("Connections")} />
           {session.roles.includes("administrator") && <NavButton active={activeNav === "Admin"} icon={Settings24Regular} label="Admin" onClick={() => selectNav("Admin")} />}
           <ExternalNavLink icon={Bot24Regular} label="Gateway" href={gatewayAdminUrl} />
@@ -895,6 +999,7 @@ export function App() {
           />
         )}
         {activeNav === "Activity" && <ActivityScreen operation={operation} onOpenOperation={() => setDrawer("request")} />}
+        {activeNav === "Sandbox" && <SandboxScreen settings={sandboxSettings} loading={sandboxLoading} saving={sandboxSaving} error={sandboxError} workspaceState={workspaceState} onSave={saveSandboxSettings} />}
         {activeNav === "Connections" && (
           <ConnectionsScreen
             connection={m365Connection}

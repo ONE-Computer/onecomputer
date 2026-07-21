@@ -1,6 +1,6 @@
 # 010: launch a configurable real conversational agent workspace
 
-Status: `ready`
+Status: `verification`
 
 Gate: I
 Depends on: 009 implementation checkpoint
@@ -83,4 +83,10 @@ network bypass matrix, lifecycle persistence result, screenshots, and cleanup.
 
 ## Completion record
 
-Not complete. Ready from the accepted Issue 009 implementation checkpoint.
+Implementation and automated qualification completed on 2026-07-21. Claude
+Desktop Linux is pinned and launches under a root-managed gateway policy; all
+three LiteLLM aliases passed normal and streaming Anthropic Messages requests.
+The local user is assigned immutable policy version 5. Awaiting the human
+product/lifecycle review recorded in
+`infra/issue-010/qualification-2026-07-21.md`; do not begin Issue 011 before the
+review is accepted.

@@ -34,12 +34,23 @@ export class HttpControllerClient implements ControllerClient {
   async purgeWorkspace(workspaceId: string) { await this.call(`/internal/v1/workspaces/${encodeURIComponent(workspaceId)}/storage`, { method: "DELETE" }); }
 }
 
-export const toView = (record: WorkspaceRecord, gateway?: GatewayReadiness): WorkspaceView => ({
+const profileClient = (profileId: RuntimePolicy["workspaceProfile"]) => profileId === "claude-desktop-standard-v1"
+  ? { client: "Claude Desktop", clientVersion: "1.22209.3" }
+  : { client: "ONEComputer qualification CLI", clientVersion: "issue-006" };
+
+export const toView = (record: WorkspaceRecord, gateway?: GatewayReadiness, policy?: RuntimePolicy): WorkspaceView => ({
   id: record.id,
   grantId: record.grantId,
   state: record.state,
   readiness: readinessFor(record.state, gateway),
   ...(gateway ? { modelRoute: gateway.modelRoute } : {}),
+  ...(policy ? { profile: {
+    id: policy.workspaceProfile,
+    ...profileClient(policy.workspaceProfile),
+    modelAlias: policy.modelAlias,
+    persistence: "persistent-home" as const,
+    network: "gateway-only" as const,
+  } } : {}),
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
   failureCode: record.failureCode,
@@ -53,9 +64,9 @@ export class WorkspaceService {
   ) {}
 
   private async view(record: WorkspaceRecord, policy: RuntimePolicy) {
-    if (!this.gateway || !["ready", "open"].includes(record.state)) return toView(record);
+    if (!this.gateway || !["ready", "open"].includes(record.state)) return toView(record, undefined, policy);
     const gateway = await this.gateway.readiness(record.id, policy.agentId, policy).catch(() => undefined);
-    return toView(record, gateway);
+    return toView(record, gateway, policy);
   }
 
   async current(identity: IdentityContext, policy: RuntimePolicy, grantId = "personal") {
@@ -118,12 +129,12 @@ export class WorkspaceService {
 
   async stop(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string) {
     const record = await this.owned(identity, workspaceId);
-    if (record.state === "stopped") return toView(record);
+    if (record.state === "stopped") return toView(record, undefined, policy);
     const claimed = await this.store.claim(record.id, ["ready", "open", "provisioning", "restarting", "failed"], "stopping");
     if (!claimed) throw new OneComputerError("WORKSPACE_BUSY", "A workspace operation is already running", 409, true);
     if (claimed.providerId) await this.controller.destroy(claimed.providerId);
     await this.gateway?.revoke(claimed.id, policy.agentId);
-    return toView(await this.store.finish(claimed.id, claimed.operationToken!, { state: "stopped", providerId: null, failureCode: null }));
+    return toView(await this.store.finish(claimed.id, claimed.operationToken!, { state: "stopped", providerId: null, failureCode: null }), undefined, policy);
   }
 
   async delete(identity: IdentityContext, policy: RuntimePolicy, workspaceId: string) {

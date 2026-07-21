@@ -115,6 +115,9 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
     assert.equal(volumeCreate.body.Name, workspaceVolume);
     const serialized = JSON.stringify(sandboxCreate.body);
     assert.ok(serialized.includes("ONECOMPUTER_ALLOWED_TOOLS=list-mail-folders,list-calendars,list-drives"));
+    assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_UPSTREAM=http://litellm:4000"));
+    assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_CREDENTIAL=sk-scoped-workspace-agent-key"));
+    assert.ok(!serialized.includes("OPENAI_API_KEY"));
     assert.ok(!serialized.includes("LITELLM_MASTER_KEY"));
     assert.ok(!serialized.includes("CLIENT_SECRET"));
     assert.ok(!serialized.includes("DATABASE_URL"));

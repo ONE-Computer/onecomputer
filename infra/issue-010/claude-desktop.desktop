@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Desktop
+Comment=ONEComputer managed AI workspace
+Exec=/bin/sh -lc 'sleep 4; exec claude-desktop --no-sandbox'
+Icon=claude
+Terminal=false
+Categories=Office;Utility;
+StartupNotify=true
+X-GNOME-Autostart-enabled=true

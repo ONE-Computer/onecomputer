@@ -43,12 +43,58 @@ export const modelRouteSchema = z.object({
   }),
 });
 
+export const sandboxProfileIds = ["claude-desktop-standard-v1", "kasm-persistent-standard"] as const;
+export const sandboxProfileIdSchema = z.enum(sandboxProfileIds);
+export type SandboxProfileId = z.infer<typeof sandboxProfileIdSchema>;
+
+export const sandboxModelAliases = ["onecomputer-claude", "onecomputer-openai", "onecomputer-glm", "onecomputer-assistant"] as const;
+export const sandboxModelAliasSchema = z.enum(sandboxModelAliases);
+export type SandboxModelAlias = z.infer<typeof sandboxModelAliasSchema>;
+
+export const sandboxProfileSchema = z.object({
+  id: sandboxProfileIdSchema,
+  version: z.literal(1),
+  displayName: z.string().min(1),
+  description: z.string().min(1),
+  client: z.enum(["Claude Desktop", "ONEComputer qualification CLI"]),
+  clientVersion: z.string().min(1),
+  persistence: z.literal("persistent-home"),
+  network: z.literal("gateway-only"),
+  resources: z.object({ cpus: z.number().positive(), memoryGiB: z.number().positive() }),
+});
+export type SandboxProfile = z.infer<typeof sandboxProfileSchema>;
+
+export const sandboxSettingsSchema = z.object({
+  grantId: z.string().min(1).max(128),
+  profileId: sandboxProfileIdSchema,
+  modelAlias: sandboxModelAliasSchema,
+  profile: sandboxProfileSchema,
+  availableProfiles: z.array(sandboxProfileSchema).min(1),
+  availableModels: z.array(z.object({ alias: sandboxModelAliasSchema, displayName: z.string().min(1), provider: z.string().min(1) })).min(1),
+  updatedAt: z.iso.datetime().nullable(),
+});
+export type SandboxSettings = z.infer<typeof sandboxSettingsSchema>;
+
+export const saveSandboxSettingsSchema = z.object({
+  grantId: z.string().min(1).max(128).default("personal"),
+  profileId: sandboxProfileIdSchema,
+  modelAlias: sandboxModelAliasSchema,
+}).strict();
+
 export const workspaceViewSchema = z.object({
   id: z.uuid(),
   grantId: z.string().min(1),
   state: workspaceStateSchema,
   readiness: readinessSchema,
   modelRoute: modelRouteSchema.optional(),
+  profile: z.object({
+    id: z.string().min(1),
+    client: z.string().min(1),
+    clientVersion: z.string().min(1),
+    modelAlias: z.string().min(1),
+    persistence: z.literal("persistent-home"),
+    network: z.literal("gateway-only"),
+  }).optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   failureCode: z.string().nullable(),
@@ -71,9 +117,9 @@ export const runtimePolicySchema = z.object({
   policyVersionId: z.string().min(1),
   policyVersion: z.number().int().positive(),
   policyHash: z.string().regex(/^[a-f0-9]{64}$/),
-  workspaceProfile: z.literal("kasm-persistent-standard"),
+  workspaceProfile: z.enum(["kasm-persistent-standard", "claude-desktop-standard-v1"]),
   agentId: z.string().min(1),
-  agentProfile: z.literal("onecomputer-default-agent"),
+  agentProfile: z.enum(["onecomputer-default-agent", "claude-desktop-managed-v1"]),
   networkProfile: z.literal("controlled-egress-v1"),
   modelAlias: z.string().min(1).max(128),
   mcpServer: z.string().min(1).max(128),

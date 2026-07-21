@@ -158,6 +158,8 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "com.onecomputer.policy-version-id": input.policy.policyVersionId,
         "com.onecomputer.policy-hash": input.policy.policyHash,
         "com.onecomputer.agent-id": input.policy.agentId,
+        "com.onecomputer.sandbox-profile": input.policy.workspaceProfile,
+        "com.onecomputer.model-alias": input.policy.modelAlias,
         "com.onecomputer.desktop-port": String(port),
       },
       Env: [
@@ -165,9 +167,8 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "VNC_RESOLUTION=1440x900",
         "VNCOPTIONS=-DisableBasicAuth=1",
         ...(input.gateway ? [
-          `OPENAI_BASE_URL=${input.gateway.baseUrl}/v1`,
-          `OPENAI_API_KEY=${input.gateway.credential}`,
-          `ONECOMPUTER_LITELLM_URL=${input.gateway.baseUrl}`,
+          `ONECOMPUTER_GATEWAY_UPSTREAM=${input.gateway.baseUrl}`,
+          `ONECOMPUTER_GATEWAY_CREDENTIAL=${input.gateway.credential}`,
           `ONECOMPUTER_MODEL_ALIAS=${input.gateway.modelAlias}`,
           `ONECOMPUTER_AGENT_ID=${input.policy.agentId}`,
           `ONECOMPUTER_POLICY_VERSION=${input.policy.policyVersion}`,

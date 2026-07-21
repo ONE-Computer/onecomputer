@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, type RuntimePolicy } from "@onecomputer/contracts";
+import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { Ed25519DidKeySigner } from "@onecomputer/openvtc-adapter";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
@@ -13,6 +13,38 @@ import { McpPolicyService } from "./mcp-policy.js";
 import { OpenVtcApprovalCoordinator } from "./openvtc.js";
 
 type AuthenticationBoundary = Pick<EntraAuthenticationService, "begin" | "complete" | "authenticate" | "logout">;
+
+const sandboxProfiles = [
+  sandboxProfileSchema.parse({
+    id: "claude-desktop-standard-v1",
+    version: 1,
+    displayName: "Claude Desktop",
+    description: "A managed Claude Desktop chat workspace routed only through the ONEComputer AI gateway.",
+    client: "Claude Desktop",
+    clientVersion: "1.22209.3",
+    persistence: "persistent-home",
+    network: "gateway-only",
+    resources: { cpus: 2, memoryGiB: 3 },
+  }),
+  sandboxProfileSchema.parse({
+    id: "kasm-persistent-standard",
+    version: 1,
+    displayName: "Qualification workspace (legacy)",
+    description: "The earlier CLI qualification image retained only for pinned policy compatibility.",
+    client: "ONEComputer qualification CLI",
+    clientVersion: "issue-006",
+    persistence: "persistent-home",
+    network: "gateway-only",
+    resources: { cpus: 2, memoryGiB: 3 },
+  }),
+] as const;
+
+const sandboxModels = [
+  { alias: "onecomputer-claude", displayName: "Claude", provider: "Anthropic" },
+  { alias: "onecomputer-openai", displayName: "OpenAI", provider: "OpenAI" },
+  { alias: "onecomputer-glm", displayName: "GLM", provider: "Z.ai" },
+  { alias: "onecomputer-assistant", displayName: "Standard route (legacy)", provider: "OpenAI" },
+] as const;
 
 const envSchema = z.object({
   CONTROL_HOST: z.string().default("127.0.0.1"),
@@ -140,11 +172,17 @@ export function createControlServer(
     if (!isAdministrator(value)) throw new OneComputerError("FORBIDDEN", "Administrator access is required", 403);
     return value;
   };
-  const requirePolicy = async (request: object) => {
+  const assignedPolicy = async (request: object) => {
     const value = principal(request);
     const effective = security.identityPolicyStore ? await security.identityPolicyStore.getEffectivePolicy(value.userId) : null;
     if (security.identityPolicyStore && !effective) throw new OneComputerError("POLICY_NOT_ASSIGNED", "No active workspace policy is assigned", 403);
-    return { principal: value, policy: effective ? runtimePolicyFor(effective) : testRuntimePolicy };
+    return { principal: value, effective };
+  };
+  const requirePolicy = async (request: object) => {
+    const { principal: value, effective } = await assignedPolicy(request);
+    if (!effective) return { principal: value, policy: testRuntimePolicy };
+    const saved = await store.getSandboxSettings?.(value.identity, "personal");
+    return { principal: value, policy: runtimePolicyFor(effective, saved?.modelAlias, saved?.profileId) };
   };
   const idempotency = (headers: Record<string, unknown>) => {
     const key = headers["idempotency-key"];
@@ -242,6 +280,56 @@ export function createControlServer(
     }
   });
   app.delete("/v1/connections/microsoft-365", async (request) => requireConnections().disconnect(identity(request)));
+  app.get("/v1/sandbox-settings", async (request) => {
+    const { principal: actor, effective } = await assignedPolicy(request);
+    const document = (effective?.document ?? {}) as Record<string, unknown>;
+    const assignedProfiles = Array.isArray(document.workspaceProfiles)
+      ? document.workspaceProfiles.filter((item): item is string => typeof item === "string")
+      : typeof document.workspaceProfile === "string" ? [document.workspaceProfile] : [testRuntimePolicy.workspaceProfile];
+    const assignedModels = Array.isArray(document.modelAliases)
+      ? document.modelAliases.filter((item): item is string => typeof item === "string")
+      : [testRuntimePolicy.modelAlias];
+    const availableProfiles = sandboxProfiles.filter((profile) => assignedProfiles.includes(profile.id));
+    const availableModels = sandboxModels.filter((model) => assignedModels.includes(model.alias));
+    if (!availableProfiles.length || !availableModels.length) throw new OneComputerError("POLICY_INVALID", "The active policy has no supported sandbox profile or model route", 500);
+    const saved = await store.getSandboxSettings?.(actor.identity, "personal");
+    const profileId = saved && availableProfiles.some((profile) => profile.id === saved.profileId) ? saved.profileId : availableProfiles[0]!.id;
+    const modelAlias = saved && availableModels.some((model) => model.alias === saved.modelAlias) ? saved.modelAlias : availableModels[0]!.alias;
+    return sandboxSettingsSchema.parse({
+      grantId: "personal",
+      profileId,
+      modelAlias,
+      profile: availableProfiles.find((profile) => profile.id === profileId),
+      availableProfiles,
+      availableModels,
+      updatedAt: saved?.updatedAt.toISOString() ?? null,
+    });
+  });
+  app.put("/v1/sandbox-settings", async (request) => {
+    if (!store.saveSandboxSettings) throw new OneComputerError("SANDBOX_SETTINGS_NOT_CONFIGURED", "Sandbox settings storage is unavailable", 503, true);
+    const input = saveSandboxSettingsSchema.parse(request.body ?? {});
+    const { principal: actor, effective } = await assignedPolicy(request);
+    const document = (effective?.document ?? {}) as Record<string, unknown>;
+    const profiles = Array.isArray(document.workspaceProfiles) ? document.workspaceProfiles : [document.workspaceProfile ?? testRuntimePolicy.workspaceProfile];
+    const models = Array.isArray(document.modelAliases) ? document.modelAliases : [testRuntimePolicy.modelAlias];
+    if (!profiles.includes(input.profileId)) throw new OneComputerError("PROFILE_NOT_ASSIGNED", "That sandbox profile is not assigned by your organization", 403);
+    if (!models.includes(input.modelAlias)) throw new OneComputerError("MODEL_NOT_ASSIGNED", "That model route is not assigned by your organization", 403);
+    const current = await store.getCurrent(actor.identity, input.grantId);
+    if (current && !["not_created", "stopped", "failed"].includes(current.state)) throw new OneComputerError("WORKSPACE_MUST_BE_STOPPED", "Stop the workspace before changing its profile or model route", 409, true);
+    await store.saveSandboxSettings(actor.identity, {
+      grantId: input.grantId,
+      profileId: input.profileId as SandboxProfileId,
+      modelAlias: input.modelAlias as SandboxModelAlias,
+    });
+    const profile = sandboxProfiles.find((item) => item.id === input.profileId)!;
+    return sandboxSettingsSchema.parse({
+      ...input,
+      profile,
+      availableProfiles: sandboxProfiles.filter((item) => profiles.includes(item.id)),
+      availableModels: sandboxModels.filter((item) => models.includes(item.alias)),
+      updatedAt: new Date().toISOString(),
+    });
+  });
   app.post("/v1/openvtc/enrollment-challenges", async (request, reply) => {
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
     return reply.code(201).header("cache-control", "no-store").send(await security.openVtc.createEnrollmentChallenge(identity(request)));

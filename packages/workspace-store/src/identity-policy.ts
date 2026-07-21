@@ -35,7 +35,7 @@ export type EffectivePolicy = {
   document: OwnedJson;
 };
 
-export const runtimePolicyFor = (policy: EffectivePolicy): RuntimePolicy => {
+export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: string, selectedWorkspaceProfile?: string): RuntimePolicy => {
   const document = policy.document as Record<string, unknown>;
   const mcp = document.mcp as Record<string, unknown> | undefined;
   const servers = mcp?.servers as Record<string, unknown> | undefined;
@@ -44,16 +44,24 @@ export const runtimePolicyFor = (policy: EffectivePolicy): RuntimePolicy => {
   const [mcpServer, serverPolicy] = entries[0]!;
   const tools = (serverPolicy as Record<string, unknown>)?.tools;
   const modelAliases = document.modelAliases;
+  const allowedModelAliases = Array.isArray(modelAliases) ? modelAliases.filter((value): value is string => typeof value === "string") : [];
+  const workspaceProfiles = Array.isArray(document.workspaceProfiles)
+    ? document.workspaceProfiles.filter((value): value is string => typeof value === "string")
+    : typeof document.workspaceProfile === "string" ? [document.workspaceProfile] : [];
+  const modelAlias = selectedModelAlias ?? allowedModelAliases[0];
+  const workspaceProfile = selectedWorkspaceProfile ?? workspaceProfiles[0];
+  if (!modelAlias || !allowedModelAliases.includes(modelAlias)) throw new OneComputerError("MODEL_NOT_ASSIGNED", "The selected model route is not assigned by the active policy", 403);
+  if (!workspaceProfile || !workspaceProfiles.includes(workspaceProfile)) throw new OneComputerError("PROFILE_NOT_ASSIGNED", "The selected sandbox profile is not assigned by the active policy", 403);
   return runtimePolicySchema.parse({
     schemaVersion: 1,
     policyVersionId: policy.policyVersionId,
     policyVersion: policy.version,
     policyHash: policy.documentHash,
-    workspaceProfile: document.workspaceProfile,
+    workspaceProfile,
     agentId: policy.agentId,
     agentProfile: document.agentProfile,
     networkProfile: document.networkProfile,
-    modelAlias: Array.isArray(modelAliases) ? modelAliases[0] : undefined,
+    modelAlias,
     mcpServer,
     allowedTools: tools,
   });
@@ -97,9 +105,10 @@ export interface IdentityPolicyStore {
 const mvpPolicyDocument = (revisionNote = "Initial MVP policy") => ({
   schemaVersion: 1,
   revisionNote,
-  workspaceProfile: "kasm-persistent-standard",
-  agentProfile: "onecomputer-default-agent",
-  modelAliases: ["onecomputer-assistant"],
+  workspaceProfile: "claude-desktop-standard-v1",
+  workspaceProfiles: ["claude-desktop-standard-v1"],
+  agentProfile: "claude-desktop-managed-v1",
+  modelAliases: ["onecomputer-claude", "onecomputer-openai", "onecomputer-glm"],
   networkProfile: "controlled-egress-v1",
   mcp: {
     servers: {

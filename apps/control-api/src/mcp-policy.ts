@@ -18,7 +18,15 @@ const boundedListArguments = z.strictObject({
 const boundedDriveSearchArguments = z.strictObject({
   driveId: z.string().trim().min(1).max(512),
   q: z.string().trim().min(1).max(128),
+  select: z.literal("id,name,eTag,parentReference").optional(),
   top: z.number().int().min(1).max(10).optional(),
+});
+
+const driveItemMetadataArguments = z.strictObject({
+  driveId: z.string().trim().min(1).max(512),
+  driveItemId: z.string().trim().min(1).max(512),
+  includeHeaders: z.literal(true),
+  select: z.literal("id,name,eTag,parentReference"),
 });
 
 const deleteRequestArguments = z.strictObject({
@@ -54,6 +62,7 @@ export const m365CapabilityDefinitions = {
   "list-calendars": definition("m365.calendars.list", "onecomputer.m365.list-calendars.v1", "allow", boundedListArguments),
   "list-drives": definition("m365.drives.list", "onecomputer.m365.list-drives.v1", "allow", boundedListArguments),
   "search-onedrive-files": definition("m365.files.search", "onecomputer.m365.search-onedrive-files.v1", "allow", boundedDriveSearchArguments),
+  "get-drive-item": definition("m365.files.metadata.get", "onecomputer.m365.get-drive-item.v1", "allow", driveItemMetadataArguments),
   "delete-onedrive-file": definition("onedrive-delete-protected", "onecomputer.m365.delete-onedrive-file.v1", "approval_required", deleteRequestArguments),
 } as const satisfies Record<string, CapabilityDefinition>;
 

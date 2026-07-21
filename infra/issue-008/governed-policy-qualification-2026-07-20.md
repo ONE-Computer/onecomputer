@@ -14,7 +14,8 @@ The callback independently binds the key's single allowed MCP server ID.
 
 - repository build passed;
 - 58/58 tests passed;
-- exact assigned bounded reads allow;
+- exact assigned bounded reads allow, including the fixed
+  `id,name,eTag,parentReference` OneDrive discovery projection;
 - `$top=26`, `fetchAllPages`, policy hash mutation, wrong server/tool, and
   unknown arguments deny;
 - a delete request persists an approval-required operation before execution;
@@ -33,8 +34,9 @@ The callback independently binds the key's single allowed MCP server ID.
 | `list-mail-folders` with `{ "top": 26 }` | Denied with `MCP_ARGUMENTS_OUT_OF_POLICY` |
 | Control container stopped | Read denied with `MCP_POLICY_UNAVAILABLE`; no fallback |
 | Control restored | Bounded calendar read completed |
-| Policy promotion | Local assignment moved immutably from version 1 to version 2 with the original four-tool surface; the final five-tool policy adds bounded OneDrive discovery for item/eTag binding |
-| Final local assignment | Version 3, `5719ab73-6780-4cd2-8ed3-ee9a1f8e6e2b`, hash `3b0b1e2f24422ea841ac6e940448a61d67e642c3968d007a6f929800fe794b87` |
+| Policy promotion | Versions 2 and 3 added governed delete and bounded discovery; version 4 adds the exact item metadata/eTag lookup required for version-bound deletion |
+| Previous local assignment | Version 3, `5719ab73-6780-4cd2-8ed3-ee9a1f8e6e2b`, hash `3b0b1e2f24422ea841ac6e940448a61d67e642c3968d007a6f929800fe794b87` |
+| Current local assignment | Version 4, `31768692-2f95-41cb-9933-78158c873626`, hash `14c7aea6df763ffdae21add3e59718f21ab5ad47119b18b26991cf9756a622b1` |
 | Synthetic nonexistent delete target | Returned `MCP_APPROVAL_REQUIRED` and a durable operation ID |
 | Synthetic operation decision | Denied; receipt remained null, proving zero approved execution |
 
@@ -46,10 +48,11 @@ mail/calendar content and OAuth material were not copied into this record.
 1. Disconnect and reconnect Microsoft 365 as `mike@metech.dev` so the stored
    delegated grant includes `Files.ReadWrite`.
 2. Restart the workspace from the ONEComputer UI so its agent environment
-   receives policy version 3 and the five-tool surface.
+   receives policy version 4 and the six-tool surface.
 3. Create a disposable OneDrive file. Use `list-drives`, then the bounded
-   `search-onedrive-files`, to retrieve its drive/item ID and eTag. Request
-   `delete-onedrive-file` without `confirm`.
+   `search-onedrive-files`, to retrieve its drive/item ID. Use the exact
+   `get-drive-item` metadata projection to retrieve the current eTag, then
+   request `delete-onedrive-file` without `confirm`.
 4. Confirm Microsoft is untouched while the operation says
    `approval_required`.
 5. Approve once in the local fixture drawer; confirm the disposable file is

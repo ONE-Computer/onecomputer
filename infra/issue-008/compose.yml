@@ -31,7 +31,7 @@ services:
       - --preset
       - mail,calendar,files
       - --enabled-tools
-      - ^(list-mail-folders|list-calendars|list-drives|search-onedrive-files|delete-onedrive-file)$
+      - ^(list-mail-folders|list-calendars|list-drives|search-onedrive-files|get-drive-item|delete-onedrive-file)$
       - --allowed-scopes
       - User.Read Mail.Read Calendars.Read Files.ReadWrite
       - --no-dynamic-registration

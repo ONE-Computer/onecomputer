@@ -31,11 +31,24 @@
       "capabilityId": "m365.files.search",
       "decision": "allow",
       "schemaId": "onecomputer.m365.search-onedrive-files.v1",
-      "schemaHash": "c76630a71e76adf0cce3600ad788cb95b3b74bfae72d7ca9552632f1970df01d",
+      "schemaHash": "70ca92b22d87a9be45e599cfdcf1c5ec6f2bd959f13f1e38279b947ae27904d8",
       "arguments": {
         "driveId": "required non-empty string up to 512 characters",
         "q": "required non-empty string up to 128 characters",
+        "select": "optional exact value id,name,eTag,parentReference",
         "top": "optional integer 1..10; every other argument denied"
+      }
+    },
+    "get-drive-item": {
+      "capabilityId": "m365.files.metadata.get",
+      "decision": "allow",
+      "schemaId": "onecomputer.m365.get-drive-item.v1",
+      "schemaHash": "2b464464cce482f39bd110b8fe55aaee6a28f7ba0bd49ed5418ee62e83ba0058",
+      "arguments": {
+        "driveId": "required non-empty string up to 512 characters",
+        "driveItemId": "required non-empty string up to 512 characters",
+        "includeHeaders": "required exact value true",
+        "select": "required exact value id,name,eTag,parentReference; every other argument denied"
       }
     },
     "delete-onedrive-file": {

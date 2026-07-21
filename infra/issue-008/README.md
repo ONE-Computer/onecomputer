@@ -12,12 +12,15 @@ unknown/malformed decisions, timeout, or Control outage deny the call.
 
 ## Qualified capability surface
 
-Only five tools are registered in LiteLLM for `onecomputer_ms365`:
+Only six tools are registered in LiteLLM for `onecomputer_ms365`:
 
 - `list-mail-folders`, `list-calendars`, and `list-drives` are automatically
   allowed only with `{}` or `{ "top": 1..25 }`;
 - `search-onedrive-files` is limited to one drive, a 128-character query, and
-  at most 10 results so the agent can resolve the item ID and eTag to bind;
+  at most 10 results; its only permitted field projection is the fixed
+  `id,name,eTag,parentReference` set used to discover the item ID;
+- `get-drive-item` requires an exact drive/item ID and the same fixed
+  projection with response headers so the current eTag can be bound;
 - `delete-onedrive-file` requires `driveId`, `driveItemId`, and `If-Match` and
   never reaches Microsoft on the initial agent call;
 - every other argument and Microsoft tool is undiscoverable or denied.
@@ -44,7 +47,7 @@ User.Read Mail.Read Calendars.Read Files.ReadWrite
 
 `Files.ReadWrite` is required for the single protected delete capability. It
 does not grant the workspace unrestricted writes: LiteLLM exposes only the
-five pinned tools and Control denies every delete until an exact approval
+six pinned tools and Control denies every delete until an exact approval
 lease exists. Existing users connected under the earlier `Files.Read` slice
 must disconnect and reconnect once to consent to the new scope.
 
@@ -83,6 +86,6 @@ and replay. The live qualification record is
 `governed-policy-qualification-2026-07-20.md`.
 
 Final human review requires reconnecting Microsoft 365 for `Files.ReadWrite`,
-restarting the workspace from the ONEComputer UI so policy version 3 reaches
+restarting the workspace from the ONEComputer UI so policy version 4 reaches
 the agent environment, and deleting one disposable file through the approval
 drawer. Do not use a production document.

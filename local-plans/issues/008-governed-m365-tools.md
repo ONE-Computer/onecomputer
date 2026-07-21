@@ -73,7 +73,8 @@ negative/mutation/restart matrix, receipt projection, and credential scan.
 ## Completion record
 
 Implementation and automated/live fail-closed qualification completed on
-2026-07-20. The final five-tool policy is promoted immutably to version 3.
+2026-07-20. The six-tool policy, including exact item metadata/eTag lookup, is
+promoted immutably to version 4.
 Final completion waits
 for the user to reconnect with `Files.ReadWrite`, restart the workspace from
 the UI, and approve deletion of one disposable OneDrive file. See

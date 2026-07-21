@@ -21,7 +21,7 @@ test("effective policy projects to the one approved workspace runtime", () => {
       agentProfile: "onecomputer-default-agent",
       modelAliases: ["onecomputer-assistant"],
       networkProfile: "controlled-egress-v1",
-      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "delete-onedrive-file"] } } },
+      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"] } } },
     },
   };
   assert.deepEqual(runtimePolicyFor(effective), {
@@ -35,6 +35,6 @@ test("effective policy projects to the one approved workspace runtime", () => {
     networkProfile: "controlled-egress-v1",
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_ms365",
-    allowedTools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "delete-onedrive-file"],
+    allowedTools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"],
   });
 });

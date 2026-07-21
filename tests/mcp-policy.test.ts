@@ -43,7 +43,7 @@ const setup = async () => {
       agentProfile: "onecomputer-default-agent",
       modelAliases: ["onecomputer-assistant"],
       networkProfile: "controlled-egress-v1",
-      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "delete-onedrive-file"] } } },
+      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"] } } },
       capabilities: ["m365-read", "onedrive-delete-protected"],
       protectedOperations: { "onedrive-delete-protected": "approval_required", defaultWrite: "deny" },
     },
@@ -86,10 +86,28 @@ test("Control auto-allows only an exact assigned bounded Microsoft 365 read", as
 
 test("Control permits bounded OneDrive discovery but rejects broad search", async () => {
   const { policy, base } = await setup();
-  const request = { ...base, toolName: "search-onedrive-files", arguments: { driveId: "drive-1", q: "disposable", top: 10 } };
+  const request = { ...base, toolName: "search-onedrive-files", arguments: { driveId: "drive-1", q: "disposable", select: "id,name,eTag,parentReference", top: 10 } };
   assert.equal((await policy.authorize(request, "drive-search")).decision, "allow");
   assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, top: 11 } }, "drive-search-over-limit")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
-  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, select: "*" } }, "drive-search-extra-argument")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, select: "*" } }, "drive-search-over-broad-select")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, skip: 10 } }, "drive-search-extra-argument")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+});
+
+test("Control permits only the exact version metadata projection for a drive item", async () => {
+  const { policy, base } = await setup();
+  const request = {
+    ...base,
+    toolName: "get-drive-item",
+    arguments: {
+      driveId: "drive-1",
+      driveItemId: "item-1",
+      includeHeaders: true,
+      select: "id,name,eTag,parentReference",
+    },
+  };
+  assert.equal((await policy.authorize(request, "drive-item-metadata")).decision, "allow");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, includeHeaders: false } }, "drive-item-no-headers")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, select: "*" } }, "drive-item-broad-select")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
 });
 
 test("protected OneDrive delete persists before approval and an exact lease dispatches once", async () => {

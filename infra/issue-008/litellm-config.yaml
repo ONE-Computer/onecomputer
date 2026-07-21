@@ -50,6 +50,7 @@ mcp_servers:
       - list-drives
       - list-mail-folders
       - search-onedrive-files
+      - get-drive-item
       - delete-onedrive-file
     allow_all_keys: false
     available_on_public_internet: false

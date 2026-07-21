@@ -5,6 +5,13 @@ set -euo pipefail
 : "${ONECOMPUTER_GATEWAY_CREDENTIAL:?workspace gateway credential is required}"
 : "${ONECOMPUTER_MODEL_ALIAS:?assigned model alias is required}"
 
+claude_code_version="2.1.215"
+claude_code_checksum="7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0"
+claude_code_source="/opt/onecomputer/claude-code/${claude_code_version}/claude"
+claude_code_dir="/home/kasm-user/.config/Claude-3p/claude-code/${claude_code_version}"
+claude_code_binary="${claude_code_dir}/claude"
+claude_code_marker="${claude_code_dir}/.verified"
+
 case "$ONECOMPUTER_MODEL_ALIAS" in
   onecomputer-claude) model_label="Claude — organization route" ;;
   onecomputer-openai) model_label="OpenAI — organization route" ;;
@@ -56,6 +63,20 @@ PY
 install -d -o 1000 -g 1000 -m 0755 /home/kasm-user/.config/autostart /home/kasm-user/Desktop
 install -o 1000 -g 1000 -m 0755 /usr/share/applications/onecomputer-claude-desktop.desktop /home/kasm-user/.config/autostart/claude-desktop.desktop
 install -o 1000 -g 1000 -m 0755 /usr/share/applications/onecomputer-claude-desktop.desktop /home/kasm-user/Desktop/Claude-Desktop.desktop
+
+# Claude Desktop's Chat runtime uses the exact Claude Code engine embedded in
+# its signed build manifest. Seed that generated cache from the immutable image
+# because the managed workspace has no direct route to Anthropic's CDN.
+if [[ ! -x "$claude_code_binary" ]] \
+  || [[ ! -f "$claude_code_marker" ]] \
+  || [[ "$(<"$claude_code_marker")" != "$claude_code_checksum" ]]; then
+  install -d -o 1000 -g 1000 -m 0755 "$claude_code_dir"
+  install -o 1000 -g 1000 -m 0755 "$claude_code_source" "$claude_code_binary"
+  printf '%s\n' "$claude_code_checksum" > "$claude_code_marker"
+  chown 1000:1000 "$claude_code_marker"
+  chmod 0600 "$claude_code_marker"
+fi
+
 chown -R 1000:1000 /home/kasm-user/.config /home/kasm-user/Desktop
 
 env -i \

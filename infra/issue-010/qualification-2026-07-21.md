@@ -7,6 +7,12 @@ An initial human launch exposed a duplicated API prefix: Desktop appends
 resulting `/v1/v1/messages` request was denied by the broker. The managed base
 URL was corrected to the broker origin and a regression assertion was added.
 
+The next human chat reached the broker successfully but exposed a second image
+gap: Desktop's shell attempted to download its matching Claude Code engine from
+Anthropic at runtime. The managed network correctly denied that direct route.
+The exact engine version and checksum embedded in Desktop `1.22209.3` are now
+preinstalled and seeded into Desktop's generated cache before launch.
+
 ## Decision record
 
 Claude Desktop Linux was selected because Anthropic now provides a supported,
@@ -39,11 +45,13 @@ editing the gateway destination or reading the scoped LiteLLM credential.
   - Kasm container healthy.
   - loopback broker healthy.
   - Claude Desktop `1.22209.3` auto-started.
+  - Claude Code `2.1.215` is available from the immutable image.
+  - Desktop's matching cache entry and checksum marker are seeded at startup.
   - managed gateway mode present.
   - only `onecomputer-claude` exposed in the test profile.
   - user MCP and Desktop extensions disabled.
 - Final workspace image:
-  `sha256:1dcbf5cbf97d4f0a2fee33a26d918176bdd7f6c490aa3813790ef9cc18bbfaef`.
+  `sha256:9d12981a6283d6e77ce2f2dc166c134419e734904d8cb150e171ab327aa11f4f`.
 - Local immutable assignment advanced to policy version 5 with profile
   `claude-desktop-standard-v1`, agent profile
   `claude-desktop-managed-v1`, and the three approved aliases.

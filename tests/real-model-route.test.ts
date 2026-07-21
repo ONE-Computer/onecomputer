@@ -35,6 +35,12 @@ test("Claude Desktop is pinned and receives managed gateway policy rather than p
   const proxy = await source("infra/issue-010/onecomputer-gateway-proxy.py");
   assert.match(dockerfile, /CLAUDE_DESKTOP_VERSION=1\.22209\.3/);
   assert.match(dockerfile, /CLAUDE_DESKTOP_SHA256=d427f46a/);
+  assert.match(dockerfile, /CLAUDE_CODE_VERSION=2\.1\.215/);
+  assert.match(dockerfile, /CLAUDE_CODE_SHA256=7ff9594e/);
+  assert.match(dockerfile, /claude-code-releases\/\$\{CLAUDE_CODE_VERSION\}\/linux-x64\/claude\.zst/);
+  assert.match(dockerfile, /claude --version/);
+  assert.match(entrypoint, /Claude-3p\/claude-code\/\$\{claude_code_version\}/);
+  assert.match(entrypoint, /\.verified/);
   assert.match(entrypoint, /\/etc\/claude-desktop\/managed-settings\.json/);
   assert.match(entrypoint, /"inferenceGatewayBaseUrl": "http:\/\/127\.0\.0\.1:4312"/);
   assert.doesNotMatch(entrypoint, /inferenceGatewayBaseUrl[^\n]+4312\/v1/);

@@ -10,10 +10,13 @@ workspace-scoped LiteLLM gateway.
 - Claude Desktop Linux `1.22209.3` (`amd64` Debian package)
 - package SHA-256:
   `d427f46ac9233dbc4d8a441a602f09f750b8a5f05d1fc7a00285d7a6ce07655c`
+- Claude Code engine `2.1.215` (the version pinned by this Desktop build)
+- engine archive SHA-256:
+  `7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0`
 - Kasm Ubuntu Jammy base:
   `sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580`
 - resulting local workspace image:
-  `sha256:1dcbf5cbf97d4f0a2fee33a26d918176bdd7f6c490aa3813790ef9cc18bbfaef`
+  `sha256:9d12981a6283d6e77ce2f2dc166c134419e734904d8cb150e171ab327aa11f4f`
 
 This follows Anthropic's supported Linux and gateway paths:
 
@@ -25,6 +28,11 @@ This follows Anthropic's supported Linux and gateway paths:
 Desktop does not consume Claude Code's user `settings.json`. The image writes
 the organization-owned policy to
 `/etc/claude-desktop/managed-settings.json` at launch.
+
+The Desktop shell launches its matching Claude Code engine for Chat sessions.
+That engine is checksum-pinned and preinstalled in the image, then seeded into
+Desktop's generated cache at startup. It is not downloaded from Anthropic at
+runtime because the workspace has no direct provider/CDN egress.
 
 ## Runtime boundary
 

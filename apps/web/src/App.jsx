@@ -949,19 +949,28 @@ export function App() {
           )}
           <div className="drawer-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>{
             operation.state === "approval_required"
-              ? "The exact action is stored and bound to this request. The tool has not run. Use the temporary local fixture below to test approval or denial."
+              ? operation.requiredApprovalChannel === "openvtc-task-consent"
+                ? "The exact action is stored and bound to this request. The tool has not run. Review its signed effects with your approval device."
+                : "The exact action is stored and bound to this request. The tool has not run. Use the temporary local fixture below to test approval or denial."
               : operation.state === "succeeded"
                 ? "The bound operation was approved, executed once, and recorded with a receipt."
                 : operation.state === "denied"
                   ? "The request was denied and the tool was not called."
                   : "ONEComputer is preserving the authoritative operation state."
           }</p></div>
-          {operation.state === "approval_required" ? (
+          {operation.state === "approval_required" && operation.requiredApprovalChannel === "local-fixture" ? (
             <div className="approval-actions">
               <button className="primary-button" type="button" onClick={() => decideGovernedOperation("approve")} disabled={operationBusy}>
                 <ShieldCheckmark24Regular aria-hidden="true" />{operationBusy ? "Applying decision" : "Approve with local fixture"}
               </button>
               <button className="secondary-button danger-button" type="button" onClick={() => decideGovernedOperation("deny")} disabled={operationBusy}>Deny</button>
+            </div>
+          ) : operation.state === "approval_required" ? (
+            <div className="approval-actions">
+              <button className="primary-button" type="button" onClick={() => { setDrawer(null); setActiveNav("Connections"); }}>
+                <ShieldCheckmark24Regular aria-hidden="true" />Open approval device
+              </button>
+              <button className="secondary-button" type="button" onClick={() => setDrawer(null)}>Close</button>
             </div>
           ) : (
             <button className="secondary-button full-width" type="button" onClick={() => setDrawer(null)}>Close</button>

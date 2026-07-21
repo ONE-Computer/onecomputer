@@ -55,6 +55,11 @@ const toView = (record: GovernedOperationRecord): OperationView => ({
   requestedAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
   expiresAt: record.expiresAt.toISOString(),
+  requiredApprovalChannel: record.serverName === "onecomputer_fixture"
+    && record.toolName === "delete_file"
+    && record.schemaId === "onecomputer.fixture.delete_file.v1"
+    ? "local-fixture"
+    : "openvtc-task-consent",
   approval: record.approval ? {
     decision: record.approval.decision,
     channel: record.approval.channel,
@@ -220,6 +225,7 @@ export class GovernedOperationService {
 
   async decideWithFixture(identity: IdentityContext, operationId: string, decision: "approve" | "deny", correlationId: string) {
     const operation = await this.requireOwned(identity, operationId);
+    this.requireFixtureOperation(operation);
     const now = new Date();
     const proofExpiresAt = new Date(Math.min(operation.expiresAt.getTime(), now.getTime() + 2 * 60 * 1000));
     const envelope: FixtureApprovalEnvelope = {
@@ -241,6 +247,7 @@ export class GovernedOperationService {
 
   async applyApproval(identity: IdentityContext, envelope: FixtureApprovalEnvelope, signature: string, correlationId: string) {
     const operation = await this.requireOwned(identity, envelope.operationId);
+    this.requireFixtureOperation(operation);
     const now = new Date();
     const issuedAt = new Date(envelope.issuedAt);
     const proofExpiresAt = new Date(envelope.expiresAt);
@@ -296,6 +303,17 @@ export class GovernedOperationService {
     if (!operation.approval) throw new OneComputerError("APPROVAL_STATE_INVALID", "A verified approval record is required before execution", 409);
     if (operation.approval.decision === "deny" || ["denied", "failed", "expired", "succeeded"].includes(operation.state)) return toView(operation);
     return this.execute(identity, operation.id, correlationId);
+  }
+
+  private requireFixtureOperation(operation: GovernedOperationRecord) {
+    if (operation.serverName !== "onecomputer_fixture" || operation.toolName !== "delete_file"
+      || operation.schemaId !== "onecomputer.fixture.delete_file.v1") {
+      throw new OneComputerError(
+        "FIXTURE_APPROVAL_NOT_ALLOWED",
+        "The local fixture cannot decide this governed operation",
+        403,
+      );
+    }
   }
 
   private async execute(identity: IdentityContext, operationId: string, correlationId: string) {

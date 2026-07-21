@@ -91,4 +91,6 @@ standard `/trust-tasks` decision endpoint, signed request verification, WebAuthn
 PRF-wrapped approver key, and device-bound approve/deny UI are now implemented.
 Automated qualification covers valid approval, denial, tampering, bearer-only
 forgery, enrollment ownership, expiry, revocation, redelivery, and atomic
-evidence. The physical Chrome approve/deny pass and restart matrix remain open.
+evidence. The legacy HMAC fixture is rejected for Microsoft 365 operations and
+is not rendered as an available decision route for them. The physical Chrome
+approve/deny pass and restart matrix remain open.

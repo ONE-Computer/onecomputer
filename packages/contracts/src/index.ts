@@ -243,6 +243,7 @@ export const operationViewSchema = z.object({
   requestedAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+  requiredApprovalChannel: z.enum(["local-fixture", "openvtc-task-consent"]),
   approval: z.object({
     decision: z.enum(["approve", "deny"]),
     channel: z.enum(["local-fixture", "openvtc-task-consent"]),

@@ -153,6 +153,25 @@ test("the bearer transport token cannot substitute for an approver signature", a
   );
 });
 
+test("the local fixture cannot approve a Microsoft 365 operation", async () => {
+  const { workspace, executor, service } = await setup();
+  const pending = await service.createMicrosoft365Delete(
+    identity,
+    workspace.id,
+    { driveId: "drive-no-fixture", driveItemId: "item-no-fixture", "If-Match": "etag-no-fixture" },
+    "agent-no-fixture",
+    { policyVersionId: "policy-no-fixture", policyHash: "d".repeat(64) },
+    "browser-no-fixture-idempotency",
+    "browser-no-fixture-create",
+  );
+  assert.equal(pending.requiredApprovalChannel, "openvtc-task-consent");
+  await assert.rejects(
+    service.decideWithFixture(identity, pending.id, "approve", "browser-no-fixture-decision"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "FIXTURE_APPROVAL_NOT_ALLOWED",
+  );
+  assert.equal(executor.calls.length, 0);
+});
+
 test("Control exposes session-bound enrollment and bearer-scoped browser transport", async () => {
   const store = new MemoryWorkspaceStore();
   const coordinator = new OpenVtcApprovalCoordinator(store, signer());

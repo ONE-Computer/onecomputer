@@ -5,10 +5,12 @@ import { createControllerServer } from "../apps/workspace-controller/src/server.
 
 const token = "controller-test-token-0000001";
 let lastGatewayCredential: string | undefined;
+let lastAgentBridge: { baseUrl: string; token: string } | undefined;
 let purgedWorkspaceId: string | undefined;
 const adapter: SandboxAdapter = {
-  async create({ workspaceId, gateway }) {
+  async create({ workspaceId, gateway, agentBridge }) {
     lastGatewayCredential = gateway?.credential;
+    lastAgentBridge = agentBridge;
     return { providerId: `provider-${workspaceId}`, state: "ready", failureCode: null };
   },
   async status(providerId) { return { providerId, state: "ready", failureCode: null }; },
@@ -66,9 +68,17 @@ test("controller passes a validated scoped gateway grant to the sandbox adapter"
         modelAlias: "onecomputer-assistant",
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       },
+      agentBridge: {
+        baseUrl: "http://onecomputer-control:4100",
+        token: "scoped-agent-bridge-test-token-000001",
+      },
     },
   });
   assert.equal(response.statusCode, 201);
   assert.equal(lastGatewayCredential, "sk-scoped-controller-test-000001");
+  assert.deepEqual(lastAgentBridge, {
+    baseUrl: "http://onecomputer-control:4100",
+    token: "scoped-agent-bridge-test-token-000001",
+  });
   await app.close();
 });

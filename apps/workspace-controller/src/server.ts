@@ -33,7 +33,7 @@ function sameSecret(received: string | undefined, expected: string) {
 
 export function createControllerServer(adapter: SandboxAdapter, internalToken: string) {
   const app = Fastify({
-    logger: { redact: ["req.headers.authorization", "req.headers.x-controller-token", "req.body.gateway.credential", "*.launchUrl", "*.session_token"] },
+    logger: { redact: ["req.headers.authorization", "req.headers.x-controller-token", "req.body.gateway.credential", "req.body.agentBridge.token", "*.launchUrl", "*.session_token"] },
     bodyLimit: 32 * 1024,
   });
 
@@ -51,6 +51,7 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
       workspaceId: input.workspaceId,
       policy: input.policy,
       gateway: input.gateway,
+      agentBridge: input.agentBridge,
     }));
   });
   app.get<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId", async (request) => adapter.status(request.params.providerId));

@@ -216,13 +216,17 @@ export class KasmLocalAdapter implements SandboxAdapter {
     try {
       const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
       const state = asObject(inspected.State);
-      const running = state.Running === true;
+      // Docker reports Running=true while an unless-stopped container is in a
+      // restart loop. That state cannot serve Kasm and must not be exposed as
+      // ready to Control or the browser.
+      const restarting = state.Restarting === true;
+      const running = state.Running === true && !restarting && state.Paused !== true;
       const labels = asObject(asObject(inspected.Config).Labels);
       const workspaceNetwork = labels["com.onecomputer.workspace-network"];
       if (running && typeof workspaceNetwork === "string" && workspaceNetwork.startsWith(`${this.config.networkPrefix}-`)) {
         await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
       }
-      const failed = typeof state.ExitCode === "number" && state.ExitCode !== 0;
+      const failed = restarting || (typeof state.ExitCode === "number" && state.ExitCode !== 0);
       return { providerId, state: running ? "ready" : failed ? "failed" : "stopped", failureCode: failed ? "FIXTURE_EXITED" : null };
     } catch (error) {
       if (error instanceof OneComputerError && error.statusCode === 404) return { providerId, state: "stopped", failureCode: null };
@@ -362,7 +366,12 @@ export class KasmLocalAdapter implements SandboxAdapter {
       const inspected = await this.request("GET", `/containers/${encodeURIComponent(name)}/json`);
       const labels = asObject(asObject(inspected.Config).Labels);
       const rawPort = labels["com.onecomputer.desktop-port"];
-      return { id: String(inspected.Id), running: asObject(inspected.State).Running === true, port: typeof rawPort === "string" ? Number(rawPort) : undefined };
+      const state = asObject(inspected.State);
+      return {
+        id: String(inspected.Id),
+        running: state.Running === true && state.Restarting !== true && state.Paused !== true,
+        port: typeof rawPort === "string" ? Number(rawPort) : undefined,
+      };
     } catch (error) {
       if (error instanceof OneComputerError && error.statusCode === 404) return null;
       throw error;

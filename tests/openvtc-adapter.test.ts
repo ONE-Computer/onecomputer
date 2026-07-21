@@ -4,12 +4,15 @@ import { describe, it } from "node:test";
 import {
   TASK_CONSENT_DECISION_TYPE,
   Ed25519DidKeySigner,
+  ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
   base58btcEncode,
+  attachDidKeyDataIntegrityProof,
   buildTaskConsentRequest,
   didKeyFromEd25519PublicKey,
   jcsCanonicalize,
   taskConsentPayloadDigest,
   taskConsentSigningInput,
+  verifyApproverEnrollment,
   verifyTaskConsentDecision,
 } from "@onecomputer/openvtc-adapter";
 
@@ -244,5 +247,63 @@ describe("OpenVTC canonical primitives", () => {
     assert.equal(first.did, second.did);
     assert.equal(first.verificationMethod, `${first.did}#${first.did.slice("did:key:".length)}`);
     assert.equal(first.sign(Buffer.from("proof input")).length, 64);
+  });
+});
+
+describe("OpenVTC browser approver enrollment", () => {
+  it("requires proof of the DID key over a fresh Control identity challenge", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const signer = new Ed25519DidKeySigner(privateKey);
+    const challenge = "enrollment-challenge-with-128-bits";
+    const document = attachDidKeyDataIntegrityProof({
+      id: "urn:uuid:d3cbdfd2-77a5-4c08-bf61-466d0119d5cb",
+      type: ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
+      issuer: signer.did,
+      recipient: EXECUTOR_DID,
+      issuedAt: DECISION_ISSUED_AT,
+      expiresAt: REQUEST_EXPIRES_AT,
+      payload: {
+        challenge,
+        tenantId: "tenant-1",
+        subjectId: "user-1",
+        verificationMethod: signer.verificationMethod,
+        displayName: "Mike's browser",
+      },
+    }, signer, DECISION_ISSUED_AT);
+
+    const result = verifyApproverEnrollment({
+      document,
+      expected: { recipientDid: EXECUTOR_DID, challenge, tenantId: "tenant-1", subjectId: "user-1" },
+      now: NOW,
+    });
+    assert.equal(result.verified, true);
+    if (result.verified) assert.equal(result.signerDid, signer.did);
+  });
+
+  it("rejects a relayed enrollment under another user", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const signer = new Ed25519DidKeySigner(privateKey);
+    const challenge = "enrollment-challenge-with-128-bits";
+    const document = attachDidKeyDataIntegrityProof({
+      id: "urn:uuid:155e3f3c-b875-44af-b3f1-a62a51657b3c",
+      type: ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
+      issuer: signer.did,
+      recipient: EXECUTOR_DID,
+      issuedAt: DECISION_ISSUED_AT,
+      expiresAt: REQUEST_EXPIRES_AT,
+      payload: {
+        challenge,
+        tenantId: "tenant-1",
+        subjectId: "user-1",
+        verificationMethod: signer.verificationMethod,
+        displayName: "Browser",
+      },
+    }, signer, DECISION_ISSUED_AT);
+    const result = verifyApproverEnrollment({
+      document,
+      expected: { recipientDid: EXECUTOR_DID, challenge, tenantId: "tenant-1", subjectId: "other-user" },
+      now: NOW,
+    });
+    assert.equal(result.verified, false);
   });
 });

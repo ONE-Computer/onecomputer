@@ -13,7 +13,8 @@
     "dev:control": "npm run dev -w @onecomputer/control-api",
     "dev:controller": "npm run dev -w @onecomputer/workspace-controller",
     "dev:web": "npm run dev -w web",
-    "db:migrate": "tsx apps/control-api/src/migrate.ts"
+    "db:migrate": "tsx apps/control-api/src/migrate.ts",
+    "key:openvtc": "node scripts/generate-openvtc-executor-key.mjs"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

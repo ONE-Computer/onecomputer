@@ -1,0 +1,208 @@
+import assert from "node:assert/strict";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
+import test from "node:test";
+import type { IdentityContext } from "@onecomputer/contracts";
+import type { GovernedToolExecutionInput, GovernedToolExecutionResult, GovernedToolExecutor } from "@onecomputer/litellm-adapter";
+import {
+  Ed25519DidKeySigner,
+  ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
+  TASK_CONSENT_DECISION_TYPE,
+  attachDidKeyDataIntegrityProof,
+} from "@onecomputer/openvtc-adapter";
+import { MemoryWorkspaceStore } from "@onecomputer/workspace-store";
+import { OpenVtcApprovalCoordinator } from "../apps/control-api/src/openvtc.js";
+import { FixtureApprovalAuthority, GovernedOperationService } from "../apps/control-api/src/operations.js";
+import { createControlServer } from "../apps/control-api/src/server.js";
+import type { ControllerClient } from "../apps/control-api/src/service.js";
+
+const identity: IdentityContext = { tenantId: "tenant-browser", subjectId: "mike", audience: "onecomputer-control" };
+
+class FakeExecutor implements GovernedToolExecutor {
+  calls: GovernedToolExecutionInput[] = [];
+  async executeGovernedTool(input: GovernedToolExecutionInput): Promise<GovernedToolExecutionResult> {
+    this.calls.push(input);
+    return { upstreamReference: `m365:${input.operationId}`, resultSummary: "Deleted the approved OneDrive item", result: { deleted: true } };
+  }
+}
+
+const signer = () => new Ed25519DidKeySigner(generateKeyPairSync("ed25519").privateKey);
+
+const setup = async () => {
+  const store = new MemoryWorkspaceStore();
+  const workspace = await store.createOrGet(identity, "browser-approval", randomUUID());
+  await store.update(workspace.id, { state: "ready" });
+  const executor = new FakeExecutor();
+  const coordinator = new OpenVtcApprovalCoordinator(store, signer());
+  const browser = signer();
+  const challenge = await coordinator.createEnrollmentChallenge(identity);
+  const issuedAt = new Date().toISOString();
+  const enrollment = attachDidKeyDataIntegrityProof({
+    id: `urn:uuid:${randomUUID()}`,
+    type: ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
+    issuer: browser.did,
+    recipient: challenge.recipientDid,
+    issuedAt,
+    expiresAt: challenge.expiresAt,
+    payload: {
+      challenge: challenge.challenge,
+      tenantId: identity.tenantId,
+      subjectId: identity.subjectId,
+      verificationMethod: browser.verificationMethod,
+      displayName: "Mike's browser",
+    },
+  }, browser, issuedAt);
+  const enrolled = await coordinator.enroll(identity, challenge.id, enrollment);
+  const service = new GovernedOperationService(
+    store,
+    executor,
+    new FixtureApprovalAuthority("openvtc-control-test-fixture-secret-32-chars"),
+    60_000,
+    coordinator,
+  );
+  return { store, workspace, executor, coordinator, browser, transportToken: enrolled.transportToken, service };
+};
+
+const signedDecision = (request: Record<string, unknown>, browser: Ed25519DidKeySigner, decision: "approve" | "deny") => {
+  const payload = request.payload as Record<string, unknown>;
+  const issuedAt = new Date().toISOString();
+  return attachDidKeyDataIntegrityProof({
+    id: `urn:uuid:${randomUUID()}`,
+    type: TASK_CONSENT_DECISION_TYPE,
+    issuer: browser.did,
+    recipient: request.issuer,
+    issuedAt,
+    payload: {
+      challenge: payload.challenge,
+      payloadDigest: payload.payloadDigest,
+      decision,
+      reason: decision === "deny" ? "The user rejected this operation." : "The user verified the signed effects.",
+    },
+  }, browser, issuedAt);
+};
+
+test("OpenVTC browser enrollment, inbox, signed approval, and exact execution form one path", async () => {
+  const { workspace, executor, coordinator, browser, transportToken, service } = await setup();
+  const pending = await service.createMicrosoft365Delete(
+    identity,
+    workspace.id,
+    { driveId: "drive-1", driveItemId: "item-1", "If-Match": "etag-1" },
+    "agent-1",
+    { policyVersionId: "policy-1", policyHash: "a".repeat(64) },
+    "browser-approval-idempotency",
+    "browser-approval-create",
+  );
+  assert.equal(pending.state, "approval_required");
+  assert.equal(executor.calls.length, 0);
+
+  const request = await coordinator.inbox(transportToken) as Record<string, unknown>;
+  assert.equal(request.recipient, browser.did);
+  const decision = signedDecision(request, browser, "approve");
+  const [completed, retry] = await Promise.all([
+    service.applyOpenVtcDecision(transportToken, decision, "browser-approval-decision"),
+    service.applyOpenVtcDecision(transportToken, decision, "browser-approval-retry"),
+  ]);
+
+  assert.equal(completed.state, "succeeded");
+  assert.equal(retry.state, "succeeded");
+  assert.equal(completed.approval?.channel, "openvtc-task-consent");
+  assert.equal(executor.calls.length, 1);
+  assert.deepEqual(executor.calls[0]?.arguments, {
+    "If-Match": "etag-1",
+    confirm: true,
+    driveId: "drive-1",
+    driveItemId: "item-1",
+    excludeResponse: true,
+  });
+});
+
+test("a signed browser denial is durable and reaches the connector zero times", async () => {
+  const { workspace, executor, coordinator, browser, transportToken, service } = await setup();
+  await service.createMicrosoft365Delete(
+    identity,
+    workspace.id,
+    { driveId: "drive-deny", driveItemId: "item-deny", "If-Match": "etag-deny" },
+    "agent-deny",
+    { policyVersionId: "policy-deny", policyHash: "b".repeat(64) },
+    "browser-denial-idempotency",
+    "browser-denial-create",
+  );
+  const request = await coordinator.inbox(transportToken) as Record<string, unknown>;
+  const denied = await service.applyOpenVtcDecision(transportToken, signedDecision(request, browser, "deny"), "browser-denial-decision");
+  assert.equal(denied.state, "denied");
+  assert.equal(denied.approval?.decision, "deny");
+  assert.equal(executor.calls.length, 0);
+});
+
+test("the bearer transport token cannot substitute for an approver signature", async () => {
+  const { workspace, coordinator, browser, transportToken, service } = await setup();
+  await service.createMicrosoft365Delete(
+    identity,
+    workspace.id,
+    { driveId: "drive-tamper", driveItemId: "item-tamper", "If-Match": "etag-tamper" },
+    "agent-tamper",
+    { policyVersionId: "policy-tamper", policyHash: "c".repeat(64) },
+    "browser-tamper-idempotency",
+    "browser-tamper-create",
+  );
+  const request = await coordinator.inbox(transportToken) as Record<string, unknown>;
+  const decision = signedDecision(request, browser, "approve");
+  (decision.payload as Record<string, unknown>).decision = "deny";
+  await assert.rejects(
+    service.applyOpenVtcDecision(transportToken, decision, "browser-tamper-decision"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "OPENVTC_DECISION_INVALID",
+  );
+});
+
+test("Control exposes session-bound enrollment and bearer-scoped browser transport", async () => {
+  const store = new MemoryWorkspaceStore();
+  const coordinator = new OpenVtcApprovalCoordinator(store, signer());
+  const proxyToken = "openvtc-api-proxy-token-at-least-24-characters";
+  const headers = {
+    "x-onecomputer-proxy-token": proxyToken,
+    "x-onecomputer-test-tenant-id": identity.tenantId,
+    "x-onecomputer-test-user-id": identity.subjectId,
+  };
+  const app = createControlServer(store, {} as ControllerClient, proxyToken, undefined, undefined, {}, { testIdentityMode: true, openVtc: coordinator });
+  try {
+    const created = await app.inject({ method: "POST", url: "/v1/openvtc/enrollment-challenges", headers });
+    assert.equal(created.statusCode, 201);
+    const challenge = created.json();
+    const browser = signer();
+    const issuedAt = new Date().toISOString();
+    const document = attachDidKeyDataIntegrityProof({
+      id: `urn:uuid:${randomUUID()}`,
+      type: ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
+      issuer: browser.did,
+      recipient: challenge.recipientDid,
+      issuedAt,
+      expiresAt: challenge.expiresAt,
+      payload: {
+        challenge: challenge.challenge,
+        tenantId: identity.tenantId,
+        subjectId: identity.subjectId,
+        verificationMethod: browser.verificationMethod,
+        displayName: "API browser",
+      },
+    }, browser, issuedAt);
+    const enrolled = await app.inject({
+      method: "POST",
+      url: "/v1/openvtc/approvers",
+      headers,
+      payload: { challengeId: challenge.id, document },
+    });
+    assert.equal(enrolled.statusCode, 201);
+    const token = enrolled.json().transportToken;
+    assert.match(token, /^ocvta_[A-Za-z0-9_-]{43}$/);
+
+    const status = await app.inject({ method: "GET", url: "/v1/openvtc/approvers/current", headers });
+    assert.equal(status.json().connected, true);
+    assert.equal(status.json().approver.approverDid, browser.did);
+
+    const invalidTransport = await app.inject({ method: "GET", url: "/v1/openvtc/inbox", headers: { authorization: "Bearer ocvta_invalid" } });
+    assert.equal(invalidTransport.statusCode, 401);
+    const emptyInbox = await app.inject({ method: "GET", url: "/v1/openvtc/inbox", headers: { authorization: `Bearer ${token}` } });
+    assert.equal(emptyInbox.statusCode, 204);
+  } finally {
+    await app.close();
+  }
+});

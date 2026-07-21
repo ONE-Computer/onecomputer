@@ -42,6 +42,19 @@ export const connectionApi = {
   disconnectMicrosoft365: () => request("/api/v1/connections/microsoft-365", mutation("DELETE")),
 };
 
+export const approvalApi = {
+  status: () => request("/api/v1/openvtc/approvers/current"),
+  challenge: () => request("/api/v1/openvtc/enrollment-challenges", mutation()),
+  enroll: (challengeId, document) => request("/api/v1/openvtc/approvers", mutation("POST", { challengeId, document })),
+  revoke: () => request("/api/v1/openvtc/approvers/current", mutation("DELETE")),
+  inbox: (transportToken) => request("/api/v1/openvtc/inbox", { headers: { authorization: `Bearer ${transportToken}` } }),
+  decide: (transportToken, document) => request("/api/trust-tasks", {
+    method: "POST",
+    headers: { ...jsonHeaders, authorization: `Bearer ${transportToken}` },
+    body: JSON.stringify(document),
+  }),
+};
+
 export const authApi = {
   session: () => request("/api/v1/auth/session"),
   loginUrl: "/api/v1/auth/login",

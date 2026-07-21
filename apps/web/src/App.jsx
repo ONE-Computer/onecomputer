@@ -20,7 +20,14 @@ import { Bot24Regular } from "@fluentui/react-icons/svg/bot";
 import { PlugConnected24Regular } from "@fluentui/react-icons/svg/plug-connected";
 import { Settings24Regular } from "@fluentui/react-icons/svg/settings";
 import { SignOut24Regular } from "@fluentui/react-icons/svg/sign-out";
-import { operationApi, workspaceApi, connectionApi, authApi, adminApi } from "./workspace-api.js";
+import { operationApi, workspaceApi, connectionApi, approvalApi, authApi, adminApi } from "./workspace-api.js";
+import {
+  clearBrowserApprover,
+  enrollBrowserApprover,
+  hasBrowserApprover,
+  loadPendingApproval,
+  signApprovalDecision,
+} from "./openvtc-browser-agent.js";
 
 const capabilities = [
   {
@@ -382,7 +389,144 @@ const connectionReason = {
   M365_TOKEN_EXCHANGE_FAILED: "Microsoft 365 could not complete the connection. Please try again.",
 };
 
-function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect }) {
+function ApprovalDeviceCard({ displayName, onOperation }) {
+  const [status, setStatus] = useState(null);
+  const [localReady, setLocalReady] = useState(false);
+  const [pending, setPending] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+
+  const refresh = async () => {
+    const [remote, local] = await Promise.all([approvalApi.status(), hasBrowserApprover()]);
+    setStatus(remote);
+    setLocalReady(local);
+  };
+
+  useEffect(() => {
+    refresh().catch((error) => setMessage(error.message));
+  }, []);
+
+  const enroll = async () => {
+    setBusy("enroll");
+    setMessage("");
+    try {
+      const challenge = await approvalApi.challenge();
+      await enrollBrowserApprover(challenge, `${displayName}’s browser`, (document) => approvalApi.enroll(challenge.id, document));
+      await refresh();
+      setMessage("This browser is now your approval device.");
+    } catch (error) {
+      setMessage(error.name === "NotAllowedError" ? "Device verification was cancelled." : error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const disconnect = async () => {
+    if (!window.confirm("Remove this browser as your approval device? Pending approvals will remain blocked until another device is enrolled.")) return;
+    setBusy("disconnect");
+    setMessage("");
+    try {
+      await approvalApi.revoke();
+      await clearBrowserApprover();
+      setPending(null);
+      await refresh();
+      setMessage("The browser approval device was removed.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const check = async () => {
+    setBusy("check");
+    setMessage("");
+    try {
+      const request = await loadPendingApproval(approvalApi.inbox);
+      setPending(request);
+      setMessage(request ? "Signed request verified. Review the effect below." : "There are no approval requests waiting for you.");
+    } catch (error) {
+      setMessage(error.name === "NotAllowedError" ? "Device verification was cancelled." : error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const decide = async (decision) => {
+    setBusy(decision);
+    setMessage("");
+    try {
+      const signed = await signApprovalDecision(pending, decision);
+      const response = await approvalApi.decide(signed.transportToken, signed.document);
+      setPending(null);
+      onOperation?.(response.operation);
+      setMessage(decision === "approve" ? "Approved. ONEComputer released the bound operation once." : "Denied. No connector action was released.");
+    } catch (error) {
+      setMessage(error.name === "NotAllowedError" ? "Device verification was cancelled." : error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const connected = status?.connected;
+  const usable = connected && localReady;
+  const effect = pending?.payload?.effects?.[0];
+  return (
+    <section className="connection-card approval-device-card" aria-labelledby="approval-device-title">
+      <div className="connection-logo"><ShieldCheckmark24Regular aria-hidden="true" /></div>
+      <div className="connection-copy">
+        <div className="connection-title-row">
+          <div>
+            <h2 id="approval-device-title">Approval device</h2>
+            <p>OpenVTC browser agent</p>
+          </div>
+          <span className={`connection-status ${usable ? "connected" : "disconnected"}`}>
+            {usable ? "Ready" : connected ? "Key unavailable" : "Not enrolled"}
+          </span>
+        </div>
+        <p className="connection-description">Verify signed effects here before a protected agent action can run. Your approval key is encrypted behind this device’s biometric, PIN, or security key.</p>
+        {connected && <p className="connection-metadata">{status.approver.displayName} · {status.approver.approverDid.slice(0, 26)}…</p>}
+        {message && <p className="approval-device-message" role="status">{message}</p>}
+
+        {pending && (
+          <div className="approval-review" aria-live="polite">
+            <div className="approval-review-heading">
+              <span>Protected action</span>
+              <strong>{pending.payload.sideEffects}</strong>
+            </div>
+            <h3>{effect?.summary ?? "Review protected operation"}</h3>
+            {effect?.path && <p>{effect.path}</p>}
+            <dl>
+              <div><dt>Requested by</dt><dd>{pending.payload.requester}</dd></div>
+              <div><dt>Signed by</dt><dd>ONEComputer Control</dd></div>
+              <div><dt>Operation binding</dt><dd>{pending.payload.payloadDigest.slice(0, 16)}…</dd></div>
+            </dl>
+            <p className="approval-warning">Approving releases only this signed operation. A changed target or argument requires a new approval.</p>
+            <div className="approval-review-actions">
+              <button className="primary-button" type="button" onClick={() => decide("approve")} disabled={Boolean(busy)}>{busy === "approve" ? "Verifying device" : "Verify and approve"}</button>
+              <button className="secondary-button" type="button" onClick={() => decide("deny")} disabled={Boolean(busy)}>{busy === "deny" ? "Signing denial" : "Deny"}</button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="connection-actions">
+        {usable ? (
+          <>
+            <button className="primary-button" type="button" onClick={check} disabled={Boolean(busy)}>{busy === "check" ? "Verifying device" : "Check approvals"}</button>
+            <button className="text-button" type="button" onClick={disconnect} disabled={Boolean(busy)}>Remove device</button>
+          </>
+        ) : (
+          <button className="primary-button" type="button" onClick={enroll} disabled={Boolean(busy)}>
+            <ShieldCheckmark24Regular aria-hidden="true" />
+            {busy === "enroll" ? "Waiting for device" : connected ? "Replace approval device" : "Set up this browser"}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect, displayName, onOperation }) {
   const connected = connection?.state === "connected";
   const expired = connection?.state === "expired";
   const connectedAt = connection?.connectedAt
@@ -430,7 +574,9 @@ function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisc
         </div>
       </section>
 
-      <div className="connection-privacy-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>OAuth tokens stay encrypted in the LiteLLM MCP gateway. ONEComputer shows connection status only, and the workspace never receives the token.</p></div>
+      <ApprovalDeviceCard displayName={displayName} onOperation={onOperation} />
+
+      <div className="connection-privacy-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>Microsoft tokens stay in the MCP gateway. The browser approval key stays encrypted on this device. Neither secret is sent to the workspace.</p></div>
     </div>
   );
 }
@@ -756,6 +902,8 @@ export function App() {
             error={connectionError}
             onConnect={connectMicrosoft365}
             onDisconnect={disconnectMicrosoft365}
+            displayName={session.user.displayName}
+            onOperation={setOperation}
           />
         )}
         {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} />}

@@ -881,7 +881,97 @@ summary:focus-visible {
 }
 
 .connection-actions {
+  display: grid;
+  gap: 10px;
   align-self: center;
+}
+
+.approval-device-card {
+  margin-top: 18px;
+}
+
+.approval-device-message {
+  margin: 17px 0 0;
+  color: #2f4b69;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.approval-review {
+  margin-top: 22px;
+  padding: 20px;
+  border: 1px solid #d8c98f;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.approval-review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: #695114;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.approval-review h3 {
+  margin: 15px 0 5px;
+  color: #172538;
+  font-size: 18px;
+}
+
+.approval-review > p {
+  margin: 0;
+  color: #5f6874;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.approval-review dl {
+  margin: 18px 0 0;
+  border-top: 1px solid #e5ddc4;
+}
+
+.approval-review dl > div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid #e5ddc4;
+  font-size: 12px;
+}
+
+.approval-review dt {
+  color: #6b6f75;
+}
+
+.approval-review dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #243449;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.approval-review .approval-warning {
+  margin-top: 16px;
+  color: #634f1c;
+}
+
+.approval-review-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.approval-review-actions .primary-button,
+.approval-review-actions .secondary-button {
+  min-height: 44px;
+  padding-inline: 17px;
+  font-size: 13px;
 }
 
 .connection-actions .primary-button,
@@ -1415,6 +1505,15 @@ summary:focus-visible {
   }
 
   .connection-title-row {
+    display: grid;
+  }
+
+  .approval-review dl > div {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .approval-review-actions {
     display: grid;
   }
 

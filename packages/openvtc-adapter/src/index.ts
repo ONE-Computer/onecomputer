@@ -2,6 +2,7 @@ import { createHash, createPrivateKey, createPublicKey, sign as signBytes, type 
 
 export const TASK_CONSENT_REQUEST_TYPE = "https://trusttasks.org/spec/task-consent/request/0.1";
 export const TASK_CONSENT_DECISION_TYPE = "https://trusttasks.org/spec/task-consent/decision/0.1";
+export const ONECOMPUTER_APPROVER_ENROLLMENT_TYPE = "https://onecomputer.dev/spec/openvtc/approver-enrollment/0.1";
 
 export type TaskConsentDecision = "approve" | "deny";
 
@@ -49,6 +50,17 @@ export type RejectedTaskConsentDecision = {
 };
 
 export type VerifyTaskConsentDecisionResult = VerifiedTaskConsentDecision | RejectedTaskConsentDecision;
+
+export type DidKeyProofVerificationResult = {
+  verified: true;
+  signerDid: string;
+  verificationMethod: string;
+  proofHash: string;
+  documentHash: string;
+} | {
+  verified: false;
+  reason: string;
+};
 
 type JsonObject = Record<string, unknown>;
 
@@ -329,6 +341,111 @@ export function taskConsentSigningInput(document: JsonObject, proofConfig: JsonO
   ]);
 }
 
+export function attachDidKeyDataIntegrityProof(document: JsonObject, signer: Ed25519DidKeySigner, created: string): JsonObject {
+  if (Object.hasOwn(document, "proof")) throw new Error("document already contains a proof");
+  if (parseTimestamp(created) === null) throw new Error("proof created timestamp is invalid");
+  const proofConfig: JsonObject = {
+    type: "DataIntegrityProof",
+    cryptosuite: "eddsa-jcs-2022",
+    verificationMethod: signer.verificationMethod,
+    created,
+    proofPurpose: "assertionMethod",
+  };
+  const signature = signer.sign(taskConsentSigningInput(document, proofConfig));
+  return { ...document, proof: { ...proofConfig, proofValue: `z${base58btcEncode(signature)}` } };
+}
+
+export function verifyDidKeyDataIntegrityProof(document: unknown): DidKeyProofVerificationResult {
+  if (!isObject(document) || !isObject(document.proof) || typeof document.issuer !== "string") {
+    return { verified: false, reason: "proof-bearing document, issuer, and proof are required" };
+  }
+  const proof = document.proof;
+  if (!hasExactKeys(proof, ["type", "cryptosuite", "verificationMethod", "created", "proofPurpose", "proofValue"])) {
+    return { verified: false, reason: "proof has an invalid shape" };
+  }
+  if (proof.type !== "DataIntegrityProof" || proof.cryptosuite !== "eddsa-jcs-2022" || proof.proofPurpose !== "assertionMethod") {
+    return { verified: false, reason: "unsupported Data Integrity proof configuration" };
+  }
+  if (typeof proof.verificationMethod !== "string" || typeof proof.proofValue !== "string" || !proof.proofValue.startsWith("z")) {
+    return { verified: false, reason: "proof verificationMethod or proofValue is invalid" };
+  }
+  let publicKey: Uint8Array;
+  let signature: Uint8Array;
+  try {
+    publicKey = publicKeyFromDidKey(document.issuer, proof.verificationMethod);
+    signature = base58btcDecode(proof.proofValue.slice(1));
+  } catch (error) {
+    return { verified: false, reason: error instanceof Error ? error.message : "proof key could not be resolved" };
+  }
+  if (signature.length !== 64) return { verified: false, reason: "Ed25519 signature must be 64 bytes" };
+  const proofConfig = { ...proof };
+  delete proofConfig.proofValue;
+  const documentWithoutProof = { ...document };
+  delete documentWithoutProof.proof;
+  let signingInput: Buffer;
+  try {
+    signingInput = taskConsentSigningInput(documentWithoutProof, proofConfig);
+  } catch {
+    return { verified: false, reason: "document cannot be canonicalized" };
+  }
+  const publicKeyObject = createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKey)]),
+    format: "der",
+    type: "spki",
+  });
+  if (!verifySignature(null, signingInput, publicKeyObject, signature)) return { verified: false, reason: "signature verification failed" };
+  return {
+    verified: true,
+    signerDid: document.issuer,
+    verificationMethod: proof.verificationMethod,
+    proofHash: sha256(jcsCanonicalize(proof)).toString("hex"),
+    documentHash: sha256(jcsCanonicalize(document)).toString("hex"),
+  };
+}
+
+export type VerifyApproverEnrollmentInput = {
+  document: unknown;
+  expected: {
+    recipientDid: string;
+    challenge: string;
+    tenantId: string;
+    subjectId: string;
+  };
+  now?: Date;
+  clockSkewMs?: number;
+};
+
+export function verifyApproverEnrollment(input: VerifyApproverEnrollmentInput): DidKeyProofVerificationResult {
+  const document = input.document;
+  if (!isObject(document) || document.type !== ONECOMPUTER_APPROVER_ENROLLMENT_TYPE
+    || typeof document.id !== "string" || typeof document.issuer !== "string" || document.recipient !== input.expected.recipientDid) {
+    return { verified: false, reason: "enrollment envelope identity or type is invalid" };
+  }
+  const payload = document.payload;
+  if (!isObject(payload) || !hasExactKeys(payload, ["challenge", "tenantId", "subjectId", "verificationMethod", "displayName"])) {
+    return { verified: false, reason: "enrollment payload has an invalid shape" };
+  }
+  if (payload.challenge !== input.expected.challenge || payload.tenantId !== input.expected.tenantId || payload.subjectId !== input.expected.subjectId
+    || typeof payload.verificationMethod !== "string" || typeof payload.displayName !== "string" || !payload.displayName.trim()) {
+    return { verified: false, reason: "enrollment is not bound to this challenge and identity" };
+  }
+  const issuedAt = parseTimestamp(document.issuedAt);
+  const expiresAt = parseTimestamp(document.expiresAt);
+  const proofCreatedAt = isObject(document.proof) ? parseTimestamp(document.proof.created) : null;
+  const now = (input.now ?? new Date()).getTime();
+  const skew = input.clockSkewMs ?? DEFAULT_CLOCK_SKEW_MS;
+  if (issuedAt === null || expiresAt === null || proofCreatedAt === null || now >= expiresAt
+    || issuedAt > now + skew || proofCreatedAt > now + skew || proofCreatedAt < issuedAt - skew) {
+    return { verified: false, reason: "enrollment proof is outside its valid time window" };
+  }
+  const verified = verifyDidKeyDataIntegrityProof(document);
+  if (!verified.verified) return verified;
+  if (verified.signerDid !== document.issuer || verified.verificationMethod !== payload.verificationMethod) {
+    return { verified: false, reason: "enrollment signer does not match its declared verification method" };
+  }
+  return verified;
+}
+
 export function verifyTaskConsentDecision(input: VerifyTaskConsentDecisionInput): VerifyTaskConsentDecisionResult {
   const document = input.document;
   if (!isObject(document)) return reject("INVALID_DOCUMENT", "decision must be a JSON object");
@@ -379,33 +496,9 @@ export function verifyTaskConsentDecision(input: VerifyTaskConsentDecisionInput)
     return reject("INVALID_TIME", "proof created timestamp is outside the live request window");
   }
 
-  const signerDid = document.issuer;
-  let publicKey: Uint8Array;
-  let signature: Uint8Array;
-  try {
-    publicKey = publicKeyFromDidKey(signerDid, proof.verificationMethod);
-    signature = base58btcDecode(proof.proofValue.slice(1));
-  } catch (error) {
-    return reject("INVALID_PROOF", error instanceof Error ? error.message : "proof key could not be resolved");
-  }
-  if (signature.length !== 64) return reject("INVALID_PROOF", "Ed25519 signature must be 64 bytes");
-
-  const proofConfig = { ...proof };
-  delete proofConfig.proofValue;
-  const documentWithoutProof = { ...document };
-  delete documentWithoutProof.proof;
-  let signingInput: Buffer;
-  try {
-    signingInput = taskConsentSigningInput(documentWithoutProof, proofConfig);
-  } catch {
-    return reject("INVALID_PROOF", "decision cannot be canonicalized");
-  }
-  const publicKeyObject = createPublicKey({
-    key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKey)]),
-    format: "der",
-    type: "spki",
-  });
-  if (!verifySignature(null, signingInput, publicKeyObject, signature)) return reject("INVALID_PROOF", "signature verification failed");
+  const proofVerification = verifyDidKeyDataIntegrityProof(document);
+  if (!proofVerification.verified) return reject("INVALID_PROOF", proofVerification.reason);
+  const signerDid = proofVerification.signerDid;
 
   if (!input.expected.enrolledApproverDids.includes(signerDid)) return reject("UNENROLLED_APPROVER", "proven signer is not currently enrolled");
   if (input.expected.excludeRequester && input.expected.requesterDid === signerDid) {
@@ -422,7 +515,7 @@ export function verifyTaskConsentDecision(input: VerifyTaskConsentDecisionInput)
     proofCreatedAt: proof.created as string,
     challenge: payload.challenge,
     payloadDigest: payload.payloadDigest,
-    proofHash: sha256(jcsCanonicalize(proof)).toString("hex"),
-    documentHash: sha256(jcsCanonicalize(document)).toString("hex"),
+    proofHash: proofVerification.proofHash,
+    documentHash: proofVerification.documentHash,
   };
 }

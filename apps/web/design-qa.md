@@ -51,4 +51,19 @@ No actionable P0, P1, or P2 differences remain.
 - [x] Check keyboard focus, reduced motion, and console output.
 - [x] Compare source and implementation together at full and focused views.
 
+## Issue 009 browser approval extension
+
+- The Approval device card reuses the established Connections card, button,
+  status-chip, typography, spacing, and responsive patterns.
+- Live Chrome inspection covered the desktop Connections view and a 390 × 844
+  mobile viewport. The card and pending-approval details stack without clipping
+  or horizontal overflow.
+- The enrollment, refresh, approve, deny, and removal actions expose semantic
+  buttons and live status text. No private key, transport token, or unrestricted
+  Microsoft payload is rendered.
+- Lighthouse reported 100 for accessibility and 100 for best practices on the
+  mobile view. No actionable P0, P1, or P2 visual findings remain.
+- The physical WebAuthn prompt and signed approve/deny path remain Issue 009
+  acceptance checks because they require the user's real browser authenticator.
+
 final result: passed

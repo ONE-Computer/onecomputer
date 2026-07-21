@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
 import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, type RuntimePolicy } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
+import { Ed25519DidKeySigner } from "@onecomputer/openvtc-adapter";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
 import { FixtureApprovalAuthority, GovernedOperationService } from "./operations.js";
@@ -9,6 +10,7 @@ import { Microsoft365ConnectionService } from "./connections.js";
 import { HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
 import { EntraAuthenticationService, isAdministrator, testPrincipalFromHeaders } from "./auth.js";
 import { McpPolicyService } from "./mcp-policy.js";
+import { OpenVtcApprovalCoordinator } from "./openvtc.js";
 
 type AuthenticationBoundary = Pick<EntraAuthenticationService, "begin" | "complete" | "authenticate" | "logout">;
 
@@ -26,6 +28,7 @@ const envSchema = z.object({
   PUBLIC_WEB_URL: z.string().url().default("http://localhost:4174"),
   M365_AUTHORIZATION_ORIGIN: z.string().url().default("http://localhost:4311"),
   FIXTURE_APPROVAL_SECRET: z.string().min(32).default("local-disabled-fixture-approval-secret-32-chars"),
+  OPENVTC_EXECUTOR_PRIVATE_KEY_B64: z.string().min(1).optional(),
   ENTRA_TENANT_ID: z.string().min(1),
   ENTRA_CLIENT_ID: z.string().min(1),
   ENTRA_CLIENT_SECRET: z.string().min(1),
@@ -55,6 +58,7 @@ export function createControlServer(
     identityPolicyStore?: IdentityPolicyStore;
     mcpPolicyToken?: string;
     testIdentityMode?: boolean;
+    openVtc?: OpenVtcApprovalCoordinator;
   } = {},
 ) {
   const testRuntimePolicy: RuntimePolicy = {
@@ -81,7 +85,7 @@ export function createControlServer(
   const executor: GovernedToolExecutor = gateway?.executeGovernedTool
     ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
     : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
-  const operations = new GovernedOperationService(store, executor, new FixtureApprovalAuthority(fixtureApprovalSecret));
+  const operations = new GovernedOperationService(store, executor, new FixtureApprovalAuthority(fixtureApprovalSecret), undefined, security.openVtc);
   const mcpPolicy = security.identityPolicyStore ? new McpPolicyService(security.identityPolicyStore, store, operations) : undefined;
   const oauthGateway = gateway
     && typeof (gateway as Partial<OAuthConnectionGateway>).beginUserOAuthConnection === "function"
@@ -105,6 +109,7 @@ export function createControlServer(
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/healthz") return;
+    if (request.url === "/v1/openvtc/inbox" || request.url === "/trust-tasks") return;
     if (request.url === "/internal/v1/mcp/authorize") {
       if (!sameSecret(request.headers["x-onecomputer-mcp-policy-token"] as string | undefined, security.mcpPolicyToken ?? proxyToken)) {
         return reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "Internal policy authentication is required", correlationId: request.id, retryable: false } });
@@ -145,6 +150,12 @@ export function createControlServer(
     const key = headers["idempotency-key"];
     if (typeof key !== "string" || key.length < 8 || key.length > 128) throw new OneComputerError("IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required", 400);
     return key;
+  };
+  const browserAgentToken = (authorization: string | string[] | undefined) => {
+    const value = Array.isArray(authorization) ? authorization[0] : authorization;
+    const match = typeof value === "string" ? /^Bearer (ocvta_[A-Za-z0-9_-]{43})$/.exec(value) : null;
+    if (!match) throw new OneComputerError("UNAUTHENTICATED", "Browser agent authentication is required", 401);
+    return match[1];
   };
 
   app.get("/healthz", async () => ({ status: "ok" }));
@@ -231,6 +242,33 @@ export function createControlServer(
     }
   });
   app.delete("/v1/connections/microsoft-365", async (request) => requireConnections().disconnect(identity(request)));
+  app.post("/v1/openvtc/enrollment-challenges", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return reply.code(201).header("cache-control", "no-store").send(await security.openVtc.createEnrollmentChallenge(identity(request)));
+  });
+  app.post("/v1/openvtc/approvers", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    const input = z.object({ challengeId: z.uuid(), document: z.unknown() }).strict().parse(request.body ?? {});
+    return reply.code(201).header("cache-control", "no-store").send(await security.openVtc.enroll(identity(request), input.challengeId, input.document));
+  });
+  app.get("/v1/openvtc/approvers/current", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return reply.header("cache-control", "no-store").send(await security.openVtc.status(identity(request)));
+  });
+  app.delete("/v1/openvtc/approvers/current", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return await security.openVtc.revoke(identity(request)) ? reply.code(204).send() : reply.code(404).send({ error: { code: "OPENVTC_APPROVER_NOT_FOUND", message: "No active browser approver is enrolled", correlationId: request.id, retryable: false } });
+  });
+  app.get("/v1/openvtc/inbox", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    const document = await security.openVtc.inbox(browserAgentToken(request.headers.authorization));
+    reply.header("cache-control", "no-store");
+    return document ? reply.send(document) : reply.code(204).send();
+  });
+  app.post("/trust-tasks", async (request, reply) => {
+    const operation = await operations.applyOpenVtcDecision(browserAgentToken(request.headers.authorization), request.body, request.id);
+    return reply.code(200).header("cache-control", "no-store").send({ accepted: true, operation });
+  });
   app.get("/v1/workspaces/current", async (request, reply) => {
     const { policy } = await requirePolicy(request);
     const current = await service.current(identity(request), policy, "personal");
@@ -296,6 +334,9 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         credentialSecret: env.LITELLM_CREDENTIAL_SECRET,
       })
     : undefined;
+  const openVtc = env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64
+    ? new OpenVtcApprovalCoordinator(store, Ed25519DidKeySigner.fromPkcs8Base64(env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64))
+    : undefined;
   const app = createControlServer(
     store,
     new HttpControllerClient(env.CONTROLLER_URL, env.CONTROLLER_INTERNAL_TOKEN),
@@ -317,6 +358,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         tenantDisplayName: env.TENANT_DISPLAY_NAME,
         administratorEmails: env.ADMINISTRATOR_EMAILS.split(",").map((item) => item.trim()).filter(Boolean),
       }),
+      openVtc,
     },
   );
   app.addHook("onClose", async () => { await store.close(); await identityPolicyStore.close(); });

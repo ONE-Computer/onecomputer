@@ -87,6 +87,24 @@ test("OpenVTC enrollment maps a hashed transport token to one active approver", 
   assert.equal(await store.getOpenVtcApproverByTransportTokenHash(sha256("first-secret-token")), null);
 });
 
+test("OpenVTC enrollment challenges are owner-bound, expiring, and single use", async () => {
+  const store = new MemoryWorkspaceStore();
+  const challenge = await store.createOpenVtcEnrollmentChallenge({
+    id: randomUUID(),
+    identity,
+    executorDid: "did:key:zExecutor",
+    challenge: "single-use-enrollment-challenge",
+    createdAt: NOW,
+    expiresAt: new Date(NOW.getTime() + 60_000),
+  });
+  const consumedAt = new Date(NOW.getTime() + 1_000);
+  assert.equal((await store.getOpenVtcEnrollmentChallenge(identity, challenge.id))?.challenge, challenge.challenge);
+  assert.equal(await store.getOpenVtcEnrollmentChallenge({ ...identity, subjectId: "other-user" }, challenge.id), null);
+  assert.equal(await store.consumeOpenVtcEnrollmentChallenge(identity, challenge.id, challenge.challenge, consumedAt), true);
+  assert.equal(await store.consumeOpenVtcEnrollmentChallenge(identity, challenge.id, challenge.challenge, consumedAt), false);
+  assert.equal(await store.consumeOpenVtcEnrollmentChallenge({ ...identity, subjectId: "other-user" }, challenge.id, challenge.challenge, consumedAt), false);
+});
+
 test("OpenVTC task creation is operation-bound and idempotent", async () => {
   const store = new MemoryWorkspaceStore();
   const operation = await setupOperation(store);

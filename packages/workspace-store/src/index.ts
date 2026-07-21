@@ -108,6 +108,17 @@ export type OpenVtcConsentTaskRecord = {
   proofHash: string | null;
 };
 
+export type OpenVtcEnrollmentChallengeRecord = {
+  id: string;
+  tenantId: string;
+  subjectId: string;
+  executorDid: string;
+  challenge: string;
+  createdAt: Date;
+  expiresAt: Date;
+  consumedAt: Date | null;
+};
+
 export type CreateOpenVtcConsentTaskInput = Omit<OpenVtcConsentTaskRecord,
   "tenantId" | "subjectId" | "state" | "deliveredAt" | "decidedAt" | "decisionDocument" | "decisionHash" | "proofHash"
 > & { identity: IdentityContext; outboxId: string };
@@ -131,6 +142,9 @@ export type RecordOpenVtcDecisionInput = {
 };
 
 export interface OpenVtcApprovalStore {
+  createOpenVtcEnrollmentChallenge(input: Omit<OpenVtcEnrollmentChallengeRecord, "tenantId" | "subjectId" | "consumedAt"> & { identity: IdentityContext }): Promise<OpenVtcEnrollmentChallengeRecord>;
+  getOpenVtcEnrollmentChallenge(identity: IdentityContext, challengeId: string): Promise<OpenVtcEnrollmentChallengeRecord | null>;
+  consumeOpenVtcEnrollmentChallenge(identity: IdentityContext, challengeId: string, challenge: string, consumedAt: Date): Promise<boolean>;
   enrollOpenVtcApprover(input: {
     id: string;
     identity: IdentityContext;
@@ -277,6 +291,17 @@ const mapOpenVtcConsentTaskRow = (row: Record<string, unknown>): OpenVtcConsentT
   proofHash: row.proof_hash ? String(row.proof_hash) : null,
 });
 
+const mapOpenVtcEnrollmentChallengeRow = (row: Record<string, unknown>): OpenVtcEnrollmentChallengeRecord => ({
+  id: String(row.id),
+  tenantId: String(row.tenant_id),
+  subjectId: String(row.subject_id),
+  executorDid: String(row.executor_did),
+  challenge: String(row.challenge),
+  createdAt: new Date(String(row.created_at)),
+  expiresAt: new Date(String(row.expires_at)),
+  consumedAt: row.consumed_at ? new Date(String(row.consumed_at)) : null,
+});
+
 export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, OpenVtcApprovalStore {
   constructor(private readonly pool: pg.Pool) {}
 
@@ -285,7 +310,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
@@ -581,6 +606,32 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
     return this.getOwnedOperation(identity, operationId);
   }
 
+  async createOpenVtcEnrollmentChallenge(input: Omit<OpenVtcEnrollmentChallengeRecord, "tenantId" | "subjectId" | "consumedAt"> & { identity: IdentityContext }) {
+    const result = await this.pool.query(
+      `INSERT INTO openvtc_enrollment_challenges (id,tenant_id,subject_id,executor_did,challenge,created_at,expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [input.id, input.identity.tenantId, input.identity.subjectId, input.executorDid, input.challenge, input.createdAt, input.expiresAt],
+    );
+    return mapOpenVtcEnrollmentChallengeRow(result.rows[0]);
+  }
+
+  async getOpenVtcEnrollmentChallenge(identity: IdentityContext, challengeId: string) {
+    const result = await this.pool.query(
+      "SELECT * FROM openvtc_enrollment_challenges WHERE id=$1 AND tenant_id=$2 AND subject_id=$3",
+      [challengeId, identity.tenantId, identity.subjectId],
+    );
+    return result.rowCount ? mapOpenVtcEnrollmentChallengeRow(result.rows[0]) : null;
+  }
+
+  async consumeOpenVtcEnrollmentChallenge(identity: IdentityContext, challengeId: string, challenge: string, consumedAt: Date) {
+    const result = await this.pool.query(
+      `UPDATE openvtc_enrollment_challenges SET consumed_at=$5
+       WHERE id=$1 AND tenant_id=$2 AND subject_id=$3 AND challenge=$4 AND consumed_at IS NULL AND expires_at>$5`,
+      [challengeId, identity.tenantId, identity.subjectId, challenge, consumedAt],
+    );
+    return Boolean(result.rowCount);
+  }
+
   async enrollOpenVtcApprover(input: {
     id: string; identity: IdentityContext; approverDid: string; verificationMethod: string; displayName: string;
     transportTokenHash: string; enrolledAt: Date;
@@ -643,6 +694,11 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const operation = await client.query(
+        `SELECT id,state,expires_at FROM governed_operations
+         WHERE id=$1 AND tenant_id=$2 AND subject_id=$3 FOR UPDATE`,
+        [input.operationId, input.identity.tenantId, input.identity.subjectId],
+      );
       const existing = await client.query(
         "SELECT * FROM openvtc_consent_tasks WHERE operation_id=$1 AND tenant_id=$2 AND subject_id=$3",
         [input.operationId, input.identity.tenantId, input.identity.subjectId],
@@ -651,17 +707,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
         await client.query("COMMIT");
         return mapOpenVtcConsentTaskRow(existing.rows[0]);
       }
-      const operation = await client.query(
-        `SELECT id FROM governed_operations WHERE id=$1 AND tenant_id=$2 AND subject_id=$3
-         AND state='approval_required' AND expires_at>$4 FOR UPDATE`,
-        [input.operationId, input.identity.tenantId, input.identity.subjectId, input.createdAt],
-      );
+      const operationRow = operation.rows[0] as Record<string, unknown> | undefined;
       const approver = await client.query(
         `SELECT id FROM openvtc_approvers WHERE id=$1 AND tenant_id=$2 AND subject_id=$3
          AND status='active' FOR UPDATE`,
         [input.approverId, input.identity.tenantId, input.identity.subjectId],
       );
-      if (!operation.rowCount || !approver.rowCount) {
+      if (!operationRow || operationRow.state !== "approval_required" || new Date(String(operationRow.expires_at)) <= input.createdAt || !approver.rowCount) {
         await client.query("COMMIT");
         return null;
       }
@@ -837,6 +889,7 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
   private openVtcTasks = new Map<string, OpenVtcConsentTaskRecord>();
   private openVtcTaskByOperation = new Map<string, string>();
   private openVtcDeliveryAttempts = new Map<string, number>();
+  private openVtcEnrollmentChallenges = new Map<string, OpenVtcEnrollmentChallengeRecord>();
 
   async getCurrent(identity: IdentityContext, grantId: string) {
     return [...this.records.values()].find((item) => item.tenantId === identity.tenantId && item.subjectId === identity.subjectId && item.grantId === grantId) ?? null;
@@ -1013,6 +1066,34 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
     return next;
   }
 
+  async createOpenVtcEnrollmentChallenge(input: Omit<OpenVtcEnrollmentChallengeRecord, "tenantId" | "subjectId" | "consumedAt"> & { identity: IdentityContext }) {
+    const record: OpenVtcEnrollmentChallengeRecord = {
+      id: input.id,
+      tenantId: input.identity.tenantId,
+      subjectId: input.identity.subjectId,
+      executorDid: input.executorDid,
+      challenge: input.challenge,
+      createdAt: input.createdAt,
+      expiresAt: input.expiresAt,
+      consumedAt: null,
+    };
+    this.openVtcEnrollmentChallenges.set(record.id, record);
+    return record;
+  }
+
+  async getOpenVtcEnrollmentChallenge(identity: IdentityContext, challengeId: string) {
+    const record = this.openVtcEnrollmentChallenges.get(challengeId);
+    return record?.tenantId === identity.tenantId && record.subjectId === identity.subjectId ? record : null;
+  }
+
+  async consumeOpenVtcEnrollmentChallenge(identity: IdentityContext, challengeId: string, challenge: string, consumedAt: Date) {
+    const record = this.openVtcEnrollmentChallenges.get(challengeId);
+    if (!record || record.tenantId !== identity.tenantId || record.subjectId !== identity.subjectId
+      || record.challenge !== challenge || record.consumedAt !== null || record.expiresAt <= consumedAt) return false;
+    this.openVtcEnrollmentChallenges.set(record.id, { ...record, consumedAt });
+    return true;
+  }
+
   async enrollOpenVtcApprover(input: {
     id: string; identity: IdentityContext; approverDid: string; verificationMethod: string; displayName: string;
     transportTokenHash: string; enrolledAt: Date;
@@ -1061,6 +1142,8 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
     const existingId = this.openVtcTaskByOperation.get(input.operationId);
     if (existingId) return this.openVtcTasks.get(existingId) ?? null;
     const operation = await this.getOwnedOperation(input.identity, input.operationId);
+    const racedExistingId = this.openVtcTaskByOperation.get(input.operationId);
+    if (racedExistingId) return this.openVtcTasks.get(racedExistingId) ?? null;
     const approver = this.openVtcApprovers.get(input.approverId)?.record;
     if (!operation || operation.state !== "approval_required" || operation.expiresAt <= input.createdAt
       || !approver || approver.status !== "active" || approver.tenantId !== input.identity.tenantId || approver.subjectId !== input.identity.subjectId) return null;
@@ -1127,7 +1210,8 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
     if (!task || !approver || !operation || task.tenantId !== input.identity.tenantId || task.subjectId !== input.identity.subjectId
       || task.approverId !== input.approverId || task.challenge !== input.challenge || task.payloadDigest !== input.payloadDigest
       || approver.status !== "active" || approver.approverDid !== input.signerDid || approver.verificationMethod !== input.verificationMethod
-      || operation.state !== "approval_required" || task.expiresAt <= input.decidedAt) return null;
+      || operation.state !== "approval_required" || !["queued", "delivered"].includes(task.state)
+      || task.expiresAt <= input.decidedAt) return null;
     const nextTask: OpenVtcConsentTaskRecord = {
       ...task,
       state: input.decision === "approve" ? "approved" : "denied",

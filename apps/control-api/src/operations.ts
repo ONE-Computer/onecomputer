@@ -10,6 +10,7 @@ import {
 } from "@onecomputer/contracts";
 import type { GovernedToolExecutor } from "@onecomputer/litellm-adapter";
 import type { GovernanceStore, GovernedOperationRecord, WorkspaceStore } from "@onecomputer/workspace-store";
+import type { OpenVtcApprovalCoordinator } from "./openvtc.js";
 
 export type FixtureApprovalEnvelope = {
   version: "1";
@@ -73,6 +74,7 @@ export class GovernedOperationService {
     private readonly executor: GovernedToolExecutor,
     private readonly approvals: FixtureApprovalAuthority,
     private readonly operationTtlMs = 10 * 60 * 1000,
+    private readonly openVtc?: OpenVtcApprovalCoordinator,
   ) {}
 
   async createDeleteFile(identity: IdentityContext, workspaceId: string, rawPath: string, idempotencyKey: string, correlationId: string) {
@@ -200,6 +202,7 @@ export class GovernedOperationService {
     if (record.operationDigest !== operationDigest) {
       throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
     }
+    await this.openVtc?.ensureTask(identity, record);
     return toView(record);
   }
 
@@ -285,6 +288,14 @@ export class GovernedOperationService {
     }
     if (envelope.decision === "deny") return toView(recorded);
     return this.execute(identity, recorded.id, correlationId);
+  }
+
+  async applyOpenVtcDecision(transportToken: string, document: unknown, correlationId: string) {
+    if (!this.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    const { identity, operation } = await this.openVtc.submitDecision(transportToken, document, correlationId);
+    if (!operation.approval) throw new OneComputerError("APPROVAL_STATE_INVALID", "A verified approval record is required before execution", 409);
+    if (operation.approval.decision === "deny" || ["denied", "failed", "expired", "succeeded"].includes(operation.state)) return toView(operation);
+    return this.execute(identity, operation.id, correlationId);
   }
 
   private async execute(identity: IdentityContext, operationId: string, correlationId: string) {

@@ -7,9 +7,10 @@ Date: 2026-07-21
 ## Decision
 
 Use the Trust Tasks HTTPS `0.1` binding for the first physical OpenVTC approval
-surface. A minimal browser-agent profile will reuse the official browser
-agent's distinct `did:key` approver identity, WebAuthn PRF-wrapped Ed25519 key,
-task-consent rendering, and `eddsa-jcs-2022` signing behavior.
+surface. A minimal same-origin browser-agent surface in ONEComputer Web will
+reuse the official browser agent's distinct `did:key` approver identity,
+WebAuthn PRF-wrapped Ed25519 key, task-consent rendering, and
+`eddsa-jcs-2022` signing behavior.
 
 The browser agent will:
 
@@ -27,7 +28,7 @@ The transport credential identifies the enrolled channel and controls inbox
 access. It is not approval authority. Control accepts an approval only after
 independently verifying the decision proof and all live operation bindings.
 
-## Why not deploy the complete browser VTA wallet first
+## Why not deploy the complete browser VTA wallet or extension first
 
 The upstream browser extension is a broad VTA wallet. It expects VTA onboarding,
 DIDComm key agreement, an Affinidi mediator, VTA ACLs, and a full VTA task
@@ -35,9 +36,11 @@ dispatcher. Its manifest also requests capabilities needed by its wider wallet
 and relying-party features, including all-site content scripts, cookies, tabs,
 and unrestricted host access.
 
-Issue 009 needs only a physically separate approval agent. Deploying the full
-wallet and a VTA would add unrelated authority and still would not let Control
-verify and consume the signed decision for an externally executed task.
+Issue 009 needs only a device-bound approval agent that is separate from the
+requesting sandbox agent. Hosting the narrow agent at ONEComputer's authenticated
+Web origin avoids extension cookie/tab/content-script authority. Deploying the
+full wallet and a VTA would add unrelated authority and still would not let
+Control verify and consume the signed decision for an externally executed task.
 
 ## Compatibility boundary
 
@@ -54,10 +57,10 @@ This is an external-executor profile, not a new approval protocol:
 
 ## Security constraints
 
-- The extension receives no Microsoft token, LiteLLM key, PostgreSQL access, or
+- The browser agent receives no Microsoft token, LiteLLM key, PostgreSQL access, or
   raw operation payload.
-- The manifest must use only the Control origin required for the qualification;
-  it must not inherit the upstream wallet's all-site/cookie permissions.
+- The browser agent runs only in the authenticated ONEComputer Web origin and
+  requests no extension, all-site, cookie, or tab permissions.
 - Transport token hashes, enrollment status, delivery attempts, task expiry,
   verified decisions, leases, and receipts are durable Control data.
 - Revocation, expiry, wrong recipient, proof failure, or task mutation must fail

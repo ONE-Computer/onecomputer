@@ -40,6 +40,9 @@ type CapabilityDefinition = {
   capabilityId: string;
   schemaId: string;
   schemaHash: string;
+  displayName: string;
+  description: string;
+  risk: "read" | "write";
   mode: "allow" | "approval_required";
   parse: (argumentsValue: OwnedJson) => Record<string, OwnedJson>;
 };
@@ -47,23 +50,29 @@ type CapabilityDefinition = {
 const definition = (
   capabilityId: string,
   schemaId: string,
+  displayName: string,
+  description: string,
+  risk: CapabilityDefinition["risk"],
   mode: CapabilityDefinition["mode"],
   schema: z.ZodType<Record<string, OwnedJson>>,
 ): CapabilityDefinition => ({
   capabilityId,
   schemaId,
+  displayName,
+  description,
+  risk,
   schemaHash: createHash("sha256").update(canonicalJson({ schemaId, jsonSchema: z.toJSONSchema(schema) })).digest("hex"),
   mode,
   parse: (value) => schema.parse(value),
 });
 
 export const m365CapabilityDefinitions = {
-  "list-mail-folders": definition("m365.mail-folders.list", "onecomputer.m365.list-mail-folders.v1", "allow", boundedListArguments),
-  "list-calendars": definition("m365.calendars.list", "onecomputer.m365.list-calendars.v1", "allow", boundedListArguments),
-  "list-drives": definition("m365.drives.list", "onecomputer.m365.list-drives.v1", "allow", boundedListArguments),
-  "search-onedrive-files": definition("m365.files.search", "onecomputer.m365.search-onedrive-files.v1", "allow", boundedDriveSearchArguments),
-  "get-drive-item": definition("m365.files.metadata.get", "onecomputer.m365.get-drive-item.v1", "allow", driveItemMetadataArguments),
-  "delete-onedrive-file": definition("onedrive-delete-protected", "onecomputer.m365.delete-onedrive-file.v1", "approval_required", deleteRequestArguments),
+  "list-mail-folders": definition("m365.mail-folders.list", "onecomputer.m365.list-mail-folders.v1", "List Outlook folders", "View the signed-in user's Outlook mail folders.", "read", "allow", boundedListArguments),
+  "list-calendars": definition("m365.calendars.list", "onecomputer.m365.list-calendars.v1", "List calendars", "View the signed-in user's Outlook calendars.", "read", "allow", boundedListArguments),
+  "list-drives": definition("m365.drives.list", "onecomputer.m365.list-drives.v1", "List OneDrive drives", "View the user's available OneDrive drives.", "read", "allow", boundedListArguments),
+  "search-onedrive-files": definition("m365.files.search", "onecomputer.m365.search-onedrive-files.v1", "Search OneDrive", "Search file names and metadata in an assigned drive.", "read", "allow", boundedDriveSearchArguments),
+  "get-drive-item": definition("m365.files.metadata.get", "onecomputer.m365.get-drive-item.v1", "Read OneDrive metadata", "Read the name, location, and current eTag of one file.", "read", "allow", driveItemMetadataArguments),
+  "delete-onedrive-file": definition("onedrive-delete-protected", "onecomputer.m365.delete-onedrive-file.v1", "Delete OneDrive file", "Delete the exact file version identified by its eTag.", "write", "approval_required", deleteRequestArguments),
 } as const satisfies Record<string, CapabilityDefinition>;
 
 export const m365LiteLlmServerId = createHash("sha256")
@@ -147,7 +156,10 @@ export class McpPolicyService {
       return denied("MCP_ARGUMENTS_OUT_OF_POLICY", capability);
     }
 
-    if (capability.mode === "allow") return {
+    const policyDecision = runtime.toolPolicies[request.toolName];
+    if (!policyDecision) return denied("MCP_TOOL_NOT_ASSIGNED", capability);
+    if (policyDecision === "deny") return denied("MCP_TOOL_BLOCKED_BY_POLICY", capability);
+    if (policyDecision === "allow") return {
       schemaVersion: 1,
       decision: "allow",
       code: "MCP_BOUNDED_READ_ALLOWED",
@@ -157,10 +169,20 @@ export class McpPolicyService {
       operationId: null,
     };
 
-    const operation = await this.operations.createMicrosoft365Delete(
+    const executionArguments: Record<string, OwnedJson> = request.toolName === "delete-onedrive-file"
+      ? { ...canonicalArguments, confirm: true, excludeResponse: true }
+      : canonicalArguments;
+    const operation = await this.operations.createMicrosoft365Operation(
       identity,
       request.workspaceId,
-      canonicalArguments as { driveId: string; driveItemId: string; "If-Match": string },
+      {
+        capabilityId: capability.capabilityId,
+        schemaId: capability.schemaId,
+        serverName: request.serverName,
+        toolName: request.toolName,
+        arguments: executionArguments,
+        displayName: capability.displayName,
+      },
       runtime.agentId,
       { policyVersionId: runtime.policyVersionId, policyHash: runtime.policyHash },
       createHash("sha256").update(canonicalJson({

@@ -36,6 +36,14 @@ test("effective policy projects to the one approved workspace runtime", () => {
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_ms365",
     allowedTools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"],
+    toolPolicies: {
+      "list-mail-folders": "allow",
+      "list-calendars": "allow",
+      "list-drives": "allow",
+      "search-onedrive-files": "allow",
+      "get-drive-item": "allow",
+      "delete-onedrive-file": "approval_required",
+    },
   });
 });
 

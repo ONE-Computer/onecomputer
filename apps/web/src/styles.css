@@ -1845,12 +1845,62 @@ summary:focus-visible {
 .admin-user-copy span { width: fit-content; padding: 3px 8px; border-radius: 999px; background: #eef3f8; color: #244a73; font-size: 12px; }
 .compact-button { min-width: 150px; min-height: 44px; }
 
+.tool-policy-card {
+  margin-top: 28px;
+  padding: 28px;
+  border: 1px solid #dededb;
+  border-radius: 8px;
+  background: #fff;
+}
+.tool-policy-heading,
+.tool-policy-actions { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.tool-policy-heading p { margin: 0 0 5px; color: #5d6670; font-size: 13px; }
+.tool-policy-heading h2 { margin: 0; color: #0d1a2b; font-size: 24px; }
+.tool-policy-heading > span { color: #68727d; font-size: 13px; }
+.tool-policy-intro { max-width: 780px; margin: 14px 0 24px; color: #5d6670; line-height: 1.55; }
+.tool-policy-list { border-top: 1px solid #e2e2df; }
+.tool-policy-list label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  align-items: center;
+  gap: 24px;
+  min-height: 104px;
+  border-bottom: 1px solid #e2e2df;
+}
+.tool-policy-list label > span { display: grid; gap: 5px; }
+.tool-policy-list small { color: #68727d; }
+.tool-policy-list code { width: fit-content; color: #39536e; font-size: 12px; }
+.tool-policy-list select {
+  min-height: 44px;
+  padding: 0 38px 0 13px;
+  border: 1px solid #8b98a7;
+  border-radius: 4px;
+  background: #fff;
+  color: #172334;
+  font: inherit;
+}
+.tool-policy-actions { padding-top: 24px; }
+.tool-policy-actions > span { display: flex; align-items: center; gap: 9px; color: #4e5f70; font-size: 13px; }
+.tool-policy-actions svg { flex: 0 0 auto; color: #0b4a8f; }
+
+.audit-trail { margin: 20px 0; padding: 18px; border: 1px solid #d9e1e8; border-radius: 6px; background: #f8fafc; }
+.audit-trail > strong { color: #172334; }
+.audit-trail ol { display: grid; gap: 0; margin: 14px 0 0; padding: 0; list-style: none; }
+.audit-trail li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 11px 0; border-top: 1px solid #e0e6ec; }
+.audit-trail li span { text-transform: capitalize; font-weight: 600; }
+.audit-trail li small { color: #68727d; }
+.audit-trail li code { grid-column: 1 / -1; color: #4e647a; font-size: 11px; }
+
 @media (max-width: 700px) {
   .signin-screen { padding: 16px; }
   .signin-card { padding: 30px 24px; }
   .signin-brand { margin-bottom: 38px; }
   .admin-toolbar { align-items: stretch; flex-direction: column; }
   .admin-user-list article { grid-template-columns: 1fr; gap: 14px; padding: 22px 0; }
+  .tool-policy-card { padding: 22px 18px; }
+  .tool-policy-heading,
+  .tool-policy-actions { align-items: stretch; flex-direction: column; }
+  .tool-policy-list label { grid-template-columns: 1fr; gap: 14px; padding: 20px 0; }
 }
 
 @media (max-width: 760px) {

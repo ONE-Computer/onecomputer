@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
+import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { Ed25519DidKeySigner } from "@onecomputer/openvtc-adapter";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
@@ -9,8 +9,9 @@ import { FixtureApprovalAuthority, GovernedOperationService } from "./operations
 import { Microsoft365ConnectionService } from "./connections.js";
 import { HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
 import { EntraAuthenticationService, isAdministrator, testPrincipalFromHeaders } from "./auth.js";
-import { McpPolicyService } from "./mcp-policy.js";
+import { McpPolicyService, m365CapabilityDefinitions } from "./mcp-policy.js";
 import { OpenVtcApprovalCoordinator } from "./openvtc.js";
+import { AgentBridgeAuthority, type AgentBridgeIdentity } from "./agent-bridge.js";
 
 type AuthenticationBoundary = Pick<EntraAuthenticationService, "begin" | "complete" | "authenticate" | "logout">;
 
@@ -59,6 +60,7 @@ const envSchema = z.object({
   LITELLM_CREDENTIAL_SECRET: z.string().min(32).optional(),
   PUBLIC_WEB_URL: z.string().url().default("http://localhost:4174"),
   M365_AUTHORIZATION_ORIGIN: z.string().url().default("http://localhost:4311"),
+  AGENT_BRIDGE_URL: z.string().url().default("http://onecomputer-control:4100"),
   FIXTURE_APPROVAL_SECRET: z.string().min(32).default("local-disabled-fixture-approval-secret-32-chars"),
   OPENVTC_EXECUTOR_PRIVATE_KEY_B64: z.string().min(1).optional(),
   ENTRA_TENANT_ID: z.string().min(1),
@@ -84,7 +86,7 @@ export function createControlServer(
   proxyToken: string,
   gateway?: GatewayClient & Partial<GovernedToolExecutor>,
   fixtureApprovalSecret = "local-test-fixture-approval-secret-32-characters",
-  connectionOptions: { publicWebUrl?: string; authorizationOrigin?: string } = {},
+  connectionOptions: { publicWebUrl?: string; authorizationOrigin?: string; agentBridgeUrl?: string } = {},
   security: {
     authentication?: AuthenticationBoundary;
     identityPolicyStore?: IdentityPolicyStore;
@@ -105,6 +107,7 @@ export function createControlServer(
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_fixture",
     allowedTools: ["search_files"],
+    toolPolicies: { search_files: "allow" },
   };
   const app = Fastify({
     logger: { redact: ["req.headers.x-onecomputer-proxy-token", "req.headers.x-onecomputer-mcp-policy-token", "req.headers.authorization", "req.body", "*.arguments", "*.launchUrl"] },
@@ -113,7 +116,11 @@ export function createControlServer(
     }),
     bodyLimit: 32 * 1024,
   });
-  const service = new WorkspaceService(store, controller, gateway);
+  const agentBridgeAuthority = new AgentBridgeAuthority(security.mcpPolicyToken ?? proxyToken);
+  const service = new WorkspaceService(store, controller, gateway, {
+    baseUrl: connectionOptions.agentBridgeUrl ?? "http://onecomputer-control:4100",
+    issue: (identity, workspaceId, policy) => agentBridgeAuthority.issue(identity, workspaceId, policy),
+  });
   const executor: GovernedToolExecutor = gateway?.executeGovernedTool
     ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
     : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
@@ -138,10 +145,19 @@ export function createControlServer(
     throw new Error("Control requires Entra authentication; test identity mode must be enabled explicitly in tests");
   }
   const principals = new WeakMap<object, SessionPrincipal>();
+  const agentPrincipals = new WeakMap<object, AgentBridgeIdentity>();
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/healthz") return;
     if (request.url === "/v1/openvtc/inbox" || request.url === "/trust-tasks") return;
+    if (request.url.startsWith("/internal/v1/agent/operations/")) {
+      const authorization = request.headers.authorization;
+      const value = Array.isArray(authorization) ? authorization[0] : authorization;
+      const match = typeof value === "string" ? /^Bearer (.+)$/.exec(value) : null;
+      if (!match) return reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "Agent bridge authentication is required", correlationId: request.id, retryable: false } });
+      agentPrincipals.set(request, agentBridgeAuthority.verify(match[1]!));
+      return;
+    }
     if (request.url === "/internal/v1/mcp/authorize") {
       if (!sameSecret(request.headers["x-onecomputer-mcp-policy-token"] as string | undefined, security.mcpPolicyToken ?? proxyToken)) {
         return reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "Internal policy authentication is required", correlationId: request.id, retryable: false } });
@@ -201,6 +217,15 @@ export function createControlServer(
     if (!mcpPolicy) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "MCP policy storage is unavailable", 503, true);
     return mcpPolicy.authorize(mcpPolicyRequestSchema.parse(request.body ?? {}), request.id);
   });
+  app.get<{ Params: { operationId: string } }>("/internal/v1/agent/operations/:operationId", async (request) => {
+    const actor = agentPrincipals.get(request);
+    if (!actor) throw new OneComputerError("UNAUTHENTICATED", "Agent bridge authentication is required", 401);
+    return operations.getForAgent(
+      { tenantId: actor.tenantId, subjectId: actor.subjectId, audience: "onecomputer-control" },
+      request.params.operationId,
+      { workspaceId: actor.workspaceId, agentId: actor.agentId, policyHash: actor.policyHash },
+    );
+  });
   app.get<{ Querystring: { return?: string } }>("/v1/auth/login", async (request, reply) => {
     if (!security.authentication) throw new OneComputerError("AUTH_NOT_CONFIGURED", "Microsoft sign-in is not configured", 503);
     const started = await security.authentication.begin(request.query.return);
@@ -258,6 +283,33 @@ export function createControlServer(
     if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
     const note = z.object({ revisionNote: z.string().min(3).max(160) }).parse(request.body ?? {});
     return security.identityPolicyStore.createMvpPolicyVersion({ tenantId: actor.tenantId, createdBy: actor.userId, revisionNote: note.revisionNote });
+  });
+  app.get("/v1/admin/mcp-policy", async (request) => {
+    const actor = requireAdministrator(request);
+    if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
+    const users = await security.identityPolicyStore.listUsers(actor.tenantId);
+    const effective = users.map((user) => user.effectivePolicy).find(Boolean) ?? null;
+    const runtime = effective ? runtimePolicyFor(effective) : null;
+    return {
+      serverName: "onecomputer_ms365",
+      version: effective?.version ?? 1,
+      documentHash: effective?.documentHash ?? "0".repeat(64),
+      tools: Object.entries(m365CapabilityDefinitions).map(([name, definition]) => ({
+        name,
+        displayName: definition.displayName,
+        description: definition.description,
+        risk: definition.risk,
+        decision: runtime?.toolPolicies[name] ?? definition.mode,
+      })),
+    };
+  });
+  app.put("/v1/admin/mcp-policy", async (request) => {
+    const actor = requireAdministrator(request);
+    if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
+    const input = saveMcpToolPolicySchema.parse(request.body ?? {});
+    const expected = Object.keys(m365CapabilityDefinitions).sort();
+    if (Object.keys(input.tools).sort().join("\0") !== expected.join("\0")) throw new OneComputerError("INVALID_TOOL_POLICY", "A decision is required for every assigned Microsoft 365 tool", 400);
+    return security.identityPolicyStore.updateMvpToolPolicy({ tenantId: actor.tenantId, updatedBy: actor.userId, tools: input.tools });
   });
   app.get("/v1/connections/microsoft-365", async (request) => requireConnections().status(identity(request)));
   app.get("/v1/connections/microsoft-365/authorize", async (request, reply) => {
@@ -389,6 +441,10 @@ export function createControlServer(
     const operation = await operations.recent(identity(request));
     return operation ? reply.send(operation) : reply.code(204).send();
   });
+  app.get("/v1/operations", async (request) => {
+    await requirePolicy(request);
+    return { operations: await operations.history(identity(request)) };
+  });
   app.post("/v1/operations/delete-file", async (request, reply) => {
     const input = createDeleteFileOperationSchema.parse(request.body ?? {});
     await requirePolicy(request);
@@ -396,6 +452,7 @@ export function createControlServer(
     return reply.code(201).send(operation);
   });
   app.get<{ Params: { operationId: string } }>("/v1/operations/:operationId", async (request) => { await requirePolicy(request); return operations.get(identity(request), request.params.operationId); });
+  app.get<{ Params: { operationId: string } }>("/v1/operations/:operationId/audit", async (request) => { await requirePolicy(request); return operations.audit(identity(request), request.params.operationId); });
   app.post<{ Params: { operationId: string } }>("/v1/operations/:operationId/fixture-decision", async (request) => {
     idempotency(request.headers);
     const input = fixtureApprovalSchema.parse(request.body ?? {});
@@ -437,7 +494,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     env.WEB_PROXY_TOKEN,
     gateway,
     env.FIXTURE_APPROVAL_SECRET,
-    { publicWebUrl: env.PUBLIC_WEB_URL, authorizationOrigin: env.M365_AUTHORIZATION_ORIGIN },
+    { publicWebUrl: env.PUBLIC_WEB_URL, authorizationOrigin: env.M365_AUTHORIZATION_ORIGIN, agentBridgeUrl: env.AGENT_BRIDGE_URL },
     {
       identityPolicyStore,
       mcpPolicyToken: env.CONTROLLER_INTERNAL_TOKEN,

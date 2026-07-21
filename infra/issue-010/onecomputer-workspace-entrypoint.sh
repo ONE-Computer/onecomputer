@@ -4,6 +4,9 @@ set -euo pipefail
 : "${ONECOMPUTER_GATEWAY_UPSTREAM:?workspace gateway upstream is required}"
 : "${ONECOMPUTER_GATEWAY_CREDENTIAL:?workspace gateway credential is required}"
 : "${ONECOMPUTER_MODEL_ALIAS:?assigned model alias is required}"
+: "${ONECOMPUTER_CONTROL_UPSTREAM:?control bridge upstream is required}"
+: "${ONECOMPUTER_AGENT_BRIDGE_TOKEN:?scoped control bridge token is required}"
+: "${ONECOMPUTER_ALLOWED_TOOLS:?assigned Microsoft 365 tools are required}"
 
 claude_code_version="2.1.215"
 claude_code_checksum="7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0"
@@ -21,12 +24,13 @@ case "$ONECOMPUTER_MODEL_ALIAS" in
 esac
 
 install -d -o root -g root -m 0755 /etc/claude-desktop /run/onecomputer
-python3 - "$ONECOMPUTER_MODEL_ALIAS" "$model_label" <<'PY'
+python3 - "$ONECOMPUTER_MODEL_ALIAS" "$model_label" "$ONECOMPUTER_ALLOWED_TOOLS" <<'PY'
 import json
 import os
 import sys
 
-model, label = sys.argv[1:]
+model, label, allowed_tools = sys.argv[1:]
+tools = [item for item in allowed_tools.split(",") if item]
 document = {
     "inferenceProvider": "gateway",
     "inferenceGatewayBaseUrl": "http://127.0.0.1:4312",
@@ -48,7 +52,15 @@ document = {
     "disableBundledSkills": True,
     "autoModeEnabled": False,
     "toolSearchEnabled": False,
-    "managedMcpServers": [],
+    "managedMcpServers": [{
+        "name": "Microsoft 365 through ONEComputer",
+        "transport": "stdio",
+        "command": "/usr/local/libexec/onecomputer-mcp-stdio",
+        "args": [],
+        # Desktop's local prompt layer is pre-approved. ONEComputer Control is
+        # the authoritative allow / signed-approval / deny policy boundary.
+        "toolPolicy": {tool: "allow" for tool in tools},
+    }],
     "isLocalDevMcpEnabled": False,
     "isDesktopExtensionEnabled": False,
 }
@@ -83,10 +95,13 @@ env -i \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   ONECOMPUTER_GATEWAY_UPSTREAM="$ONECOMPUTER_GATEWAY_UPSTREAM" \
   ONECOMPUTER_GATEWAY_CREDENTIAL="$ONECOMPUTER_GATEWAY_CREDENTIAL" \
+  ONECOMPUTER_CONTROL_UPSTREAM="$ONECOMPUTER_CONTROL_UPSTREAM" \
+  ONECOMPUTER_AGENT_BRIDGE_TOKEN="$ONECOMPUTER_AGENT_BRIDGE_TOKEN" \
   /usr/local/libexec/onecomputer-gateway-proxy &
 proxy_pid=$!
 printf '%s\n' "$proxy_pid" > /run/onecomputer/gateway-proxy.pid
-unset ONECOMPUTER_GATEWAY_CREDENTIAL ONECOMPUTER_GATEWAY_UPSTREAM
+unset ONECOMPUTER_GATEWAY_CREDENTIAL ONECOMPUTER_GATEWAY_UPSTREAM \
+  ONECOMPUTER_AGENT_BRIDGE_TOKEN ONECOMPUTER_CONTROL_UPSTREAM
 
 for _ in $(seq 1 50); do
   if curl -fsS http://127.0.0.1:4312/healthz >/dev/null; then break; fi

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
-import { OneComputerError, runtimePolicySchema, type IdentityContext, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
+import { OneComputerError, runtimePolicySchema, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
 
 export type OneComputerRole = "employee" | "administrator";
 
@@ -43,6 +43,11 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
   if (entries.length !== 1) throw new OneComputerError("POLICY_INVALID", "The active workspace policy must assign exactly one MCP server", 500);
   const [mcpServer, serverPolicy] = entries[0]!;
   const tools = (serverPolicy as Record<string, unknown>)?.tools;
+  const configuredToolPolicies = (serverPolicy as Record<string, unknown>)?.toolPolicies as Record<string, unknown> | undefined;
+  const toolPolicies = Object.fromEntries((Array.isArray(tools) ? tools : []).map((tool) => [
+    String(tool),
+    configuredToolPolicies?.[String(tool)] ?? (tool === "delete-onedrive-file" ? "approval_required" : "allow"),
+  ]));
   const modelAliases = document.modelAliases;
   const allowedModelAliases = Array.isArray(modelAliases) ? modelAliases.filter((value): value is string => typeof value === "string") : [];
   const workspaceProfiles = Array.isArray(document.workspaceProfiles)
@@ -64,6 +69,7 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
     modelAlias,
     mcpServer,
     allowedTools: tools,
+    toolPolicies,
   });
 };
 
@@ -99,6 +105,7 @@ export interface IdentityPolicyStore {
   assignMvpPolicy(input: { tenantId: string; targetUserId: string; assignedBy: string }): Promise<EffectivePolicy>;
   revokeMvpPolicy(input: { tenantId: string; targetUserId: string; revokedBy: string }): Promise<boolean>;
   createMvpPolicyVersion(input: { tenantId: string; createdBy: string; revisionNote: string }): Promise<{ id: string; version: number; documentHash: string }>;
+  updateMvpToolPolicy(input: { tenantId: string; updatedBy: string; tools: Record<string, McpToolPolicyDecision> }): Promise<{ id: string; version: number; documentHash: string }>;
   bindWorkspaceIdentity(userId: string, workspaceId: string): Promise<void>;
 }
 
@@ -114,6 +121,14 @@ const mvpPolicyDocument = (revisionNote = "Initial MVP policy") => ({
     servers: {
       onecomputer_ms365: {
         tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"],
+        toolPolicies: {
+          "list-mail-folders": "allow",
+          "list-calendars": "allow",
+          "list-drives": "allow",
+          "search-onedrive-files": "allow",
+          "get-drive-item": "allow",
+          "delete-onedrive-file": "approval_required",
+        },
       },
     },
   },
@@ -372,6 +387,73 @@ export class PostgresIdentityPolicyStore implements IdentityPolicyStore {
         "INSERT INTO policy_versions (id,policy_bundle_id,version,document,document_hash,created_by) VALUES ($1,$2,$3,$4::jsonb,$5,$6)",
         [id, bundleId, version, JSON.stringify(document), documentHash, input.createdBy],
       );
+      await client.query("COMMIT");
+      return { id, version, documentHash };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async updateMvpToolPolicy(input: { tenantId: string; updatedBy: string; tools: Record<string, McpToolPolicyDecision> }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const bundleId = mvpPolicyBundleId(input.tenantId);
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`policy-version:${bundleId}`]);
+      await this.ensurePolicyFoundation(client, input.tenantId, input.updatedBy);
+      const latest = await client.query(
+        "SELECT id,version,document FROM policy_versions WHERE policy_bundle_id=$1 ORDER BY version DESC LIMIT 1",
+        [bundleId],
+      );
+      const document = structuredClone((latest.rows[0]?.document ?? mvpPolicyDocument()) as OwnedJson) as Record<string, OwnedJson>;
+      document.revisionNote = "Updated Microsoft 365 tool approval rules";
+      const mcp = document.mcp as Record<string, OwnedJson>;
+      const servers = mcp.servers as Record<string, OwnedJson>;
+      const server = servers.onecomputer_ms365 as Record<string, OwnedJson>;
+      const assignedTools = server.tools as OwnedJson[];
+      const expected = assignedTools.map(String).sort();
+      if (Object.keys(input.tools).sort().join("\0") !== expected.join("\0")) {
+        throw new OneComputerError("INVALID_TOOL_POLICY", "A decision is required for every assigned Microsoft 365 tool", 400);
+      }
+      server.toolPolicies = input.tools;
+      const documentHash = policyHash(document);
+      const existing = await client.query(
+        "SELECT id,version FROM policy_versions WHERE policy_bundle_id=$1 AND document_hash=$2",
+        [bundleId, documentHash],
+      );
+      let id: string;
+      let version: number;
+      if (existing.rowCount) {
+        id = String(existing.rows[0].id);
+        version = Number(existing.rows[0].version);
+      } else {
+        version = Number(latest.rows[0]?.version ?? 0) + 1;
+        id = randomUUID();
+        await client.query(
+          "INSERT INTO policy_versions (id,policy_bundle_id,version,document,document_hash,created_by) VALUES ($1,$2,$3,$4::jsonb,$5,$6)",
+          [id, bundleId, version, JSON.stringify(document), documentHash, input.updatedBy],
+        );
+      }
+      const assignments = await client.query(
+        `SELECT pa.id,pa.tenant_id,pa.user_id,pa.agent_id,pa.workspace_identity_id
+         FROM policy_assignments pa JOIN policy_versions pv ON pv.id=pa.policy_version_id
+         WHERE pa.tenant_id=$1 AND pv.policy_bundle_id=$2 AND pa.revoked_at IS NULL FOR UPDATE`,
+        [input.tenantId, bundleId],
+      );
+      for (const assignment of assignments.rows) {
+        await client.query("UPDATE policy_assignments SET revoked_at=now(),revoked_by=$2 WHERE id=$1", [assignment.id, input.updatedBy]);
+        const replacementId = randomUUID();
+        await client.query(
+          `INSERT INTO policy_assignments (id,tenant_id,user_id,agent_id,workspace_identity_id,policy_version_id,assigned_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [replacementId, assignment.tenant_id, assignment.user_id, assignment.agent_id, assignment.workspace_identity_id, id, input.updatedBy],
+        );
+        await client.query(
+          "INSERT INTO capability_assignments (policy_assignment_id,capability_id) SELECT $1,capability_id FROM capability_assignments WHERE policy_assignment_id=$2",
+          [replacementId, assignment.id],
+        );
+      }
       await client.query("COMMIT");
       return { id, version, documentHash };
     } catch (error) {

@@ -58,6 +58,7 @@ test("controller passes a validated scoped gateway grant to the sandbox adapter"
         modelAlias: "onecomputer-assistant",
         mcpServer: "onecomputer_ms365",
         allowedTools: ["list-mail-folders", "list-calendars", "list-drives"],
+        toolPolicies: { "list-mail-folders": "allow", "list-calendars": "allow", "list-drives": "allow" },
       },
       gateway: {
         baseUrl: "http://litellm:4000",

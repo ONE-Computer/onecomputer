@@ -11,10 +11,13 @@ from urllib.parse import urlsplit
 
 UPSTREAM = urlsplit(os.environ["ONECOMPUTER_GATEWAY_UPSTREAM"])
 CREDENTIAL = os.environ["ONECOMPUTER_GATEWAY_CREDENTIAL"]
-ALLOWED_PATHS = {"/v1/messages", "/v1/models"}
+CONTROL = urlsplit(os.environ["ONECOMPUTER_CONTROL_UPSTREAM"])
+AGENT_BRIDGE_TOKEN = os.environ["ONECOMPUTER_AGENT_BRIDGE_TOKEN"]
+ALLOWED_PATHS = {"/v1/messages", "/v1/models", "/mcp-rest/tools/list", "/mcp-rest/tools/call"}
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
 
-if UPSTREAM.scheme not in {"http", "https"} or not UPSTREAM.hostname or len(CREDENTIAL) < 24:
+if (UPSTREAM.scheme not in {"http", "https"} or not UPSTREAM.hostname or len(CREDENTIAL) < 24
+        or CONTROL.scheme not in {"http", "https"} or not CONTROL.hostname or len(AGENT_BRIDGE_TOKEN) < 24):
     raise SystemExit("invalid gateway broker configuration")
 
 
@@ -40,7 +43,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def forward(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path not in ALLOWED_PATHS:
+        operation_prefix = "/onecomputer/operations/"
+        is_operation = path.startswith(operation_prefix) and len(path) > len(operation_prefix)
+        if path not in ALLOWED_PATHS and not is_operation:
             self.send_error(403, "gateway path is not assigned")
             return
         length = int(self.headers.get("content-length", "0"))
@@ -50,13 +55,15 @@ class Handler(BaseHTTPRequestHandler):
             for key, value in self.headers.items()
             if key.lower() not in HOP_BY_HOP | {"host", "authorization", "x-api-key", "content-length"}
         }
-        headers["authorization"] = f"Bearer {CREDENTIAL}"
+        target = CONTROL if is_operation else UPSTREAM
+        headers["authorization"] = f"Bearer {AGENT_BRIDGE_TOKEN if is_operation else CREDENTIAL}"
         if body is not None:
             headers["content-length"] = str(len(body))
-        connection_class = http.client.HTTPSConnection if UPSTREAM.scheme == "https" else http.client.HTTPConnection
-        connection = connection_class(UPSTREAM.hostname, UPSTREAM.port, timeout=65)
+        connection_class = http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection
+        connection = connection_class(target.hostname, target.port, timeout=65)
         try:
-            upstream_path = f"{UPSTREAM.path.rstrip('/')}{self.path}"
+            upstream_path = (f"{target.path.rstrip('/')}/internal/v1/agent/operations/{path.removeprefix(operation_prefix)}"
+                             if is_operation else f"{target.path.rstrip('/')}{self.path}")
             connection.request(self.command, upstream_path, body=body, headers=headers)
             response = connection.getresponse()
             self.send_response(response.status)

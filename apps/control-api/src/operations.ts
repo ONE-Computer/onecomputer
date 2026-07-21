@@ -46,8 +46,13 @@ export class FixtureApprovalAuthority {
 const toView = (record: GovernedOperationRecord): OperationView => ({
   id: record.id,
   workspaceId: record.workspaceId,
+  agentId: record.agentId,
+  policyVersionId: record.policyVersionId,
+  policyHash: record.policyHash,
+  serverName: record.serverName,
+  toolName: record.toolName,
   state: record.state,
-  action: "Delete file",
+  action: record.toolName === "delete-onedrive-file" || record.toolName === "delete_file" ? "Delete file" : record.safeSummary,
   resourceName: record.resourceName,
   resourceLocation: record.resourceLocation,
   safeSummary: record.safeSummary,
@@ -148,6 +153,38 @@ export class GovernedOperationService {
     idempotencyKey: string,
     correlationId: string,
   ) {
+    return this.createMicrosoft365Operation(identity, workspaceId, {
+      capabilityId: "onedrive-delete-protected",
+      serverName: "onecomputer_ms365",
+      toolName: "delete-onedrive-file",
+      schemaId: "onecomputer.m365.delete-onedrive-file.v1",
+      arguments: {
+        "If-Match": input["If-Match"],
+        confirm: true,
+        driveId: input.driveId,
+        driveItemId: input.driveItemId,
+        excludeResponse: true,
+      },
+      displayName: "Delete OneDrive file",
+    }, agentId, policy, idempotencyKey, correlationId);
+  }
+
+  async createMicrosoft365Operation(
+    identity: IdentityContext,
+    workspaceId: string,
+    input: {
+      capabilityId: string;
+      serverName: string;
+      toolName: string;
+      schemaId: string;
+      arguments: Record<string, OwnedJson>;
+      displayName: string;
+    },
+    agentId: string,
+    policy: { policyVersionId: string; policyHash: string },
+    idempotencyKey: string,
+    correlationId: string,
+  ) {
     const workspace = await this.store.getOwned(identity, workspaceId);
     if (!workspace) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
     if (!["ready", "open"].includes(workspace.state)) throw new OneComputerError("WORKSPACE_NOT_READY", "The workspace is not ready for governed actions", 409, true);
@@ -156,13 +193,7 @@ export class GovernedOperationService {
     const expiresAt = new Date(now.getTime() + this.operationTtlMs);
     const operationId = randomUUID();
     const nonce = randomUUID();
-    const argumentsValue: OwnedJson = {
-      "If-Match": input["If-Match"],
-      confirm: true,
-      driveId: input.driveId,
-      driveItemId: input.driveItemId,
-      excludeResponse: true,
-    };
+    const argumentsValue: OwnedJson = input.arguments;
     const operationEnvelope: GovernedOperationEnvelope = {
       version: "1",
       tenantId: identity.tenantId,
@@ -170,10 +201,10 @@ export class GovernedOperationService {
       workspaceId,
       agentId,
       audience: identity.audience,
-      capabilityId: "onedrive-delete-protected",
-      serverName: "onecomputer_ms365",
-      toolName: "delete-onedrive-file",
-      schemaId: "onecomputer.m365.delete-onedrive-file.v1",
+      capabilityId: input.capabilityId,
+      serverName: input.serverName,
+      toolName: input.toolName,
+      schemaId: input.schemaId,
       arguments: argumentsValue,
       policyVersionId: policy.policyVersionId,
       policyHash: policy.policyHash,
@@ -181,13 +212,17 @@ export class GovernedOperationService {
       expiresAt: expiresAt.toISOString(),
     };
     const operationDigest = governedOperationDigest(operationEnvelope);
-    const shortItem = input.driveItemId.length > 20 ? `${input.driveItemId.slice(0, 8)}…${input.driveItemId.slice(-8)}` : input.driveItemId;
-    const shortDrive = input.driveId.length > 20 ? `${input.driveId.slice(0, 8)}…${input.driveId.slice(-8)}` : input.driveId;
+    const driveItemId = typeof input.arguments.driveItemId === "string" ? input.arguments.driveItemId : null;
+    const driveId = typeof input.arguments.driveId === "string" ? input.arguments.driveId : null;
+    const shortItem = driveItemId ? (driveItemId.length > 20 ? `${driveItemId.slice(0, 8)}…${driveItemId.slice(-8)}` : driveItemId) : input.toolName;
+    const shortDrive = driveId ? (driveId.length > 20 ? `${driveId.slice(0, 8)}…${driveId.slice(-8)}` : driveId) : "Microsoft 365";
     const record = await this.store.createGovernedOperation({
       id: operationId,
       identity,
       workspaceId,
       agentId,
+      policyVersionId: policy.policyVersionId,
+      policyHash: policy.policyHash,
       capabilityId: operationEnvelope.capabilityId,
       serverName: operationEnvelope.serverName,
       toolName: operationEnvelope.toolName,
@@ -195,9 +230,9 @@ export class GovernedOperationService {
       arguments: operationEnvelope.arguments,
       operationDigest,
       nonce,
-      safeSummary: `Delete OneDrive item ${shortItem}`,
+      safeSummary: input.toolName === "delete-onedrive-file" ? `Delete OneDrive item ${shortItem}` : input.displayName,
       resourceName: shortItem,
-      resourceLocation: `OneDrive drive ${shortDrive}`,
+      resourceLocation: driveId ? `OneDrive drive ${shortDrive}` : "Microsoft 365",
       correlationId,
       idempotencyKey,
       createdAt: now,
@@ -217,10 +252,42 @@ export class GovernedOperationService {
     return toView(record);
   }
 
+  async getForAgent(identity: IdentityContext, operationId: string, binding: { workspaceId: string; agentId: string; policyHash: string }) {
+    const record = await this.store.recoverOperation(identity, operationId, new Date(), "agent-operation-read");
+    if (!record || record.workspaceId !== binding.workspaceId || record.agentId !== binding.agentId || record.policyHash !== binding.policyHash) {
+      throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
+    }
+    return toView(record);
+  }
+
   async recent(identity: IdentityContext) {
     const record = await this.store.getRecentOperation(identity);
     if (!record) return null;
     return toView(await this.store.recoverOperation(identity, record.id, new Date(), "operation-recent") ?? record);
+  }
+
+  async history(identity: IdentityContext, limit = 25) {
+    const recent = this.store.listOwnedOperations ? null : await this.store.getRecentOperation(identity);
+    const records = this.store.listOwnedOperations
+      ? await this.store.listOwnedOperations(identity, Math.max(1, Math.min(limit, 50)))
+      : recent ? [recent] : [];
+    return Promise.all(records.map(async (record) => toView(
+      await this.store.recoverOperation(identity, record.id, new Date(), "operation-history") ?? record,
+    )));
+  }
+
+  async audit(identity: IdentityContext, operationId: string) {
+    const operation = await this.get(identity, operationId);
+    const events = this.store.getOperationEvents ? await this.store.getOperationEvents(identity, operationId) : [];
+    return {
+      operation,
+      events: events.map((event) => ({
+        eventType: event.eventType,
+        correlationId: event.correlationId,
+        safeDetail: event.safeDetail,
+        createdAt: event.createdAt.toISOString(),
+      })),
+    };
   }
 
   async decideWithFixture(identity: IdentityContext, operationId: string, decision: "approve" | "deny", correlationId: string) {

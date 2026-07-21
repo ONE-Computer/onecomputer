@@ -1,6 +1,6 @@
 # 011: connect the real agent to governed Microsoft 365 tools
 
-Status: `blocked`
+Status: `verification`
 
 Gate: J
 Depends on: 010
@@ -71,4 +71,12 @@ negative matrix, and safe screenshots.
 
 ## Completion record
 
-Not complete. Blocked on Issue 010.
+Implementation completed on 2026-07-22. Claude Desktop receives a managed,
+credentialless stdio MCP server containing only the policy-assigned Microsoft
+365 tools. Its loopback broker holds the scoped LiteLLM and Control bridge
+grants, so neither Microsoft OAuth material nor a gateway credential enters
+the agent process. A protected call remains open while the connector polls the
+exact governed operation and returns only its terminal execution receipt.
+Automated identity, tool-policy, mutation, lease, replay, and wait/resume tests
+pass. Awaiting the human natural-language Mail/Calendar/OneDrive and protected
+delete pass in the rebuilt workspace image.

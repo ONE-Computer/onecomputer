@@ -1,6 +1,6 @@
 # 010: launch a configurable real conversational agent workspace
 
-Status: `verification`
+Status: `complete`
 
 Gate: I
 Depends on: 009 implementation checkpoint
@@ -86,7 +86,6 @@ network bypass matrix, lifecycle persistence result, screenshots, and cleanup.
 Implementation and automated qualification completed on 2026-07-21. Claude
 Desktop Linux is pinned and launches under a root-managed gateway policy; all
 three LiteLLM aliases passed normal and streaming Anthropic Messages requests.
-The local user is assigned immutable policy version 5. Awaiting the human
-product/lifecycle review recorded in
-`infra/issue-010/qualification-2026-07-21.md`; do not begin Issue 011 before the
-review is accepted.
+The local user is assigned immutable policy version 5. The product owner
+accepted the functional UI and model-routing review and explicitly authorized
+Issues 011–013 to proceed together for the demo journey.

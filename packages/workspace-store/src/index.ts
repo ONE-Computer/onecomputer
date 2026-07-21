@@ -33,6 +33,8 @@ export type GovernedOperationRecord = {
   subjectId: string;
   workspaceId: string;
   agentId: string | null;
+  policyVersionId: string | null;
+  policyHash: string | null;
   capabilityId: string;
   serverName: string;
   toolName: string;
@@ -58,10 +60,12 @@ export type GovernedOperationRecord = {
 };
 
 export type CreateGovernedOperationRecord = Omit<GovernedOperationRecord,
-  "tenantId" | "subjectId" | "agentId" | "state" | "policyDecision" | "leaseId" | "leaseExpiresAt" | "dispatchStartedAt" | "failureCode" | "createdAt" | "updatedAt" | "approval" | "receipt"
+  "tenantId" | "subjectId" | "agentId" | "policyVersionId" | "policyHash" | "state" | "policyDecision" | "leaseId" | "leaseExpiresAt" | "dispatchStartedAt" | "failureCode" | "createdAt" | "updatedAt" | "approval" | "receipt"
 > & {
   identity: IdentityContext;
   agentId?: string;
+  policyVersionId?: string;
+  policyHash?: string;
   idempotencyKey: string;
   createdAt: Date;
 };
@@ -194,6 +198,13 @@ export interface GovernanceStore {
   completeExecution(identity: IdentityContext, operationId: string, leaseId: string, receipt: { id: string; upstreamReference: string; resultSummary: string; resultHash: string; executedAt: Date }, correlationId: string): Promise<GovernedOperationRecord | null>;
   failExecution(identity: IdentityContext, operationId: string, leaseId: string, failureCode: string, correlationId: string): Promise<GovernedOperationRecord | null>;
   recoverOperation(identity: IdentityContext, operationId: string, now: Date, correlationId: string): Promise<GovernedOperationRecord | null>;
+  listOwnedOperations?(identity: IdentityContext, limit: number): Promise<GovernedOperationRecord[]>;
+  getOperationEvents?(identity: IdentityContext, operationId: string): Promise<Array<{
+    eventType: string;
+    correlationId: string;
+    safeDetail: OwnedJson;
+    createdAt: Date;
+  }>>;
 }
 
 export interface WorkspaceStore {
@@ -244,6 +255,8 @@ const mapOperationRow = (row: Record<string, unknown>): GovernedOperationRecord 
   subjectId: String(row.subject_id),
   workspaceId: String(row.workspace_id),
   agentId: row.agent_id ? String(row.agent_id) : null,
+  policyVersionId: row.policy_version_id ? String(row.policy_version_id) : null,
+  policyHash: row.policy_hash ? String(row.policy_hash) : null,
   capabilityId: String(row.capability_id),
   serverName: String(row.server_name),
   toolName: String(row.tool_name),
@@ -330,7 +343,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql", "009_operation_policy_binding.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
@@ -459,12 +472,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
       }
       await client.query(
         `INSERT INTO governed_operations (
-          id,tenant_id,subject_id,workspace_id,agent_id,capability_id,server_name,tool_name,schema_id,arguments_json,
+          id,tenant_id,subject_id,workspace_id,agent_id,policy_version_id,policy_hash,capability_id,server_name,tool_name,schema_id,arguments_json,
           operation_digest,nonce,state,policy_decision,safe_summary,resource_name,resource_location,
           idempotency_key,correlation_id,created_at,updated_at,expires_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,'approval_required','approval_required',$13,$14,$15,$16,$17,$18,$18,$19)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,'approval_required','approval_required',$15,$16,$17,$18,$19,$20,$20,$21)`,
         [
-          input.id, input.identity.tenantId, input.identity.subjectId, input.workspaceId, input.agentId ?? null, input.capabilityId,
+          input.id, input.identity.tenantId, input.identity.subjectId, input.workspaceId, input.agentId ?? null,
+          input.policyVersionId ?? null, input.policyHash ?? null, input.capabilityId,
           input.serverName, input.toolName, input.schemaId, JSON.stringify(input.arguments), input.operationDigest,
           input.nonce, input.safeSummary, input.resourceName, input.resourceLocation, input.idempotencyKey,
           input.correlationId, input.createdAt, input.expiresAt,
@@ -472,7 +486,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
       );
       await client.query(
         "INSERT INTO governed_operation_events (operation_id,tenant_id,event_type,correlation_id,safe_detail) VALUES ($1,$2,'approval_required',$3,$4::jsonb)",
-        [input.id, input.identity.tenantId, input.correlationId, JSON.stringify({ capabilityId: input.capabilityId, toolName: input.toolName })],
+        [input.id, input.identity.tenantId, input.correlationId, JSON.stringify({
+          capabilityId: input.capabilityId,
+          toolName: input.toolName,
+          agentId: input.agentId ?? null,
+          policyVersionId: input.policyVersionId ?? null,
+          policyHash: input.policyHash ?? null,
+        })],
       );
       await client.query("COMMIT");
       return this.getOwnedOperation(input.identity, input.id);
@@ -498,6 +518,29 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
       [identity.tenantId, identity.subjectId],
     );
     return result.rowCount ? mapOperationRow(result.rows[0]) : null;
+  }
+
+  async listOwnedOperations(identity: IdentityContext, limit: number) {
+    const result = await this.pool.query(
+      `${operationSelect} WHERE o.tenant_id=$1 AND o.subject_id=$2 ORDER BY o.created_at DESC LIMIT $3`,
+      [identity.tenantId, identity.subjectId, limit],
+    );
+    return result.rows.map(mapOperationRow);
+  }
+
+  async getOperationEvents(identity: IdentityContext, operationId: string) {
+    const result = await this.pool.query(
+      `SELECT e.event_type,e.correlation_id,e.safe_detail,e.created_at
+       FROM governed_operation_events e JOIN governed_operations o ON o.id=e.operation_id
+       WHERE e.operation_id=$1 AND o.tenant_id=$2 AND o.subject_id=$3 ORDER BY e.created_at ASC,e.id ASC`,
+      [operationId, identity.tenantId, identity.subjectId],
+    );
+    return result.rows.map((row) => ({
+      eventType: String(row.event_type),
+      correlationId: String(row.correlation_id),
+      safeDetail: row.safe_detail as OwnedJson,
+      createdAt: new Date(String(row.created_at)),
+    }));
   }
 
   async recordApproval(input: ApprovalRecordInput) {
@@ -982,6 +1025,8 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
       subjectId: input.identity.subjectId,
       workspaceId: input.workspaceId,
       agentId: input.agentId ?? null,
+      policyVersionId: input.policyVersionId ?? null,
+      policyHash: input.policyHash ?? null,
       capabilityId: input.capabilityId,
       serverName: input.serverName,
       toolName: input.toolName,

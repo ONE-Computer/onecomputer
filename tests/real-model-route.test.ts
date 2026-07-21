@@ -51,6 +51,9 @@ test("Claude Desktop is pinned and receives managed gateway policy rather than p
   assert.match(entrypoint, /"isLocalDevMcpEnabled": False/);
   assert.match(entrypoint, /"isDesktopExtensionEnabled": False/);
   assert.match(entrypoint, /claude-sonnet-4-5/);
-  assert.match(proxy, /ALLOWED_PATHS = \{"\/v1\/messages", "\/v1\/models"\}/);
+  assert.match(proxy, /"\/v1\/messages"/);
+  assert.match(proxy, /"\/mcp-rest\/tools\/call"/);
+  assert.match(entrypoint, /"managedMcpServers"/);
+  assert.match(entrypoint, /onecomputer-mcp-stdio/);
   assert.doesNotMatch(`${dockerfile}\n${entrypoint}\n${proxy}`, /ONECOMPUTER_(?:OPENAI|CLAUDE|GLM)_API_KEY|LITELLM_MASTER_KEY/);
 });

@@ -18,6 +18,10 @@ export type SandboxCreateInput = {
     modelAlias: string;
     expiresAt: string;
   };
+  agentBridge?: {
+    baseUrl: string;
+    token: string;
+  };
 };
 
 type KasmConfig = {
@@ -120,6 +124,7 @@ type KasmLocalConfig = {
   networkPrefix: string;
   controlNetwork: string;
   gatewayContainer: string;
+  controlContainer?: string;
   relayImage: string;
   publicHost?: string;
   portStart?: number;
@@ -139,6 +144,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     await this.ensureVolume(workspaceVolume, input.workspaceId);
     await this.ensureNetwork(this.config.controlNetwork, false);
     if (input.gateway) await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
+    if (input.agentBridge && this.config.controlContainer) await this.connectContainer(workspaceNetwork, this.config.controlContainer, ["onecomputer-control"]);
     const name = `onecomputer-v4-sandbox-${input.workspaceId}`;
     const existing = await this.inspectByName(name);
     if (existing?.running) {
@@ -175,6 +181,11 @@ export class KasmLocalAdapter implements SandboxAdapter {
           `ONECOMPUTER_POLICY_HASH=${input.policy.policyHash}`,
           `ONECOMPUTER_MCP_SERVER=${input.policy.mcpServer}`,
           `ONECOMPUTER_ALLOWED_TOOLS=${input.policy.allowedTools.join(",")}`,
+          `ONECOMPUTER_TOOL_POLICIES=${JSON.stringify(input.policy.toolPolicies)}`,
+        ] : []),
+        ...(input.agentBridge ? [
+          `ONECOMPUTER_CONTROL_UPSTREAM=${input.agentBridge.baseUrl}`,
+          `ONECOMPUTER_AGENT_BRIDGE_TOKEN=${input.agentBridge.token}`,
         ] : []),
       ],
       HostConfig: {

@@ -1,6 +1,6 @@
 # 013: complete agent-triggered OpenVTC approval and audit UX
 
-Status: `blocked`
+Status: `verification`
 
 Gate: L
 Depends on: 012 and completion of 009 verification
@@ -76,4 +76,13 @@ restart/replay/concurrency results, redaction inspection, and cleanup.
 
 ## Completion record
 
-Not complete. Blocked on Issue 012 and the deferred Issue 009 verification.
+Implementation completed on 2026-07-22 for the demo path. Agent-originated MCP
+calls wait on the Control-owned operation while the existing OpenVTC browser
+approver signs the exact digest. Approval executes through the one-time lease;
+denial, expiry, or failure returns a terminal tool error without retrying the
+provider mutation. Activity now lists durable operation history and the
+operation drawer projects the correlated redacted event trail, policy binding,
+decision, lease, and receipt. Automated wait/resume and existing OpenVTC
+signature/replay/concurrency suites pass. Human approval/denial, restart, and
+single-gesture UX verification remain open; the previously noted two-passcode
+approval-device UX is not represented as resolved.

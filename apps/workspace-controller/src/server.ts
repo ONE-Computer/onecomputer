@@ -19,6 +19,7 @@ const envSchema = z.object({
   KASM_LOCAL_NETWORK_PREFIX: z.string().default("onecomputer-v4-ws"),
   KASM_LOCAL_CONTROL_NETWORK: z.string().default("onecomputer-v4-control"),
   KASM_LOCAL_GATEWAY_CONTAINER: z.string().default("onecomputer-v4-issue-002-litellm-1"),
+  KASM_LOCAL_CONTROL_CONTAINER: z.string().default("onecomputer-v4-issue-002-control-api-1"),
   KASM_LOCAL_RELAY_IMAGE: z.string().default("node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2"),
   KASM_PUBLIC_HOST: z.string().default("127.0.0.1"),
 });
@@ -84,6 +85,7 @@ export function adapterFromEnv(env: z.infer<typeof envSchema>): SandboxAdapter {
       networkPrefix: env.KASM_LOCAL_NETWORK_PREFIX,
       controlNetwork: env.KASM_LOCAL_CONTROL_NETWORK,
       gatewayContainer: env.KASM_LOCAL_GATEWAY_CONTAINER,
+      controlContainer: env.KASM_LOCAL_CONTROL_CONTAINER,
       relayImage: env.KASM_LOCAL_RELAY_IMAGE,
       publicHost: env.KASM_PUBLIC_HOST,
     });

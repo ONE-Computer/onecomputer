@@ -124,6 +124,10 @@ export const runtimePolicySchema = z.object({
   modelAlias: z.string().min(1).max(128),
   mcpServer: z.string().min(1).max(128),
   allowedTools: z.array(z.string().min(1).max(128)).min(1),
+  toolPolicies: z.record(
+    z.string().min(1).max(128),
+    z.enum(["allow", "approval_required", "deny"]),
+  ),
 });
 export type RuntimePolicy = z.infer<typeof runtimePolicySchema>;
 
@@ -136,6 +140,10 @@ export const controllerCreateSchema = z.object({
     credential: z.string().min(24),
     modelAlias: z.string().min(1).max(128),
     expiresAt: z.iso.datetime(),
+  }).optional(),
+  agentBridge: z.object({
+    baseUrl: z.url(),
+    token: z.string().min(24),
   }).optional(),
 });
 
@@ -280,8 +288,13 @@ export type McpPolicyDecision = z.infer<typeof mcpPolicyDecisionSchema>;
 export const operationViewSchema = z.object({
   id: z.uuid(),
   workspaceId: z.uuid(),
+  agentId: z.string().min(1).nullable(),
+  policyVersionId: z.string().min(1).nullable(),
+  policyHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  serverName: z.string().min(1),
+  toolName: z.string().min(1),
   state: governedOperationStateSchema,
-  action: z.literal("Delete file"),
+  action: z.string().min(1),
   resourceName: z.string(),
   resourceLocation: z.string(),
   safeSummary: z.string(),
@@ -303,6 +316,27 @@ export const operationViewSchema = z.object({
   failureCode: z.string().nullable(),
 });
 export type OperationView = z.infer<typeof operationViewSchema>;
+
+export const mcpToolPolicyDecisionSchema = z.enum(["allow", "approval_required", "deny"]);
+export type McpToolPolicyDecision = z.infer<typeof mcpToolPolicyDecisionSchema>;
+
+export const mcpToolPolicySchema = z.object({
+  serverName: z.literal("onecomputer_ms365"),
+  version: z.number().int().positive(),
+  documentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  tools: z.array(z.object({
+    name: z.string().min(1).max(128),
+    displayName: z.string().min(1).max(128),
+    description: z.string().min(1).max(320),
+    decision: mcpToolPolicyDecisionSchema,
+    risk: z.enum(["read", "write"]),
+  })),
+});
+export type McpToolPolicy = z.infer<typeof mcpToolPolicySchema>;
+
+export const saveMcpToolPolicySchema = z.strictObject({
+  tools: z.record(z.string().min(1).max(128), mcpToolPolicyDecisionSchema),
+});
 
 export const readinessFor = (state: WorkspaceState, gateway?: { models: ReadinessState; tools: ReadinessState }) => ({
   identity: "ready" as const,

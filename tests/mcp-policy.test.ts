@@ -71,7 +71,7 @@ const setup = async () => {
     toolName: "list-mail-folders",
     arguments: {},
   };
-  return { store, workspace, policy, base };
+  return { store, workspace, policy, base, effective, operations };
 };
 
 test("Control auto-allows only an exact assigned bounded Microsoft 365 read", async () => {
@@ -108,6 +108,38 @@ test("Control permits only the exact version metadata projection for a drive ite
   assert.equal((await policy.authorize(request, "drive-item-metadata")).decision, "allow");
   assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, includeHeaders: false } }, "drive-item-no-headers")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
   assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, select: "*" } }, "drive-item-broad-select")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+});
+
+test("the effective per-tool policy can require approval or deny an otherwise bounded read", async () => {
+  const { store, policy, base, effective, operations } = await setup();
+  effective.document.mcp.servers.onecomputer_ms365.toolPolicies = {
+    "list-mail-folders": "approval_required",
+    "list-calendars": "deny",
+    "list-drives": "allow",
+    "search-onedrive-files": "allow",
+    "get-drive-item": "allow",
+    "delete-onedrive-file": "approval_required",
+  };
+
+  const held = await policy.authorize(base, "read-requires-approval");
+  assert.equal(held.decision, "approval_required");
+  assert.ok(held.operationId);
+  assert.equal((await store.getOwnedOperation(identity, held.operationId!))?.toolName, "list-mail-folders");
+  const agentView = await operations.getForAgent(identity, held.operationId!, {
+    workspaceId: base.workspaceId,
+    agentId: base.agentId,
+    policyHash: base.policyHash!,
+  });
+  assert.equal(agentView.policyVersionId, base.policyVersionId);
+  assert.equal(agentView.policyHash, base.policyHash);
+  await assert.rejects(
+    operations.getForAgent(identity, held.operationId!, { workspaceId: base.workspaceId, agentId: base.agentId, policyHash: "b".repeat(64) }),
+    /Governed operation not found/,
+  );
+
+  const blocked = await policy.authorize({ ...base, toolName: "list-calendars" }, "read-denied");
+  assert.equal(blocked.decision, "deny");
+  assert.equal(blocked.code, "MCP_TOOL_BLOCKED_BY_POLICY");
 });
 
 test("protected OneDrive delete persists before approval and an exact lease dispatches once", async () => {

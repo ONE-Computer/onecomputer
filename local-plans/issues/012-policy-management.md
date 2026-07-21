@@ -1,6 +1,6 @@
 # 012: manage workspace, agent, model, and tool policy in ONEComputer
 
-Status: `blocked`
+Status: `verification`
 
 Gate: K
 Depends on: 011
@@ -67,4 +67,12 @@ and cleanup.
 
 ## Completion record
 
-Not complete. Blocked on Issue 011.
+Implementation completed on 2026-07-22 for the Microsoft 365 demo slice. The
+administrator can set every exposed tool to Allow, Require approval, or Block
+from ONEComputer. Saving creates or reuses an immutable owned policy version,
+reassigns the effective user/workspace/agent binding, and never mutates an
+already-created operation. Control evaluates the effective policy on every new
+tool call; LiteLLM and Claude Desktop do not become policy authorities.
+Automated allow/approval/deny and binding tests pass. Broader workspace/model
+policy authoring remains represented by the existing Sandbox and identity
+assignment surfaces; the tool-policy UI awaits human review.

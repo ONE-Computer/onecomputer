@@ -40,7 +40,9 @@ export const sandboxApi = {
 
 export const operationApi = {
   recent: () => request("/api/v1/operations/recent"),
+  list: () => request("/api/v1/operations"),
   get: (id) => request(`/api/v1/operations/${encodeURIComponent(id)}`),
+  audit: (id) => request(`/api/v1/operations/${encodeURIComponent(id)}/audit`),
   createDeleteFile: (workspaceId, path) => request("/api/v1/operations/delete-file", mutation("POST", { workspaceId, path })),
   decideWithFixture: (id, decision) => request(`/api/v1/operations/${encodeURIComponent(id)}/fixture-decision`, mutation("POST", { decision })),
 };
@@ -76,4 +78,6 @@ export const adminApi = {
   assignPolicy: (userId) => request(`/api/v1/admin/users/${encodeURIComponent(userId)}/policy`, mutation()),
   revokePolicy: (userId) => request(`/api/v1/admin/users/${encodeURIComponent(userId)}/policy`, mutation("DELETE")),
   createPolicyVersion: (revisionNote) => request("/api/v1/admin/policy/versions", mutation("POST", { revisionNote })),
+  mcpPolicy: () => request("/api/v1/admin/mcp-policy"),
+  saveMcpPolicy: (tools) => request("/api/v1/admin/mcp-policy", { method: "PUT", headers: jsonHeaders, body: JSON.stringify({ tools }) }),
 };

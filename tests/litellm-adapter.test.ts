@@ -303,7 +303,7 @@ test("workspace grant materializes the exact Control policy rather than adapter 
     assert.equal(grantBody.max_budget, 1);
     assert.equal(grantBody.budget_duration, "30d");
     assert.equal(grantBody.rpm_limit, 30);
-    assert.equal(grantBody.tpm_limit, 50_000);
+    assert.equal(grantBody.tpm_limit, 500_000);
     assert.equal(grantBody.max_parallel_requests, 4);
     assert.deepEqual(grantBody.object_permission, {
       mcp_servers: ["onecomputer_ms365"],
@@ -440,7 +440,7 @@ test("availability check exposes safe route usage without sending a prompt", asy
           max_budget: 1,
           budget_reset_at: "2026-08-19T00:00:00.000Z",
           rpm_limit: 30,
-          tpm_limit: 50_000,
+          tpm_limit: 500_000,
           max_parallel_requests: 4,
         }],
       }));
@@ -462,7 +462,7 @@ test("availability check exposes safe route usage without sending a prompt", asy
     assert.equal(result.model, "onecomputer-assistant");
     assert.equal(result.modelRoute.fallback, "none");
     assert.equal(result.modelRoute.budget.remainingUsd, 0.875);
-    assert.equal(result.modelRoute.limits.tokensPerMinute, 50_000);
+    assert.equal(result.modelRoute.limits.tokensPerMinute, 500_000);
     assert.ok(!requests.includes("/v1/chat/completions"));
     assert.ok(!JSON.stringify(result).includes("gpt-"));
   } finally {

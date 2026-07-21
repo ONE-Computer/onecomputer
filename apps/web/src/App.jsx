@@ -292,7 +292,7 @@ function SignInScreen({ error }) {
   );
 }
 
-function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion }) {
+function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, policySaving, onPolicyChange, onPolicySave }) {
   return (
     <div className="secondary-screen admin-screen">
       <header className="page-heading compact">
@@ -304,6 +304,29 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
         <div><strong>MVP standard workspace</strong><small>Workspace, agent, model, network, Microsoft 365 read, and protected-operation rules</small></div>
         <button className="secondary-button" type="button" onClick={onVersion}>Create new version</button>
       </div>
+      <section className="tool-policy-card" aria-labelledby="tool-policy-heading">
+        <div className="tool-policy-heading">
+          <div><p>Microsoft 365 connector</p><h2 id="tool-policy-heading">Tool approval policy</h2></div>
+          {mcpPolicy && <span>Version {mcpPolicy.version} · {mcpPolicy.documentHash.slice(0, 12)}…</span>}
+        </div>
+        <p className="tool-policy-intro">Choose what the workspace agent may run immediately, what requires a signed OpenVTC approval, and what is blocked entirely. Changes create an immutable policy version.</p>
+        <div className="tool-policy-list">
+          {mcpPolicy?.tools.map((tool) => (
+            <label key={tool.name}>
+              <span><strong>{tool.displayName}</strong><small>{tool.description}</small><code>{tool.name}</code></span>
+              <select value={tool.decision} onChange={(event) => onPolicyChange(tool.name, event.target.value)} aria-label={`${tool.displayName} policy`}>
+                <option value="allow">Allow</option>
+                <option value="approval_required">Require approval</option>
+                <option value="deny">Block</option>
+              </select>
+            </label>
+          ))}
+        </div>
+        <div className="tool-policy-actions">
+          <span><ShieldCheckmark24Regular aria-hidden="true" />Approval rules are enforced in Control, not trusted to the desktop client.</span>
+          <button className="primary-button compact-button" type="button" onClick={onPolicySave} disabled={!mcpPolicy || policySaving}>{policySaving ? "Saving policy" : "Save tool policy"}</button>
+        </div>
+      </section>
       <section className="admin-user-list" aria-label="Organization users">
         {loading ? <p>Loading organization users…</p> : users.map((item) => (
           <article key={item.userId}>
@@ -324,7 +347,7 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
   );
 }
 
-function ActivityScreen({ operation, onOpenOperation }) {
+function ActivityScreen({ operations, onOpenOperation }) {
   return (
     <div className="secondary-screen">
       <header className="page-heading compact">
@@ -333,15 +356,15 @@ function ActivityScreen({ operation, onOpenOperation }) {
         <span>Recent workspace and governed-operation events, shown without sensitive content.</span>
       </header>
       <div className="timeline">
-        {operation && (
-          <button type="button" onClick={onOpenOperation}>
+        {operations.map((operation) => (
+          <button type="button" key={operation.id} onClick={() => onOpenOperation(operation)}>
             <span className={`timeline-icon${operation.state === "succeeded" ? "" : " pending"}`}>
               {operation.state === "succeeded" ? <CheckmarkCircle24Regular aria-hidden="true" /> : <Clock24Regular aria-hidden="true" />}
             </span>
-            <span><strong>{operation.safeSummary}</strong><small>{operationStateLabels[operation.state]} · Today, {operationTime(operation.requestedAt)}</small></span>
+            <span><strong>{operation.safeSummary}</strong><small>{operationStateLabels[operation.state]} · {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(operation.requestedAt))}</small></span>
             <ChevronRight16Regular aria-hidden="true" />
           </button>
-        )}
+        ))}
         <div>
           <span className="timeline-icon"><Laptop24Regular aria-hidden="true" /></span>
           <span><strong>Acme Workspace became ready</strong><small>All assigned services connected · Today, 8:58 AM</small></span>
@@ -615,6 +638,8 @@ export function App() {
   const [testingGateway, setTestingGateway] = useState(false);
   const [gatewayResult, setGatewayResult] = useState(null);
   const [operation, setOperation] = useState(null);
+  const [operationHistory, setOperationHistory] = useState([]);
+  const [operationAudit, setOperationAudit] = useState(null);
   const [operationBusy, setOperationBusy] = useState(false);
   const [approvalRequest, setApprovalRequest] = useState(null);
   const [approvalRequestState, setApprovalRequestState] = useState("idle");
@@ -627,6 +652,8 @@ export function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminBusyUserId, setAdminBusyUserId] = useState("");
+  const [mcpPolicy, setMcpPolicy] = useState(null);
+  const [mcpPolicySaving, setMcpPolicySaving] = useState(false);
   const [sandboxSettings, setSandboxSettings] = useState(null);
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
@@ -665,6 +692,7 @@ export function App() {
       else { setWorkspaceState("failed"); showApiError(error); }
     });
     operationApi.recent().then(setOperation).catch(showApiError);
+    operationApi.list().then((value) => setOperationHistory(value.operations)).catch(showApiError);
     connectionApi.microsoft365()
       .then(setM365Connection)
       .catch((error) => setConnectionError(error.message))
@@ -694,7 +722,10 @@ export function App() {
   useEffect(() => {
     if (activeNav !== "Admin" || !session?.roles.includes("administrator")) return;
     setAdminLoading(true);
-    adminApi.users().then((value) => setAdminUsers(value.users)).catch(showApiError).finally(() => setAdminLoading(false));
+    Promise.all([adminApi.users(), adminApi.mcpPolicy()])
+      .then(([users, policy]) => { setAdminUsers(users.users); setMcpPolicy(policy); })
+      .catch(showApiError)
+      .finally(() => setAdminLoading(false));
   }, [activeNav, session?.user.id]);
 
   useEffect(() => {
@@ -722,6 +753,16 @@ export function App() {
     const interval = window.setInterval(() => operationApi.get(operation.id).then(setOperation).catch(showApiError), 1500);
     return () => window.clearInterval(interval);
   }, [operation?.id, operation?.state]);
+
+  useEffect(() => {
+    if (!operation) return;
+    setOperationHistory((items) => [operation, ...items.filter((item) => item.id !== operation.id)]);
+  }, [operation?.id, operation?.state, operation?.updatedAt]);
+
+  useEffect(() => {
+    if (drawer !== "request" || !operation) { setOperationAudit(null); return; }
+    operationApi.audit(operation.id).then(setOperationAudit).catch(showApiError);
+  }, [drawer, operation?.id, operation?.state]);
 
   useEffect(() => {
     if (drawer !== "request" || operation?.state !== "approval_required"
@@ -822,6 +863,7 @@ export function App() {
     try {
       const created = await operationApi.createDeleteFile(workspace.id, "/Finance/2026/Q3-draft.docx");
       setOperation(created);
+      setOperationHistory((items) => [created, ...items.filter((item) => item.id !== created.id)]);
       setDrawer("request");
       setToast("Protected deletion request created. No tool has run yet.");
     } catch (error) {
@@ -926,6 +968,22 @@ export function App() {
     try { const version = await adminApi.createPolicyVersion(revisionNote); setToast(`Policy version ${version.version} created. Existing assignments remain pinned.`); }
     catch (error) { showApiError(error); }
   };
+  const changeMcpPolicy = (name, decision) => setMcpPolicy((current) => ({
+    ...current,
+    tools: current.tools.map((tool) => tool.name === name ? { ...tool, decision } : tool),
+  }));
+  const saveMcpPolicy = async () => {
+    if (!mcpPolicy) return;
+    setMcpPolicySaving(true);
+    try {
+      const saved = await adminApi.saveMcpPolicy(Object.fromEntries(mcpPolicy.tools.map((tool) => [tool.name, tool.decision])));
+      const refreshed = await adminApi.mcpPolicy();
+      setMcpPolicy(refreshed);
+      await refreshAdminUsers();
+      setToast(`Microsoft 365 tool policy version ${saved.version} is active. Restart running workspaces to apply it.`);
+    } catch (error) { showApiError(error); }
+    finally { setMcpPolicySaving(false); }
+  };
   const logout = async () => {
     try { await authApi.logout(); } finally { window.location.assign("/"); }
   };
@@ -998,7 +1056,7 @@ export function App() {
             testingGateway={testingGateway}
           />
         )}
-        {activeNav === "Activity" && <ActivityScreen operation={operation} onOpenOperation={() => setDrawer("request")} />}
+        {activeNav === "Activity" && <ActivityScreen operations={operationHistory} onOpenOperation={(selected) => { setOperation(selected); setDrawer("request"); }} />}
         {activeNav === "Sandbox" && <SandboxScreen settings={sandboxSettings} loading={sandboxLoading} saving={sandboxSaving} error={sandboxError} workspaceState={workspaceState} onSave={saveSandboxSettings} />}
         {activeNav === "Connections" && (
           <ConnectionsScreen
@@ -1011,7 +1069,7 @@ export function App() {
             displayName={session.user.displayName}
           />
         )}
-        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} />}
+        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} policySaving={mcpPolicySaving} onPolicyChange={changeMcpPolicy} onPolicySave={saveMcpPolicy} />}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 
@@ -1044,12 +1102,29 @@ export function App() {
             <div><dt>File</dt><dd>{operation.resourceName}</dd></div>
             <div><dt>Location</dt><dd>{operation.resourceLocation}</dd></div>
             <div><dt>Requested by</dt><dd>{session.user.displayName}</dd></div>
+            {operation.agentId && <div><dt>Agent</dt><dd><code>{operation.agentId.slice(0, 16)}…</code></dd></div>}
+            {operation.policyVersionId && <div><dt>Policy version</dt><dd><code>{operation.policyVersionId.slice(0, 12)}…</code></dd></div>}
+            <div><dt>Tool</dt><dd><code>{operation.toolName}</code></dd></div>
             <div><dt>Operation binding</dt><dd><code>{operation.operationDigest.slice(0, 12)}…</code></dd></div>
           </dl>
           {operation.receipt && (
             <div className="gateway-response">
               <strong>Execution receipt</strong>
               <p>{operation.receipt.resultSummary}</p>
+            </div>
+          )}
+          {operationAudit?.events?.length > 0 && (
+            <div className="audit-trail">
+              <strong>Audit trail</strong>
+              <ol>
+                {operationAudit.events.map((event, index) => (
+                  <li key={`${event.createdAt}-${index}`}>
+                    <span>{event.eventType.replaceAll("_", " ")}</span>
+                    <small>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(event.createdAt))}</small>
+                    <code>{event.correlationId.slice(0, 12)}…</code>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
           <div className="drawer-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>{

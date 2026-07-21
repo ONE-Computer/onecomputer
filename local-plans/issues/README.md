@@ -23,12 +23,15 @@ replaced it with the active sequential Issue 005–015 MVP path below. Historica
 specifications are preserved under `archive/retired-2026-07-20/`; they are not
 active dependencies. Existing Kasm, UI, LiteLLM, governed-operation, Microsoft
 OAuth, and bounded Microsoft-read evidence is carried forward and must not be
-needlessly repeated. Issues 005–008 passed human review. Issue 009 has a
+needlessly repeated. Issues 005–008 and 010 passed human review. Issue 009 has a
 working browser approval path and one physical approval pass, but its remaining
 deny and restart verification is intentionally paused while the realistic
-agent journey is built in Issues 010–013. Those deferred checks still block
-final MVP acceptance. Completing an issue normally makes only its immediate
-successor ready. Gate-closing issues require explicit human review.
+agent journey is built in Issues 011–013. On 2026-07-22 the product owner
+explicitly authorized those three demo-critical implementations to proceed
+together; all remain in verification until the real-agent human pass. The
+deferred Issue 009 checks still block final MVP acceptance. Completing an issue
+normally makes only its immediate successor ready. Gate-closing issues require
+explicit human review.
 
 ## Execution rules
 

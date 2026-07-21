@@ -3,7 +3,7 @@ import type { GatewayClient, GatewayGrant, GatewayReadiness } from "@onecomputer
 import type { WorkspaceRecord, WorkspaceStore } from "@onecomputer/workspace-store";
 
 export interface ControllerClient {
-  create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant }): Promise<Sandbox>;
+  create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant; agentBridge?: { baseUrl: string; token: string } }): Promise<Sandbox>;
   status(providerId: string): Promise<Sandbox>;
   open(providerId: string): Promise<Launch>;
   destroy(providerId: string): Promise<void>;
@@ -25,7 +25,7 @@ export class HttpControllerClient implements ControllerClient {
     }
     return response.status === 204 ? {} : response.json();
   }
-  async create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant }) {
+  async create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant; agentBridge?: { baseUrl: string; token: string } }) {
     return await this.call("/internal/v1/sandboxes", { method: "POST", body: JSON.stringify(input) }) as Sandbox;
   }
   async status(providerId: string) { return await this.call(`/internal/v1/sandboxes/${encodeURIComponent(providerId)}`) as Sandbox; }
@@ -61,7 +61,12 @@ export class WorkspaceService {
     private readonly store: WorkspaceStore,
     private readonly controller: ControllerClient,
     private readonly gateway?: GatewayClient,
+    private readonly agentBridge?: { baseUrl: string; issue: (identity: IdentityContext, workspaceId: string, policy: RuntimePolicy) => string },
   ) {}
+
+  private bridgeGrant(identity: IdentityContext, workspaceId: string, policy: RuntimePolicy) {
+    return this.agentBridge ? { baseUrl: this.agentBridge.baseUrl, token: this.agentBridge.issue(identity, workspaceId, policy) } : undefined;
+  }
 
   private async view(record: WorkspaceRecord, policy: RuntimePolicy) {
     if (!this.gateway || !["ready", "open"].includes(record.state)) return toView(record, undefined, policy);
@@ -93,7 +98,7 @@ export class WorkspaceService {
     if (!claimed) return this.view((await this.store.getOwned(identity, record.id))!, policy);
     try {
       const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity, agentId: policy.agentId, policy });
-      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway });
+      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway, agentBridge: this.bridgeGrant(identity, claimed.id, policy) });
       record = await this.store.finish(claimed.id, claimed.operationToken!, { state: sandbox.state === "ready" ? "ready" : "provisioning", providerId: sandbox.providerId, failureCode: sandbox.failureCode });
       return this.view(record, policy);
     } catch (error) {
@@ -119,7 +124,7 @@ export class WorkspaceService {
     try {
       if (claimed.providerId) await this.controller.destroy(claimed.providerId);
       const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity, agentId: policy.agentId, policy });
-      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway });
+      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway, agentBridge: this.bridgeGrant(identity, claimed.id, policy) });
       return this.view(await this.store.finish(claimed.id, claimed.operationToken!, { state: sandbox.state === "ready" ? "ready" : "restarting", providerId: sandbox.providerId, failureCode: sandbox.failureCode }), policy);
     } catch (error) {
       await this.store.finish(claimed.id, claimed.operationToken!, { state: "failed", providerId: null, failureCode: error instanceof OneComputerError ? error.code : "RESTART_FAILED" });

@@ -116,7 +116,10 @@ const asObject = (value: unknown): JsonObject => value && typeof value === "obje
 const WORKSPACE_MAX_BUDGET_USD = 1;
 const WORKSPACE_BUDGET_DURATION = "30d" as const;
 const WORKSPACE_RPM_LIMIT = 30;
-const WORKSPACE_TPM_LIMIT = 50_000;
+// Claude Desktop can submit a large managed-system prompt before the user's
+// first message. Keep the workspace budget authoritative, but do not mistake
+// that initial context for abusive request volume.
+const WORKSPACE_TPM_LIMIT = 500_000;
 const WORKSPACE_MAX_PARALLEL_REQUESTS = 4;
 
 const desktopTransportAliases: Record<string, string> = {

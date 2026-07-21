@@ -1,6 +1,6 @@
 # 009: integrate OpenVTC physical approval and durable evidence
 
-Status: `ready`
+Status: `in_progress` (upstream qualification complete; physical-surface fork pending)
 
 Gate: H
 Depends on: 008
@@ -64,5 +64,18 @@ correlation, redacted UI timeline, and cleanup result.
 
 ## Completion record
 
-Issue 008 completed human review on 2026-07-21. Ready for implementation; no
-Issue 009 work has begun.
+Issue 008 completed human review on 2026-07-21. Upstream qualification began on
+2026-07-21 and is recorded in
+`infra/issue-009/upstream-qualification-2026-07-21.md` and ADR-005.
+
+The qualification selected Trust Tasks `task-consent` rather than VTA AAL
+step-up. It also found that the stock iOS agent posts decisions to a VTA that
+owns and executes VTA-native tasks; an unmodified VTA is not a generic external
+approval service and cannot replace Control's signed-decision verification.
+
+The first common adapter slice now implements the upstream salted/type-bound
+payload digest, recipient-specific signed request construction, strict
+`did:key` Ed25519 `eddsa-jcs-2022` decision verification, live enrollment and
+requester-exclusion checks, and negative binding/time/proof tests. It neither
+delivers requests nor issues leases yet. The physical path still requires an
+explicit upstream iOS external-executor or official browser-agent choice.

@@ -1221,6 +1221,11 @@ summary:focus-visible {
   min-width: 0;
 }
 
+.approval-state-actions .approval-device-message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .toast {
   position: fixed;
   z-index: 100;

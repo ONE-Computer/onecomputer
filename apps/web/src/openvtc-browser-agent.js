@@ -240,8 +240,8 @@ export async function enrollBrowserApprover(challenge, displayName, enroll) {
   return { did: identifiers.did, displayName };
 }
 
-const verifyRequest = async (request, record, bundle) => {
-  if (!request || request.type !== REQUEST_TYPE || request.issuer !== bundle.executorDid || request.recipient !== record.did) {
+const verifyRequest = async (request, record, executorDid) => {
+  if (!request || request.type !== REQUEST_TYPE || request.issuer !== executorDid || request.recipient !== record.did) {
     throw new Error("The approval request is not addressed by the enrolled ONEComputer executor to this browser.");
   }
   if (Date.parse(request.payload?.expiresAt) <= Date.now()) throw new Error("This approval request has expired.");
@@ -264,17 +264,18 @@ const verifyRequest = async (request, record, bundle) => {
   return request;
 };
 
-export async function loadPendingApproval(fetchInbox) {
-  const { record, bundle } = await unlockRecord();
-  const request = await fetchInbox(bundle.transportToken);
-  return request ? verifyRequest(request, record, bundle) : null;
+export async function loadPendingApproval(fetchInbox, executorDid) {
+  const record = await readRecord();
+  if (!record) throw new Error("This browser is not enrolled as an approval device.");
+  const request = await fetchInbox();
+  return request ? verifyRequest(request, record, executorDid) : null;
 }
 
 export async function signApprovalDecision(request, decision) {
   const payloadDigest = request?.payload?.payloadDigest;
   if (typeof payloadDigest !== "string") throw new Error("The pending request does not contain an operation digest.");
   const { record, bundle } = await unlockRecord(payloadDigest);
-  await verifyRequest(request, record, bundle);
+  await verifyRequest(request, record, bundle.executorDid);
   const issuedAt = new Date().toISOString();
   return {
     transportToken: bundle.transportToken,

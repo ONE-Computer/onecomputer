@@ -259,6 +259,12 @@ export function createControlServer(
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
     return await security.openVtc.revoke(identity(request)) ? reply.code(204).send() : reply.code(404).send({ error: { code: "OPENVTC_APPROVER_NOT_FOUND", message: "No active browser approver is enrolled", correlationId: request.id, retryable: false } });
   });
+  app.get("/v1/openvtc/approvals/pending", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    const document = await security.openVtc.inboxForIdentity(identity(request));
+    reply.header("cache-control", "no-store");
+    return document ? reply.send(document) : reply.code(204).send();
+  });
   app.get("/v1/openvtc/inbox", async (request, reply) => {
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
     const document = await security.openVtc.inbox(browserAgentToken(request.headers.authorization));

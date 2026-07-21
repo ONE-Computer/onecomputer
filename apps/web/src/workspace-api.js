@@ -47,6 +47,7 @@ export const approvalApi = {
   challenge: () => request("/api/v1/openvtc/enrollment-challenges", mutation()),
   enroll: (challengeId, document) => request("/api/v1/openvtc/approvers", mutation("POST", { challengeId, document })),
   revoke: () => request("/api/v1/openvtc/approvers/current", mutation("DELETE")),
+  pending: () => request("/api/v1/openvtc/approvals/pending"),
   inbox: (transportToken) => request("/api/v1/openvtc/inbox", { headers: { authorization: `Bearer ${transportToken}` } }),
   decide: (transportToken, document) => request("/api/trust-tasks", {
     method: "POST",

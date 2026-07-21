@@ -389,10 +389,9 @@ const connectionReason = {
   M365_TOKEN_EXCHANGE_FAILED: "Microsoft 365 could not complete the connection. Please try again.",
 };
 
-function ApprovalDeviceCard({ displayName, onOperation }) {
+function ApprovalDeviceCard({ displayName }) {
   const [status, setStatus] = useState(null);
   const [localReady, setLocalReady] = useState(false);
-  const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
 
@@ -428,7 +427,6 @@ function ApprovalDeviceCard({ displayName, onOperation }) {
     try {
       await approvalApi.revoke();
       await clearBrowserApprover();
-      setPending(null);
       await refresh();
       setMessage("The browser approval device was removed.");
     } catch (error) {
@@ -438,39 +436,8 @@ function ApprovalDeviceCard({ displayName, onOperation }) {
     }
   };
 
-  const check = async () => {
-    setBusy("check");
-    setMessage("");
-    try {
-      const request = await loadPendingApproval(approvalApi.inbox);
-      setPending(request);
-      setMessage(request ? "Signed request verified. Review the effect below." : "There are no approval requests waiting for you.");
-    } catch (error) {
-      setMessage(error.name === "NotAllowedError" ? "Device verification was cancelled." : error.message);
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const decide = async (decision) => {
-    setBusy(decision);
-    setMessage("");
-    try {
-      const signed = await signApprovalDecision(pending, decision);
-      const response = await approvalApi.decide(signed.transportToken, signed.document);
-      setPending(null);
-      onOperation?.(response.operation);
-      setMessage(decision === "approve" ? "Approved. ONEComputer released the bound operation once." : "Denied. No connector action was released.");
-    } catch (error) {
-      setMessage(error.name === "NotAllowedError" ? "Device verification was cancelled." : error.message);
-    } finally {
-      setBusy("");
-    }
-  };
-
   const connected = status?.connected;
   const usable = connected && localReady;
-  const effect = pending?.payload?.effects?.[0];
   return (
     <section className="connection-card approval-device-card" aria-labelledby="approval-device-title">
       <div className="connection-logo"><ShieldCheckmark24Regular aria-hidden="true" /></div>
@@ -484,37 +451,13 @@ function ApprovalDeviceCard({ displayName, onOperation }) {
             {usable ? "Ready" : connected ? "Key unavailable" : "Not enrolled"}
           </span>
         </div>
-        <p className="connection-description">Verify signed effects here before a protected agent action can run. Your approval key is encrypted behind this device’s biometric, PIN, or security key.</p>
+        <p className="connection-description">Set up this browser once. Protected actions appear in their governed-operation panel and require one deliberate biometric, PIN, or security-key confirmation.</p>
         {connected && <p className="connection-metadata">{status.approver.displayName} · {status.approver.approverDid.slice(0, 26)}…</p>}
         {message && <p className="approval-device-message" role="status">{message}</p>}
-
-        {pending && (
-          <div className="approval-review" aria-live="polite">
-            <div className="approval-review-heading">
-              <span>Protected action</span>
-              <strong>{pending.payload.sideEffects}</strong>
-            </div>
-            <h3>{effect?.summary ?? "Review protected operation"}</h3>
-            {effect?.path && <p>{effect.path}</p>}
-            <dl>
-              <div><dt>Requested by</dt><dd>{pending.payload.requester}</dd></div>
-              <div><dt>Signed by</dt><dd>ONEComputer Control</dd></div>
-              <div><dt>Operation binding</dt><dd>{pending.payload.payloadDigest.slice(0, 16)}…</dd></div>
-            </dl>
-            <p className="approval-warning">Approving releases only this signed operation. A changed target or argument requires a new approval.</p>
-            <div className="approval-review-actions">
-              <button className="primary-button" type="button" onClick={() => decide("approve")} disabled={Boolean(busy)}>{busy === "approve" ? "Verifying device" : "Verify and approve"}</button>
-              <button className="secondary-button" type="button" onClick={() => decide("deny")} disabled={Boolean(busy)}>{busy === "deny" ? "Signing denial" : "Deny"}</button>
-            </div>
-          </div>
-        )}
       </div>
       <div className="connection-actions">
         {usable ? (
-          <>
-            <button className="primary-button" type="button" onClick={check} disabled={Boolean(busy)}>{busy === "check" ? "Verifying device" : "Check approvals"}</button>
-            <button className="text-button" type="button" onClick={disconnect} disabled={Boolean(busy)}>Remove device</button>
-          </>
+          <button className="secondary-button" type="button" onClick={disconnect} disabled={Boolean(busy)}>{busy === "disconnect" ? "Removing" : "Remove device"}</button>
         ) : (
           <button className="primary-button" type="button" onClick={enroll} disabled={Boolean(busy)}>
             <ShieldCheckmark24Regular aria-hidden="true" />
@@ -526,7 +469,7 @@ function ApprovalDeviceCard({ displayName, onOperation }) {
   );
 }
 
-function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect, displayName, onOperation }) {
+function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect, displayName }) {
   const connected = connection?.state === "connected";
   const expired = connection?.state === "expired";
   const connectedAt = connection?.connectedAt
@@ -574,7 +517,7 @@ function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisc
         </div>
       </section>
 
-      <ApprovalDeviceCard displayName={displayName} onOperation={onOperation} />
+      <ApprovalDeviceCard displayName={displayName} />
 
       <div className="connection-privacy-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>Microsoft tokens stay in the MCP gateway. The browser approval key stays encrypted on this device. Neither secret is sent to the workspace.</p></div>
     </div>
@@ -597,6 +540,10 @@ export function App() {
   const [gatewayResult, setGatewayResult] = useState(null);
   const [operation, setOperation] = useState(null);
   const [operationBusy, setOperationBusy] = useState(false);
+  const [approvalRequest, setApprovalRequest] = useState(null);
+  const [approvalRequestState, setApprovalRequestState] = useState("idle");
+  const [approvalRequestMessage, setApprovalRequestMessage] = useState("");
+  const [approvalReload, setApprovalReload] = useState(0);
   const [m365Connection, setM365Connection] = useState(null);
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [connectionBusy, setConnectionBusy] = useState(false);
@@ -687,6 +634,41 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [operation?.id, operation?.state]);
 
+  useEffect(() => {
+    if (drawer !== "request" || operation?.state !== "approval_required"
+      || operation.requiredApprovalChannel !== "openvtc-task-consent") {
+      setApprovalRequest(null);
+      setApprovalRequestState("idle");
+      setApprovalRequestMessage("");
+      return undefined;
+    }
+    let active = true;
+    setApprovalRequest(null);
+    setApprovalRequestState("loading");
+    setApprovalRequestMessage("");
+    Promise.all([approvalApi.status(), hasBrowserApprover()])
+      .then(async ([status, localReady]) => {
+        if (!status.connected || !localReady) {
+          if (active) {
+            setApprovalRequestState("setup");
+            setApprovalRequestMessage("Set up this browser as your approval device before deciding this operation.");
+          }
+          return;
+        }
+        const request = await loadPendingApproval(approvalApi.pending, status.executorDid);
+        if (!active) return;
+        setApprovalRequest(request);
+        setApprovalRequestState(request ? "ready" : "empty");
+        setApprovalRequestMessage(request ? "Signed request verified. One device confirmation will approve or deny it." : "No live signed approval request is available.");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setApprovalRequestState("error");
+        setApprovalRequestMessage(error.message);
+      });
+    return () => { active = false; };
+  }, [drawer, operation?.id, operation?.state, operation?.requiredApprovalChannel, approvalReload]);
+
   const createWorkspace = async () => {
     setWorkspaceState("provisioning");
     setApiError("");
@@ -770,6 +752,25 @@ export function App() {
       setToast(decision === "approve" ? "Approved operation executed once through the governed gateway." : "The protected operation was denied.");
     } catch (error) {
       showApiError(error);
+      operationApi.get(operation.id).then(setOperation).catch(() => undefined);
+    } finally {
+      setOperationBusy(false);
+    }
+  };
+
+  const decideWithApprovalDevice = async (decision) => {
+    if (!approvalRequest) return;
+    setOperationBusy(true);
+    setApprovalRequestMessage("");
+    try {
+      const signed = await signApprovalDecision(approvalRequest, decision);
+      const response = await approvalApi.decide(signed.transportToken, signed.document);
+      setOperation(response.operation);
+      setApprovalRequest(null);
+      setApprovalRequestState("idle");
+      setToast(decision === "approve" ? "Approved. The bound operation was released once." : "Denied. No connector action was released.");
+    } catch (error) {
+      setApprovalRequestMessage(error.name === "NotAllowedError" ? "Device verification was cancelled." : error.message);
       operationApi.get(operation.id).then(setOperation).catch(() => undefined);
     } finally {
       setOperationBusy(false);
@@ -903,7 +904,6 @@ export function App() {
             onConnect={connectMicrosoft365}
             onDisconnect={disconnectMicrosoft365}
             displayName={session.user.displayName}
-            onOperation={setOperation}
           />
         )}
         {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} />}
@@ -965,11 +965,40 @@ export function App() {
               </button>
               <button className="secondary-button danger-button" type="button" onClick={() => decideGovernedOperation("deny")} disabled={operationBusy}>Deny</button>
             </div>
-          ) : operation.state === "approval_required" ? (
-            <div className="approval-actions">
+          ) : operation.state === "approval_required" && approvalRequestState === "ready" ? (
+            <div className="approval-review drawer-approval-review" aria-live="polite">
+              <div className="approval-review-heading">
+                <span>Signed approval request</span>
+                <strong>{approvalRequest.payload.sideEffects}</strong>
+              </div>
+              <h3>{approvalRequest.payload.effects?.[0]?.summary ?? operation.safeSummary}</h3>
+              <dl>
+                <div><dt>Signed by</dt><dd>ONEComputer Control</dd></div>
+                <div><dt>Approval binding</dt><dd>{approvalRequest.payload.payloadDigest.slice(0, 16)}…</dd></div>
+              </dl>
+              <p className="approval-warning">One device confirmation signs your decision for only this exact operation.</p>
+              {approvalRequestMessage && <p className="approval-device-message" role="status">{approvalRequestMessage}</p>}
+              <div className="approval-review-actions">
+                <button className="primary-button" type="button" onClick={() => decideWithApprovalDevice("approve")} disabled={operationBusy}>
+                  <ShieldCheckmark24Regular aria-hidden="true" />{operationBusy ? "Verifying device" : "Verify and approve"}
+                </button>
+                <button className="secondary-button danger-button" type="button" onClick={() => decideWithApprovalDevice("deny")} disabled={operationBusy}>Deny</button>
+              </div>
+            </div>
+          ) : operation.state === "approval_required" && approvalRequestState === "setup" ? (
+            <div className="approval-actions approval-state-actions">
+              <p className="approval-device-message" role="status">{approvalRequestMessage}</p>
               <button className="primary-button" type="button" onClick={() => { setDrawer(null); setActiveNav("Connections"); }}>
-                <ShieldCheckmark24Regular aria-hidden="true" />Open approval device
+                <ShieldCheckmark24Regular aria-hidden="true" />Set up approval device
               </button>
+              <button className="secondary-button" type="button" onClick={() => setDrawer(null)}>Close</button>
+            </div>
+          ) : operation.state === "approval_required" ? (
+            <div className="approval-actions approval-state-actions">
+              <p className="approval-device-message" role="status">{approvalRequestState === "loading" ? "Verifying the signed approval request…" : approvalRequestMessage}</p>
+              {approvalRequestState !== "loading" && (
+                <button className="secondary-button" type="button" onClick={() => setApprovalReload((value) => value + 1)}>Try again</button>
+              )}
               <button className="secondary-button" type="button" onClick={() => setDrawer(null)}>Close</button>
             </div>
           ) : (

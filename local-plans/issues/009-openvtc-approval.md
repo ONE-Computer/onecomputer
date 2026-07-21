@@ -93,4 +93,9 @@ Automated qualification covers valid approval, denial, tampering, bearer-only
 forgery, enrollment ownership, expiry, revocation, redelivery, and atomic
 evidence. The legacy HMAC fixture is rejected for Microsoft 365 operations and
 is not rendered as an available decision route for them. The physical Chrome
-approve/deny pass and restart matrix remain open.
+approval pass completed on 2026-07-21 and deleted the exact bound OneDrive
+item. Review found avoidable friction in the first UI: viewing the signed task
+and signing the decision each required a device prompt on separate pages. The
+revised flow loads the signed safe task through the authenticated ONEComputer
+session and performs approval or denial in the governed-operation drawer with
+one WebAuthn signing gesture. Physical denial and restart checks remain open.

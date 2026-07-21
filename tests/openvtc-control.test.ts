@@ -94,7 +94,7 @@ test("OpenVTC browser enrollment, inbox, signed approval, and exact execution fo
   assert.equal(pending.state, "approval_required");
   assert.equal(executor.calls.length, 0);
 
-  const request = await coordinator.inbox(transportToken) as Record<string, unknown>;
+  const request = await coordinator.inboxForIdentity(identity) as Record<string, unknown>;
   assert.equal(request.recipient, browser.did);
   const decision = signedDecision(request, browser, "approve");
   const [completed, retry] = await Promise.all([
@@ -216,6 +216,9 @@ test("Control exposes session-bound enrollment and bearer-scoped browser transpo
     const status = await app.inject({ method: "GET", url: "/v1/openvtc/approvers/current", headers });
     assert.equal(status.json().connected, true);
     assert.equal(status.json().approver.approverDid, browser.did);
+
+    const sessionInbox = await app.inject({ method: "GET", url: "/v1/openvtc/approvals/pending", headers });
+    assert.equal(sessionInbox.statusCode, 204);
 
     const invalidTransport = await app.inject({ method: "GET", url: "/v1/openvtc/inbox", headers: { authorization: "Bearer ocvta_invalid" } });
     assert.equal(invalidTransport.statusCode, 401);

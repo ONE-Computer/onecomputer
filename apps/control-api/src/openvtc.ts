@@ -187,6 +187,13 @@ export class OpenVtcApprovalCoordinator {
     return task?.requestDocument ?? null;
   }
 
+  async inboxForIdentity(identity: IdentityContext) {
+    const approver = await this.store.getActiveOpenVtcApprover(identity);
+    if (!approver) return null;
+    const task = await this.store.deliverNextOpenVtcConsentTask(approver.id, new Date());
+    return task?.requestDocument ?? null;
+  }
+
   async submitDecision(transportToken: string, document: unknown, correlationId: string) {
     const approver = await this.requireTransportApprover(transportToken);
     const payload = isObject(document) && isObject(document.payload) ? document.payload : null;

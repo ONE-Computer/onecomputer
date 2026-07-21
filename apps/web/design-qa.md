@@ -66,4 +66,20 @@ No actionable P0, P1, or P2 differences remain.
 - The physical WebAuthn prompt and signed approve/deny path remain Issue 009
   acceptance checks because they require the user's real browser authenticator.
 
+### Physical approval UX review
+
+- Evidence: `/home/mike/.codex/attachments/cb9d2c6a-4f55-49fa-980c-35211a247b97/codex-clipboard-34611e4e-b623-470c-bcec-de91ebc0c6e8.png`
+  and `/home/mike/.codex/attachments/96f11481-15be-4d00-8250-5742538cee86/codex-clipboard-4ebfc0e4-7161-4bf5-8f17-14fcc261277e.png`.
+- Step 1, pending operation: visually clear and correctly status-only, but the
+  extra navigation to Connections plus one device prompt to view and another to
+  decide created avoidable high-friction approval.
+- Step 2, completed operation: healthy. The final state and exactly-once result
+  are clear in the recent-operation row.
+- Resolution: the signed safe request now loads automatically in the governed
+  operation drawer through the signed-in ONEComputer session. Approve or deny
+  requires one WebAuthn signing gesture; Connections is device management only.
+- Accessibility limit: screenshots establish hierarchy and visible states, not
+  keyboard, screen-reader, or authenticator-dialog behavior. Those remain live
+  browser checks for the revised pending state.
+
 final result: passed

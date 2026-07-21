@@ -19,14 +19,16 @@ and approval foundation. Their product-visible fixture journey was accepted on
 in active Issues 005 and 009 rather than hidden verification tails.
 
 On 2026-07-20 the product owner retired the drifted Issue 005–013 roadmap and
-replaced it with the active sequential Issue 005–011 MVP path below. Historical
+replaced it with the active sequential Issue 005–015 MVP path below. Historical
 specifications are preserved under `archive/retired-2026-07-20/`; they are not
 active dependencies. Existing Kasm, UI, LiteLLM, governed-operation, Microsoft
 OAuth, and bounded Microsoft-read evidence is carried forward and must not be
-needlessly repeated. Issues 005–008 passed human review and Issue 009 is the
-next ready issue. Completing an issue may
-make only its immediate successor ready. Gate-closing issues require explicit
-human review.
+needlessly repeated. Issues 005–008 passed human review. Issue 009 has a
+working browser approval path and one physical approval pass, but its remaining
+deny and restart verification is intentionally paused while the realistic
+agent journey is built in Issues 010–013. Those deferred checks still block
+final MVP acceptance. Completing an issue normally makes only its immediate
+successor ready. Gate-closing issues require explicit human review.
 
 ## Execution rules
 
@@ -53,15 +55,19 @@ human review.
     new issue, not opportunistic implementation.
 13. Never import or copy code from the legacy OneCLI branch. Reimplement only
     independently justified contracts and behavior.
+14. The product owner may explicitly pause verification and allow a successor
+    that does not depend on the unresolved proof to begin. The deferred proof
+    remains visible and must pass before final acceptance; it is not waived.
 
 ## Roadmap reset and carry-forward rule
 
 The active roadmap is deliberately product-sequential: identity/policy,
-policy-built workspace, real model, governed Microsoft tools, physical
-approval, golden path, then clean acceptance. A replacement issue may cite
-historical evidence, but it passes only its own unchecked requirements. Old
-issue numbers in `infra/issue-*` evidence remain historical labels and do not
-re-enter the active dependency chain.
+policy-built workspace, real model, governed Microsoft tools, device-backed
+approval, a real conversational agent, agent-to-MCP integration, owned policy
+controls, approval/audit UX, the human golden path, then clean acceptance. A
+replacement issue may cite historical evidence, but it passes only its own
+unchecked requirements. Old issue numbers in `infra/issue-*` evidence remain
+historical labels and do not re-enter the active dependency chain.
 
 ## Common evidence protocol
 
@@ -87,12 +93,13 @@ required clean-state and failure tests pass, deployed claims are inspected, the
 evidence is internally consistent, and the completion record points to the
 bundle.
 
-## Human-assisted physical device rule
+## Human-assisted approval-device rule
 
-For Issue 009, Codex may prepare the disposable task, observe server state,
-verify signatures, and clean up. The user controls the iPhone and performs only
-explicit steps such as opening VTA Mobile Agent, reviewing a safe challenge,
-approving, denying, backgrounding, disconnecting, or reconnecting.
+For Issues 009, 013, 014, and 015, Codex may prepare the disposable task,
+observe server state, verify signatures, and clean up. The user controls the
+WebAuthn-capable approval browser (and a later mobile agent if qualified) and
+performs only explicit steps such as reviewing a safe challenge, approving,
+denying, closing, disconnecting, or reconnecting.
 
 A statement that a button was tapped is not authority evidence. Passing
 requires the server to receive and cryptographically verify the exact signed
@@ -112,9 +119,13 @@ task contents in chat.
 | 006 | E | Launch a policy-built managed agent workspace | 005 | Yes |
 | 007 | F | Enable one governed real-model route | 006 | Yes |
 | 008 | G | Govern the Microsoft 365 MCP capability surface | 007 | Yes |
-| 009 | H | Integrate OpenVTC physical approval and durable evidence | 008 | Yes |
-| 010 | I | Complete the end-to-end Microsoft 365 MVP journey | 009 | Yes |
-| 011 | J | Run clean-state MVP acceptance | 010 | Yes |
+| 009 | H | Integrate OpenVTC device-backed approval and durable evidence | 008 | Yes |
+| 010 | I | Launch a configurable real conversational agent workspace | 009 implementation checkpoint | Yes |
+| 011 | J | Connect the real agent to governed Microsoft 365 tools | 010 | Yes |
+| 012 | K | Manage workspace, agent, model, and tool policy in ONEComputer | 011 | Yes |
+| 013 | L | Complete agent-triggered OpenVTC approval and audit UX | 012 and 009 verification | Yes |
+| 014 | M | Run the complete human Microsoft 365 MVP journey | 013 | Yes |
+| 015 | N | Run clean-state MVP acceptance | 014 | Yes |
 
 ## Assignment template
 

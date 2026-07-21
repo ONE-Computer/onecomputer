@@ -1,10 +1,10 @@
-# 009: integrate OpenVTC physical approval and durable evidence
+# 009: integrate OpenVTC device-backed approval and durable evidence
 
-Status: `in_progress` (browser profile implemented; physical approve/deny review pending)
+Status: `verification` (remaining denial/restart checks paused by product owner)
 
 Gate: H
 Depends on: 008
-Unblocks: 010
+Unblocks: 010 implementation checkpoint; final verification unblocks 013
 
 ## Outcome
 
@@ -99,3 +99,9 @@ and signing the decision each required a device prompt on separate pages. The
 revised flow loads the signed safe task through the authenticated ONEComputer
 session and performs approval or denial in the governed-operation drawer with
 one WebAuthn signing gesture. Physical denial and restart checks remain open.
+
+On 2026-07-21 the product owner explicitly paused those remaining checks so the
+team can replace the temporary CLI test surface with a realistic conversational
+agent journey. This is a sequencing exception, not acceptance: Issue 010 may
+begin from the working implementation checkpoint, but the open denial and
+restart checks must pass before Issue 013 can close.

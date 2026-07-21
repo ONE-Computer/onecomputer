@@ -261,17 +261,20 @@ they cannot define authorization or count as integration acceptance.
 
 | Gate | Outcome | Issues |
 | --- | --- | --- |
-| A | Architecture and trust contract reviewed | 000 |
-| B | Real Kasm sandbox slice works; LiteLLM is qualified and decided | 001–002 |
-| C | Owned governance and fixture approval vertical slice works | 003–005 |
-| D | Real workspace is identity-bound and network-contained | 006 |
-| E | Owned MVP UI works over authoritative APIs | 007 |
-| F | O365 candidate and physical OpenVTC are qualified | 008–009 |
-| G | OneDrive critical-action golden path works | 010 |
-| H | Model controls and clean-state MVP acceptance pass | 011–012 |
+| A–C | Architecture, Kasm, LiteLLM, and governance foundations work | 000–004 |
+| D–G | Identity, policy-built workspace, model route, and Microsoft tools work | 005–008 |
+| H | Device-backed OpenVTC approval and durable evidence work | 009 |
+| I | A configurable real conversational agent launches in Kasm | 010 |
+| J | The real agent uses only governed Microsoft 365 tools | 011 |
+| K | Administrators manage effective workspace, agent, model, and tool policy | 012 |
+| L | Agent-triggered approval and audit UX works end to end | 013 |
+| M | The complete human Microsoft 365 agent journey passes | 014 |
+| N | Clean-state MVP acceptance passes | 015 |
 
-Only the active gate may change product code. Gate reports require explicit
-human review before the next gate begins.
+Only the first `ready` implementation gate may change product code. A paused
+verification gate may remain open only through the documented sequencing
+exception, and its proof still blocks the later acceptance gate. Gate reports
+require explicit human review before the next gate begins.
 
 ## Evidence standard
 
@@ -282,7 +285,8 @@ Every technical claim requires deployed evidence proportional to the boundary:
 - integration tests for database transitions and callbacks;
 - live topology probes for network, identity, credentials, and execution;
 - restart/concurrency/replay tests for durable operations;
-- physical device evidence only when the iOS VTA Mobile Agent is actually used;
+- device-backed evidence only when the WebAuthn browser agent or a later
+  qualified VTA Mobile Agent is actually used;
 - screenshots/accessibility checks for UI, never as authority evidence.
 
 Evidence is stored redacted under `.artifacts/v4/issues/<id>/<timestamp>/` and
@@ -300,7 +304,7 @@ Stop and request a decision when:
 - network containment requires weakening workspace isolation;
 - an O365 MCP candidate cannot meet the minimum scopes, schema identity,
   resource binding, or receipt requirements;
-- the physical VTA contract or device prerequisite is unavailable;
+- the selected OpenVTC approval profile or device prerequisite is unavailable;
 - a test passes only by manual database mutation, skipped negative cases, or an
   allow-by-default fallback.
 

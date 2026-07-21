@@ -2,6 +2,11 @@
 
 Status: automated qualification passed; human product review pending.
 
+An initial human launch exposed a duplicated API prefix: Desktop appends
+`/v1/messages`, while the first managed base URL also ended in `/v1`. The
+resulting `/v1/v1/messages` request was denied by the broker. The managed base
+URL was corrected to the broker origin and a regression assertion was added.
+
 ## Decision record
 
 Claude Desktop Linux was selected because Anthropic now provides a supported,
@@ -38,7 +43,7 @@ editing the gateway destination or reading the scoped LiteLLM credential.
   - only `onecomputer-claude` exposed in the test profile.
   - user MCP and Desktop extensions disabled.
 - Final workspace image:
-  `sha256:9b596d6b20f0895f147b1f8000257b61ebb038db56f6b7652d70a4f245b94b38`.
+  `sha256:1dcbf5cbf97d4f0a2fee33a26d918176bdd7f6c490aa3813790ef9cc18bbfaef`.
 - Local immutable assignment advanced to policy version 5 with profile
   `claude-desktop-standard-v1`, agent profile
   `claude-desktop-managed-v1`, and the three approved aliases.

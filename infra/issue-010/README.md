@@ -13,7 +13,7 @@ workspace-scoped LiteLLM gateway.
 - Kasm Ubuntu Jammy base:
   `sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580`
 - resulting local workspace image:
-  `sha256:9b596d6b20f0895f147b1f8000257b61ebb038db56f6b7652d70a4f245b94b38`
+  `sha256:1dcbf5cbf97d4f0a2fee33a26d918176bdd7f6c490aa3813790ef9cc18bbfaef`
 
 This follows Anthropic's supported Linux and gateway paths:
 

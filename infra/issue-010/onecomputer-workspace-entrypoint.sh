@@ -22,7 +22,7 @@ import sys
 model, label = sys.argv[1:]
 document = {
     "inferenceProvider": "gateway",
-    "inferenceGatewayBaseUrl": "http://127.0.0.1:4312/v1",
+    "inferenceGatewayBaseUrl": "http://127.0.0.1:4312",
     "inferenceGatewayApiKey": "onecomputer-loopback-broker",
     "inferenceGatewayAuthScheme": "bearer",
     "modelDiscoveryEnabled": False,

@@ -16,7 +16,7 @@ workspace-scoped LiteLLM gateway.
 - Kasm Ubuntu Jammy base:
   `sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580`
 - resulting local workspace image:
-  `sha256:9d12981a6283d6e77ce2f2dc166c134419e734904d8cb150e171ab327aa11f4f`
+  `sha256:52e34e95b9b9eb76730da0ddee7f0acd298f5b7c7e2e5ef8d274d567ce1d8506`
 
 This follows Anthropic's supported Linux and gateway paths:
 
@@ -36,11 +36,26 @@ runtime because the workspace has no direct provider/CDN egress.
 
 ## Runtime boundary
 
-The selected model is one immutable LiteLLM alias:
+Control and policy retain one provider-accurate model alias:
 
 - `onecomputer-claude` -> `anthropic/claude-sonnet-4-6`
 - `onecomputer-openai` -> `openai/gpt-5.6-luna`
 - `onecomputer-glm` -> `zai/glm-5`
+
+Claude Desktop validates gateway model identifiers before making a request.
+For this client only, Control projects the selected policy alias to a
+Claude-compatible transport alias:
+
+- `onecomputer-claude` -> `claude-sonnet-4-6`
+- `onecomputer-openai` -> `claude-opus-4-6`
+- `onecomputer-glm` -> `claude-sonnet-4-5`
+
+Desktop `1.22209.3` requires these transport identifiers to be members of its
+built-in Anthropic model catalog; an arbitrary `claude-*` prefix is rejected
+before any gateway call. Each catalog-valid identifier maps to the pinned
+LiteLLM deployment shown above. LiteLLM key metadata records both names, so
+policy and audit surfaces continue to identify the actual selected provider
+route rather than treating GLM or OpenAI as Anthropic models.
 
 Only LiteLLM contains provider API keys. Control mints one expiring key bound
 to the workspace, agent, user, model alias, policy hash, budget, and limits.

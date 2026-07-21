@@ -119,6 +119,19 @@ const WORKSPACE_RPM_LIMIT = 30;
 const WORKSPACE_TPM_LIMIT = 50_000;
 const WORKSPACE_MAX_PARALLEL_REQUESTS = 4;
 
+const desktopTransportAliases: Record<string, string> = {
+  "onecomputer-claude": "claude-sonnet-4-6",
+  "onecomputer-openai": "claude-opus-4-6",
+  "onecomputer-glm": "claude-sonnet-4-5",
+};
+
+const desktopModelAlias = (modelAlias: string, policy?: RuntimePolicy) => {
+  if (policy?.workspaceProfile !== "claude-desktop-standard-v1") return modelAlias;
+  const transportAlias = desktopTransportAliases[modelAlias];
+  if (!transportAlias) throw new OneComputerError("DESKTOP_MODEL_ROUTE_INVALID", "The selected model has no Claude Desktop transport route", 500);
+  return transportAlias;
+};
+
 export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecutor, OAuthConnectionGateway {
   private readonly adminUrl: string;
   private readonly workspaceUrl: string;
@@ -374,11 +387,13 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
   async ensureGrant(input: { workspaceId: string; identity: IdentityContext; agentId?: string; policy?: RuntimePolicy }): Promise<GatewayGrant> {
     const agentId = input.policy?.agentId ?? input.agentId;
     const modelAlias = input.policy?.modelAlias ?? this.modelAlias;
+    const gatewayModelAlias = desktopModelAlias(modelAlias, input.policy);
     const mcpServer = input.policy?.mcpServer ?? this.mcpServer;
     const allowedTools = input.policy?.allowedTools ?? this.allowedTools;
     const projection = JSON.stringify({
       agentId,
       modelAlias,
+      gatewayModelAlias,
       mcpServer,
       allowedTools,
       policyVersionId: input.policy?.policyVersionId ?? null,
@@ -389,7 +404,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
     const gatewayAgentId = this.agentIdFor(input.workspaceId, agentId);
     const cached = this.workspaceGrantStates.get(credential);
     if (cached && cached.projection === projection && cached.expiresAt > Date.now() + this.workspaceGrantRenewalMs) {
-      return { baseUrl: this.workspaceUrl, credential, modelAlias, expiresAt: new Date(cached.expiresAt).toISOString() };
+      return { baseUrl: this.workspaceUrl, credential, modelAlias: gatewayModelAlias, expiresAt: new Date(cached.expiresAt).toISOString() };
     }
     const expiresAt = new Date(Date.now() + this.workspaceGrantTtlMs);
     const durationSeconds = Math.max(60, Math.ceil(this.workspaceGrantTtlMs / 1_000));
@@ -400,7 +415,7 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       user_id: gatewayUserId,
       agent_id: gatewayAgentId,
       duration: `${durationSeconds}s`,
-      models: [modelAlias],
+      models: [gatewayModelAlias],
       max_budget: WORKSPACE_MAX_BUDGET_USD,
       budget_duration: WORKSPACE_BUDGET_DURATION,
       rpm_limit: WORKSPACE_RPM_LIMIT,
@@ -411,6 +426,8 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
         onecomputer_tenant_id: input.identity.tenantId,
         onecomputer_subject_id: input.identity.subjectId,
         onecomputer_agent_id: agentId ?? `workspace-default:${input.workspaceId}`,
+        onecomputer_policy_model_alias: modelAlias,
+        onecomputer_client_model_alias: gatewayModelAlias,
         ...(input.policy ? {
           onecomputer_policy_version_id: input.policy.policyVersionId,
           onecomputer_policy_version: input.policy.policyVersion,
@@ -450,12 +467,13 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       }
     }
     this.workspaceGrantStates.set(credential, { expiresAt: expiresAt.getTime(), projection });
-    return { baseUrl: this.workspaceUrl, credential, modelAlias, expiresAt: expiresAt.toISOString() };
+    return { baseUrl: this.workspaceUrl, credential, modelAlias: gatewayModelAlias, expiresAt: expiresAt.toISOString() };
   }
 
   async readiness(workspaceId: string, agentId?: string, policy?: RuntimePolicy): Promise<GatewayReadiness> {
     const effectiveAgentId = policy?.agentId ?? agentId;
     const modelAlias = policy?.modelAlias ?? this.modelAlias;
+    const gatewayModelAlias = desktopModelAlias(modelAlias, policy);
     const allowedTools = policy?.allowedTools ?? this.allowedTools;
     const credential = this.credentialFor(workspaceId, effectiveAgentId);
     const [models, tools, modelRoute] = await Promise.all([
@@ -471,11 +489,11 @@ export class LiteLLMGatewayAdapter implements GatewayClient, GovernedToolExecuto
       ? (asObject(tools.payload).tools as unknown[]).map((item) => String(asObject(item).name ?? ""))
       : [];
     return {
-      models: models.ok && modelIds.includes(modelAlias) ? "ready" : "failed",
+      models: models.ok && modelIds.includes(gatewayModelAlias) ? "ready" : "failed",
       tools: tools.ok && allowedTools.length === toolNames.length && allowedTools.every((tool) => toolNames.includes(tool)) ? "ready" : "failed",
       modelRoute: {
         ...modelRoute,
-        status: models.ok && modelIds.includes(modelAlias) ? "ready" : "failed",
+        status: models.ok && modelIds.includes(gatewayModelAlias) ? "ready" : "failed",
       },
     };
   }

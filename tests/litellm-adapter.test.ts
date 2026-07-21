@@ -320,6 +320,48 @@ test("workspace grant materializes the exact Control policy rather than adapter 
   }
 });
 
+test("Claude Desktop receives a Claude-compatible client alias while policy retains the actual provider route", async () => {
+  let grantBody: Record<string, unknown> = {};
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    grantBody = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const liveAdapter = new LiteLLMGatewayAdapter({
+    adminUrl: `http://127.0.0.1:${address.port}`,
+    workspaceUrl: `http://127.0.0.1:${address.port}`,
+    masterKey: "sk-master-test-not-used-00001",
+    credentialSecret: "credential-secret-for-tests-00000001",
+  });
+  const policy = {
+    schemaVersion: 1 as const,
+    policyVersionId: "policy-version-desktop",
+    policyVersion: 1,
+    policyHash: "c".repeat(64),
+    workspaceProfile: "claude-desktop-standard-v1" as const,
+    agentId: "desktop-agent",
+    agentProfile: "claude-desktop-managed-v1" as const,
+    networkProfile: "controlled-egress-v1" as const,
+    modelAlias: "onecomputer-glm",
+    mcpServer: "onecomputer_ms365",
+    allowedTools: ["list-drives"],
+  };
+  try {
+    const grant = await liveAdapter.ensureGrant({ workspaceId: "workspace-desktop", identity, policy });
+    assert.equal(grant.modelAlias, "claude-sonnet-4-5");
+    assert.deepEqual(grantBody.models, ["claude-sonnet-4-5"]);
+    const metadata = grantBody.metadata as Record<string, unknown>;
+    assert.equal(metadata.onecomputer_policy_model_alias, "onecomputer-glm");
+    assert.equal(metadata.onecomputer_client_model_alias, "claude-sonnet-4-5");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("a pre-existing key with mismatched identity is replaced rather than updated", async () => {
   const requests: string[] = [];
   let generateCalls = 0;

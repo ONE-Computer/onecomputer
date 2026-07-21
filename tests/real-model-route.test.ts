@@ -14,6 +14,9 @@ test("the approved model aliases have pinned real routes and no fallback", async
   assert.match(config, /model: anthropic\/claude-sonnet-4-6/);
   assert.match(config, /model: openai\/gpt-5\.6-luna/);
   assert.match(config, /model: zai\/glm-5/);
+  assert.match(config, /model_name: claude-sonnet-4-6\s+litellm_params:\s+model: anthropic\/claude-sonnet-4-6/);
+  assert.match(config, /model_name: claude-opus-4-6\s+litellm_params:\s+model: openai\/gpt-5\.6-luna/);
+  assert.match(config, /model_name: claude-sonnet-4-5\s+litellm_params:\s+model: zai\/glm-5/);
   assert.doesNotMatch(config, /fallbacks:/);
   assert.match(config, /turn_off_message_logging: true/);
   assert.match(config, /log_raw_request_response: false/);
@@ -47,6 +50,7 @@ test("Claude Desktop is pinned and receives managed gateway policy rather than p
   assert.match(entrypoint, /"disableDeploymentModeChooser": True/);
   assert.match(entrypoint, /"isLocalDevMcpEnabled": False/);
   assert.match(entrypoint, /"isDesktopExtensionEnabled": False/);
+  assert.match(entrypoint, /claude-sonnet-4-5/);
   assert.match(proxy, /ALLOWED_PATHS = \{"\/v1\/messages", "\/v1\/models"\}/);
   assert.doesNotMatch(`${dockerfile}\n${entrypoint}\n${proxy}`, /ONECOMPUTER_(?:OPENAI|CLAUDE|GLM)_API_KEY|LITELLM_MASTER_KEY/);
 });

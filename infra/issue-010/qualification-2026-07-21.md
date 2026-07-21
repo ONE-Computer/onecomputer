@@ -13,6 +13,14 @@ Anthropic at runtime. The managed network correctly denied that direct route.
 The exact engine version and checksum embedded in Desktop `1.22209.3` are now
 preinstalled and seeded into Desktop's generated cache before launch.
 
+A GLM human launch then exposed client-side model-name validation. Desktop
+rejected `onecomputer-glm` before issuing an HTTP request. A subsequent smoke
+test proved that an arbitrary `claude-onecomputer-glm` prefix is also rejected.
+The policy alias now projects to the catalog-valid, client-only
+`claude-sonnet-4-5` transport alias, which LiteLLM maps exclusively to
+`zai/glm-5`. Provider-accurate policy and audit metadata remain
+`onecomputer-glm`.
+
 ## Decision record
 
 Claude Desktop Linux was selected because Anthropic now provides a supported,
@@ -34,6 +42,24 @@ editing the gateway destination or reading the scoped LiteLLM credential.
   - `onecomputer-claude`: passed
   - `onecomputer-openai`: passed
   - `onecomputer-glm`: passed
+- Claude Desktop-compatible Anthropic Messages route:
+  - requested alias: `claude-sonnet-4-5`
+  - pinned deployment: `zai/glm-5`
+  - model-restricted temporary key returned: `catalog GLM route ready`
+  - response type: Anthropic `message`
+  - stop reason: `end_turn`
+  - streaming returned `content_block_delta` and `message_stop`
+  - both temporary qualification keys were revoked after their checks
+- Isolated Claude Desktop smoke test:
+  - workspace image healthy
+  - Desktop process running
+  - managed model: `claude-sonnet-4-5`
+  - visible label: `GLM — organization route`
+  - gateway mode active
+  - zero invalid managed-config log entries
+  - all three catalog transport IDs started Desktop with zero invalid-config
+    entries: `claude-sonnet-4-6`, `claude-opus-4-6`, and
+    `claude-sonnet-4-5`
 - LiteLLM `POST /v1/messages`, SSE streaming with
   `content_block_delta` and `message_stop`:
   - `onecomputer-claude`: passed
@@ -51,7 +77,7 @@ editing the gateway destination or reading the scoped LiteLLM credential.
   - only `onecomputer-claude` exposed in the test profile.
   - user MCP and Desktop extensions disabled.
 - Final workspace image:
-  `sha256:9d12981a6283d6e77ce2f2dc166c134419e734904d8cb150e171ab327aa11f4f`.
+  `sha256:52e34e95b9b9eb76730da0ddee7f0acd298f5b7c7e2e5ef8d274d567ce1d8506`.
 - Local immutable assignment advanced to policy version 5 with profile
   `claude-desktop-standard-v1`, agent profile
   `claude-desktop-managed-v1`, and the three approved aliases.

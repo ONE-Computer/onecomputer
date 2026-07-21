@@ -13,9 +13,9 @@ claude_code_binary="${claude_code_dir}/claude"
 claude_code_marker="${claude_code_dir}/.verified"
 
 case "$ONECOMPUTER_MODEL_ALIAS" in
-  onecomputer-claude) model_label="Claude — organization route" ;;
-  onecomputer-openai) model_label="OpenAI — organization route" ;;
-  onecomputer-glm) model_label="GLM — organization route" ;;
+  onecomputer-claude|claude-sonnet-4-6) model_label="Claude — organization route" ;;
+  onecomputer-openai|claude-opus-4-6) model_label="OpenAI — organization route" ;;
+  onecomputer-glm|claude-sonnet-4-5) model_label="GLM — organization route" ;;
   onecomputer-assistant) model_label="Standard organization route" ;;
   *) echo "unrecognized model assignment" >&2; exit 78 ;;
 esac

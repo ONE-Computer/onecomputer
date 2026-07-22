@@ -12,27 +12,22 @@ unknown/malformed decisions, timeout, or Control outage deny the call.
 
 ## Qualified capability surface
 
-Only six tools are registered in LiteLLM for `onecomputer_ms365`:
+Exactly 37 curated tools are registered for Outlook Mail, Calendar, OneDrive,
+and Teams. List/get/search tools default to `allow`. Every create, update,
+move, copy, upload, send, reply, forward, or delete tool defaults to
+`approval_required`. The Admin UI can version any individual decision as
+Allow, Require approval, or Block. Tools outside the curated list remain
+undiscoverable.
 
-- `list-mail-folders`, `list-calendars`, and `list-drives` are automatically
-  allowed only with `{}` or `{ "top": 1..25 }`;
-- `search-onedrive-files` is limited to one drive, a 128-character query, and
-  at most 10 results; its only permitted field projection is the fixed
-  `id,name,eTag,parentReference` set used to discover the item ID;
-- `get-drive-item` requires an exact drive/item ID and the same fixed
-  projection with response headers so the current eTag can be bound;
-- `delete-onedrive-file` requires `driveId`, `driveItemId`, and `If-Match` and
-  never reaches Microsoft on the initial agent call;
-- every other argument and Microsoft tool is undiscoverable or denied.
+Control validates each call against an owned strict schema and persists every
+protected request with the exact tenant/user/workspace, capability,
+server/tool/schema identity, arguments, policy version/hash, nonce, and
+expiry. Approval creates one short execution lease. Only Control adds
+`confirm: true`; the callback atomically consumes the exact dispatch binding
+before Softeria receives it. Replay or mutation is denied.
 
-Control persists a delete request with the exact tenant/user/workspace,
-capability, server/tool/schema identity, drive/item/eTag, policy version/hash,
-nonce, and expiry. Approval creates one short execution lease. Control adds
-`confirm: true` and `excludeResponse: true`; the callback atomically consumes
-the exact dispatch binding before Softeria receives it. Replay or mutation is
-denied. Ambiguous completion is not retried.
-
-The complete IDs, hashes, and requalification triggers are pinned in
+The complete catalog, strict schema IDs/hashes, and requalification triggers
+are pinned by `m365ToolCatalog`, `mcp-policy.ts`, and
 `tool-surface-governed.json`.
 
 ## Credentials and delegated scopes
@@ -42,14 +37,15 @@ to Softeria for that user's call. They are never returned to Control or the
 workspace. The connector requests exactly:
 
 ```text
-User.Read Mail.Read Calendars.Read Files.ReadWrite
+User.Read offline_access Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite
+Chat.Read ChatMessage.Read ChatMessage.Send Team.ReadBasic.All Channel.ReadBasic.All
+ChannelMessage.Read.All ChannelMessage.Send
 ```
 
-`Files.ReadWrite` is required for the single protected delete capability. It
-does not grant the workspace unrestricted writes: LiteLLM exposes only the
-six pinned tools and Control denies every delete until an exact approval
-lease exists. Existing users connected under the earlier `Files.Read` slice
-must disconnect and reconnect once to consent to the new scope.
+These delegated permissions do not grant the workspace unrestricted writes:
+LiteLLM exposes only the pinned tools and Control applies the immutable
+per-tool policy immediately before execution. Existing connections must be
+disconnected and reconnected once to receive the expanded token scopes.
 
 ## Pin and network record
 

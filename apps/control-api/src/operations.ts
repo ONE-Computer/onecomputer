@@ -78,6 +78,22 @@ const toView = (record: GovernedOperationRecord): OperationView => ({
   failureCode: record.failureCode,
 });
 
+const shortIdentifier = (value: OwnedJson | undefined, fallback: string) => typeof value === "string"
+  ? (value.length > 20 ? `${value.slice(0, 8)}…${value.slice(-8)}` : value)
+  : fallback;
+
+const microsoft365Resource = (toolName: string, argumentsValue: Record<string, OwnedJson>, displayName: string) => {
+  const service = toolName.includes("mail") || toolName.includes("draft") ? "Outlook Mail"
+    : toolName.includes("calendar") ? "Outlook Calendar"
+      : toolName.includes("chat") || toolName.includes("channel") ? "Microsoft Teams"
+        : "OneDrive";
+  const identifier = shortIdentifier(
+    argumentsValue.driveItemId ?? argumentsValue.messageId ?? argumentsValue.eventId ?? argumentsValue.chatMessageId,
+    displayName,
+  );
+  return { safeSummary: displayName, resourceName: identifier, resourceLocation: service };
+};
+
 export class GovernedOperationService {
   constructor(
     private readonly store: WorkspaceStore & GovernanceStore,
@@ -224,10 +240,7 @@ export class GovernedOperationService {
       expiresAt: expiresAt.toISOString(),
     };
     const operationDigest = governedOperationDigest(operationEnvelope);
-    const driveItemId = typeof input.arguments.driveItemId === "string" ? input.arguments.driveItemId : null;
-    const driveId = typeof input.arguments.driveId === "string" ? input.arguments.driveId : null;
-    const shortItem = driveItemId ? (driveItemId.length > 20 ? `${driveItemId.slice(0, 8)}…${driveItemId.slice(-8)}` : driveItemId) : input.toolName;
-    const shortDrive = driveId ? (driveId.length > 20 ? `${driveId.slice(0, 8)}…${driveId.slice(-8)}` : driveId) : "Microsoft 365";
+    const resource = microsoft365Resource(input.toolName, input.arguments, input.displayName);
     const record = await this.store.createGovernedOperation({
       id: operationId,
       identity,
@@ -242,9 +255,9 @@ export class GovernedOperationService {
       arguments: operationEnvelope.arguments,
       operationDigest,
       nonce,
-      safeSummary: input.toolName === "delete-onedrive-file" ? `Delete OneDrive item ${shortItem}` : input.displayName,
-      resourceName: shortItem,
-      resourceLocation: driveId ? `OneDrive drive ${shortDrive}` : "Microsoft 365",
+      safeSummary: input.toolName === "delete-onedrive-file" ? `Delete OneDrive item ${resource.resourceName}` : resource.safeSummary,
+      resourceName: resource.resourceName,
+      resourceLocation: resource.resourceLocation,
       correlationId,
       idempotencyKey,
       replaceTerminal: retryTerminal,

@@ -14,6 +14,13 @@ BROKER = "http://127.0.0.1:4312"
 PROTOCOL_VERSION = "2024-11-05"
 TOOLS: dict[str, dict] = {}
 WAIT_TOOL_NAME = "wait-for-governed-operation"
+WRITE_TOOLS = {
+    "create-draft-email", "update-mail-message", "delete-mail-message", "move-mail-message",
+    "send-mail", "send-draft-message", "reply-mail-message", "reply-all-mail-message", "forward-mail-message",
+    "create-calendar-event", "update-calendar-event", "delete-calendar-event", "create-onedrive-folder",
+    "upload-file-content", "move-rename-onedrive-item", "copy-drive-item", "delete-onedrive-file",
+    "send-chat-message", "reply-to-chat-message", "send-channel-message", "reply-to-channel-message",
+}
 DELETE_ONEDRIVE_DESCRIPTION = """Delete one Microsoft OneDrive or SharePoint drive item through ONEComputer governance.
 
 This is a remote Microsoft 365 action, not a local filesystem action. Before calling it, get the item's current top-level eTag with get-drive-item (includeHeaders=true and select=id,name,eTag,parentReference). Pass that exact eTag as If-Match. Call this tool directly; do not request Cowork or local-file deletion permission. ONEComputer Control will obtain any required signed approval and this call will wait for the final result."""
@@ -75,7 +82,7 @@ def discover_tools() -> list[dict]:
             continue
         TOOLS[raw["name"]] = raw
         input_schema = raw.get("inputSchema", raw.get("input_schema", {"type": "object"}))
-        if raw["name"] == "delete-onedrive-file" and isinstance(input_schema, dict):
+        if raw["name"] in WRITE_TOOLS and isinstance(input_schema, dict):
             # Connector execution flags are Control-owned. Do not advertise
             # them as agent inputs; Control adds them only after approval.
             input_schema = json.loads(json.dumps(input_schema))
@@ -83,13 +90,13 @@ def discover_tools() -> list[dict]:
             if isinstance(properties, dict):
                 properties.pop("confirm", None)
                 properties.pop("excludeResponse", None)
+                properties.pop("includeHeaders", None)
             required = input_schema.get("required")
             if isinstance(required, list):
-                input_schema["required"] = list(dict.fromkeys([
-                    item for item in required if item not in {"confirm", "excludeResponse"}
-                ] + ["If-Match"]))
-            else:
-                input_schema["required"] = ["driveId", "driveItemId", "If-Match"]
+                required = [item for item in required if item not in {"confirm", "excludeResponse", "includeHeaders"}]
+                if raw["name"] == "delete-onedrive-file":
+                    required = list(dict.fromkeys(required + ["If-Match"]))
+                input_schema["required"] = required
             input_schema["additionalProperties"] = False
         result.append({
             "name": raw["name"],
@@ -225,7 +232,7 @@ def handle(message: dict) -> None:
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "onecomputer-microsoft-365", "version": "0.1.0"},
-                "instructions": "Microsoft 365 tools operate on remote Outlook, Calendar, and OneDrive resources. Use the corresponding MCP tool directly. Never substitute Cowork or local-filesystem permission tools. ONEComputer Control enforces policy and obtains signed approval inside protected tool calls.",
+                "instructions": "Microsoft 365 tools operate on remote Outlook Mail, Calendar, OneDrive, and Teams resources. Use the corresponding MCP tool directly. Read calls normally run immediately. Writes may return a governed operation; call wait-for-governed-operation with that operationId until signed approval or denial is final. Never substitute Cowork or local-filesystem permission tools. ONEComputer Control enforces policy and obtains signed approval inside protected tool calls.",
             })
         elif method == "ping":
             respond(identifier, {})

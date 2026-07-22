@@ -298,6 +298,7 @@ export function createControlServer(
         name,
         displayName: definition.displayName,
         description: definition.description,
+        service: definition.service,
         risk: definition.risk,
         decision: runtime?.toolPolicies[name] ?? definition.mode,
       })),

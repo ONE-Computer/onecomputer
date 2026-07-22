@@ -293,6 +293,8 @@ function SignInScreen({ error }) {
 }
 
 function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, policySaving, onPolicyChange, onPolicySave }) {
+  const serviceLabels = { mail: "Outlook Mail", calendar: "Calendar", onedrive: "OneDrive", teams: "Teams" };
+  const groupedTools = Object.entries(serviceLabels).map(([service, label]) => ({ service, label, tools: mcpPolicy?.tools.filter((tool) => tool.service === service) ?? [] }));
   return (
     <div className="secondary-screen admin-screen">
       <header className="page-heading compact">
@@ -310,17 +312,22 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
           {mcpPolicy && <span>Version {mcpPolicy.version} · {mcpPolicy.documentHash.slice(0, 12)}…</span>}
         </div>
         <p className="tool-policy-intro">Choose what the workspace agent may run immediately, what requires a signed OpenVTC approval, and what is blocked entirely. Changes create an immutable policy version.</p>
-        <div className="tool-policy-list">
-          {mcpPolicy?.tools.map((tool) => (
-            <label key={tool.name}>
-              <span><strong>{tool.displayName}</strong><small>{tool.description}</small><code>{tool.name}</code></span>
-              <select value={tool.decision} onChange={(event) => onPolicyChange(tool.name, event.target.value)} aria-label={`${tool.displayName} policy`}>
-                <option value="allow">Allow</option>
-                <option value="approval_required">Require approval</option>
-                <option value="deny">Block</option>
-              </select>
-            </label>
-          ))}
+        <div className="tool-policy-groups">
+          {groupedTools.map((group) => <section key={group.service} className="tool-policy-group">
+            <h3>{group.label}<span>{group.tools.length} tools</span></h3>
+            <div className="tool-policy-list">
+              {group.tools.map((tool) => (
+                <label key={tool.name}>
+                  <span><strong>{tool.displayName}</strong><small>{tool.description}</small><code>{tool.name}</code></span>
+                  <select value={tool.decision} onChange={(event) => onPolicyChange(tool.name, event.target.value)} aria-label={`${tool.displayName} policy`}>
+                    <option value="allow">Allow</option>
+                    <option value="approval_required">Require approval</option>
+                    <option value="deny">Block</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>)}
         </div>
         <div className="tool-policy-actions">
           <span><ShieldCheckmark24Regular aria-hidden="true" />Approval rules are enforced in Control, not trusted to the desktop client.</span>

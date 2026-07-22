@@ -57,7 +57,7 @@ mcp_servers:
   onecomputer_ms365:
     transport: http
     url: http://ms365-mcp:3000/mcp
-    description: Pinned Softeria Microsoft 365 connector for Outlook Mail, Calendar, and OneDrive
+    description: Pinned Softeria connector for Outlook Mail, Calendar, OneDrive, and Teams
     auth_type: oauth2
     oauth2_flow: authorization_code
     client_id: onecomputer-litellm
@@ -66,16 +66,56 @@ mcp_servers:
     token_url: http://ms365-mcp:3000/token
     scopes:
       - User.Read
-      - Mail.Read
-      - Calendars.Read
+      - offline_access
+      - Mail.ReadWrite
+      - Mail.Send
+      - Calendars.ReadWrite
       - Files.ReadWrite
+      - Chat.Read
+      - ChatMessage.Read
+      - ChatMessage.Send
+      - Team.ReadBasic.All
+      - Channel.ReadBasic.All
+      - ChannelMessage.Read.All
+      - ChannelMessage.Send
     allowed_tools:
-      - list-calendars
-      - list-drives
       - list-mail-folders
+      - list-mail-messages
+      - get-mail-message
+      - create-draft-email
+      - update-mail-message
+      - delete-mail-message
+      - move-mail-message
+      - send-mail
+      - send-draft-message
+      - reply-mail-message
+      - reply-all-mail-message
+      - forward-mail-message
+      - list-calendars
+      - list-calendar-events
+      - get-calendar-event
+      - create-calendar-event
+      - update-calendar-event
+      - delete-calendar-event
+      - list-drives
+      - get-drive-root-item
+      - list-folder-files
       - search-onedrive-files
       - get-drive-item
+      - create-onedrive-folder
+      - upload-file-content
+      - move-rename-onedrive-item
+      - copy-drive-item
       - delete-onedrive-file
+      - list-chats
+      - list-chat-messages
+      - list-joined-teams
+      - list-team-channels
+      - list-channel-messages
+      - send-chat-message
+      - reply-to-chat-message
+      - send-channel-message
+      - reply-to-channel-message
     allow_all_keys: false
     available_on_public_internet: false
     delegate_auth_to_upstream: false

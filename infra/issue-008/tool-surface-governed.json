@@ -4,62 +4,27 @@
   "litellmVersion": "1.93.0",
   "serverName": "onecomputer_ms365",
   "serverId": "9885e7f76089931fc5365104183af8ea",
-  "scopes": ["Calendars.Read", "Files.ReadWrite", "Mail.Read", "User.Read"],
-  "tools": {
-    "list-mail-folders": {
-      "capabilityId": "m365.mail-folders.list",
-      "decision": "allow",
-      "schemaId": "onecomputer.m365.list-mail-folders.v1",
-      "schemaHash": "93b5b67eabca418bf389be849e287c70b3ca0a3d88dfee6c72026a1da81669aa",
-      "arguments": { "top": "optional integer 1..25; every other argument denied" }
-    },
-    "list-calendars": {
-      "capabilityId": "m365.calendars.list",
-      "decision": "allow",
-      "schemaId": "onecomputer.m365.list-calendars.v1",
-      "schemaHash": "7b6174f71fbdf879f94977e5d02fcbb45458f95076ee8ab1b1ceaed53228f47e",
-      "arguments": { "top": "optional integer 1..25; every other argument denied" }
-    },
-    "list-drives": {
-      "capabilityId": "m365.drives.list",
-      "decision": "allow",
-      "schemaId": "onecomputer.m365.list-drives.v1",
-      "schemaHash": "b29418b35042af19ef23e7d4646611e9f92848279eb338a9da72f247af5d8e45",
-      "arguments": { "top": "optional integer 1..25; every other argument denied" }
-    },
-    "search-onedrive-files": {
-      "capabilityId": "m365.files.search",
-      "decision": "allow",
-      "schemaId": "onecomputer.m365.search-onedrive-files.v1",
-      "schemaHash": "70ca92b22d87a9be45e599cfdcf1c5ec6f2bd959f13f1e38279b947ae27904d8",
-      "arguments": {
-        "driveId": "required non-empty string up to 512 characters",
-        "q": "required non-empty string up to 128 characters",
-        "select": "optional exact value id,name,eTag,parentReference",
-        "top": "optional integer 1..10; every other argument denied"
-      }
-    },
-    "get-drive-item": {
-      "capabilityId": "m365.files.metadata.get",
-      "decision": "allow",
-      "schemaId": "onecomputer.m365.get-drive-item.v1",
-      "schemaHash": "2b464464cce482f39bd110b8fe55aaee6a28f7ba0bd49ed5418ee62e83ba0058",
-      "arguments": {
-        "driveId": "required non-empty string up to 512 characters",
-        "driveItemId": "required non-empty string up to 512 characters",
-        "includeHeaders": "required exact value true",
-        "select": "required exact value id,name,eTag,parentReference; every other argument denied"
-      }
-    },
-    "delete-onedrive-file": {
-      "capabilityId": "onedrive-delete-protected",
-      "decision": "approval_required",
-      "schemaId": "onecomputer.m365.delete-onedrive-file.v1",
-      "schemaHash": "cbeedd72003f1808db2ac179748dd530e4491401ecceb2827dc9538194aabf90",
-      "requestArguments": ["driveId", "driveItemId", "If-Match"],
-      "executionArgumentsAddedByControl": { "confirm": true, "excludeResponse": true }
-    }
-  },
+  "schemaContract": "apps/control-api/src/mcp-policy.ts",
+  "policyCatalog": "packages/contracts/src/index.ts#m365ToolCatalog",
+  "scopes": [
+    "User.Read", "offline_access", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite",
+    "Chat.Read", "ChatMessage.Read", "ChatMessage.Send", "Team.ReadBasic.All", "Channel.ReadBasic.All",
+    "ChannelMessage.Read.All", "ChannelMessage.Send"
+  ],
+  "defaultAllow": [
+    "list-mail-folders", "list-mail-messages", "get-mail-message", "list-calendars", "list-calendar-events",
+    "get-calendar-event", "list-drives", "get-drive-root-item", "list-folder-files", "search-onedrive-files",
+    "get-drive-item", "list-chats", "list-chat-messages", "list-joined-teams", "list-team-channels",
+    "list-channel-messages"
+  ],
+  "defaultApprovalRequired": [
+    "create-draft-email", "update-mail-message", "delete-mail-message", "move-mail-message", "send-mail",
+    "send-draft-message", "reply-mail-message", "reply-all-mail-message", "forward-mail-message",
+    "create-calendar-event", "update-calendar-event", "delete-calendar-event", "create-onedrive-folder",
+    "upload-file-content", "move-rename-onedrive-item", "copy-drive-item", "delete-onedrive-file",
+    "send-chat-message", "reply-to-chat-message", "send-channel-message", "reply-to-channel-message"
+  ],
+  "executionFlagsOwnedByControl": ["confirm", "excludeResponse"],
   "requalifyWhen": [
     "LiteLLM image/version or MCP dispatcher hook path changes",
     "Softeria package/version, tool name, input schema, or confirmation behavior changes",

@@ -1858,6 +1858,10 @@ summary:focus-visible {
 .tool-policy-heading h2 { margin: 0; color: #0d1a2b; font-size: 24px; }
 .tool-policy-heading > span { color: #68727d; font-size: 13px; }
 .tool-policy-intro { max-width: 780px; margin: 14px 0 24px; color: #5d6670; line-height: 1.55; }
+.tool-policy-groups { display: grid; gap: 24px; }
+.tool-policy-group { overflow: hidden; border: 1px solid #e2e2df; border-radius: 10px; }
+.tool-policy-group h3 { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 14px 18px; background: #f7f7f4; color: #172334; font-size: 16px; }
+.tool-policy-group h3 span { color: #68727d; font-size: 12px; font-weight: 500; }
 .tool-policy-list { border-top: 1px solid #e2e2df; }
 .tool-policy-list label {
   display: grid;
@@ -1865,8 +1869,10 @@ summary:focus-visible {
   align-items: center;
   gap: 24px;
   min-height: 104px;
+  padding: 0 18px;
   border-bottom: 1px solid #e2e2df;
 }
+.tool-policy-list label:last-child { border-bottom: 0; }
 .tool-policy-list label > span { display: grid; gap: 5px; }
 .tool-policy-list small { color: #68727d; }
 .tool-policy-list code { width: fit-content; color: #39536e; font-size: 12px; }

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   OneComputerError,
   canonicalJson,
+  m365ToolCatalog,
   type IdentityContext,
   type McpPolicyDecision,
   type McpPolicyRequest,
@@ -13,7 +14,23 @@ import type { GovernedOperationService } from "./operations.js";
 
 const boundedListArguments = z.strictObject({
   top: z.number().int().min(1).max(25).optional(),
+  skip: z.number().int().min(0).max(1000).optional(),
+  select: z.string().trim().min(1).max(256).optional(),
+  filter: z.string().trim().min(1).max(512).optional(),
+  search: z.string().trim().min(1).max(256).optional(),
+  orderby: z.string().trim().min(1).max(128).optional(),
+  count: z.boolean().optional(),
 });
+
+const id = z.string().trim().min(1).max(512);
+const body = z.record(z.string().min(1).max(128), z.json());
+const noArguments = z.strictObject({});
+const withId = (key: string) => z.strictObject({ [key]: id });
+const withBody = z.strictObject({ body });
+const withIdAndBody = (key: string) => z.strictObject({ [key]: id, body });
+const withTwoIds = (first: string, second: string) => z.strictObject({ [first]: id, [second]: id });
+const withTwoIdsAndBody = (first: string, second: string) => z.strictObject({ [first]: id, [second]: id, body });
+const withThreeIdsAndBody = (first: string, second: string, third: string) => z.strictObject({ [first]: id, [second]: id, [third]: id, body });
 
 const boundedDriveSearchArguments = z.strictObject({
   driveId: z.string().trim().min(1).max(512),
@@ -43,6 +60,7 @@ type CapabilityDefinition = {
   displayName: string;
   description: string;
   risk: "read" | "write";
+  service: "mail" | "calendar" | "onedrive" | "teams";
   mode: "allow" | "approval_required";
   parse: (argumentsValue: OwnedJson) => Record<string, OwnedJson>;
 };
@@ -52,6 +70,7 @@ const definition = (
   schemaId: string,
   displayName: string,
   description: string,
+  service: CapabilityDefinition["service"],
   risk: CapabilityDefinition["risk"],
   mode: CapabilityDefinition["mode"],
   schema: z.ZodType<Record<string, OwnedJson>>,
@@ -60,20 +79,80 @@ const definition = (
   schemaId,
   displayName,
   description,
+  service,
   risk,
   schemaHash: createHash("sha256").update(canonicalJson({ schemaId, jsonSchema: z.toJSONSchema(schema) })).digest("hex"),
   mode,
   parse: (value) => schema.parse(value),
 });
 
-export const m365CapabilityDefinitions = {
-  "list-mail-folders": definition("m365.mail-folders.list", "onecomputer.m365.list-mail-folders.v1", "List Outlook folders", "View the signed-in user's Outlook mail folders.", "read", "allow", boundedListArguments),
-  "list-calendars": definition("m365.calendars.list", "onecomputer.m365.list-calendars.v1", "List calendars", "View the signed-in user's Outlook calendars.", "read", "allow", boundedListArguments),
-  "list-drives": definition("m365.drives.list", "onecomputer.m365.list-drives.v1", "List OneDrive drives", "View the user's available OneDrive drives.", "read", "allow", boundedListArguments),
-  "search-onedrive-files": definition("m365.files.search", "onecomputer.m365.search-onedrive-files.v1", "Search OneDrive", "Search file names and metadata in an assigned drive.", "read", "allow", boundedDriveSearchArguments),
-  "get-drive-item": definition("m365.files.metadata.get", "onecomputer.m365.get-drive-item.v1", "Read OneDrive metadata", "Read the name, location, and current eTag of one file.", "read", "allow", driveItemMetadataArguments),
-  "delete-onedrive-file": definition("onedrive-delete-protected", "onecomputer.m365.delete-onedrive-file.v1", "Delete OneDrive file", "Delete the exact file version identified by its eTag.", "write", "approval_required", deleteRequestArguments),
-} as const satisfies Record<string, CapabilityDefinition>;
+const toolSchemas: Record<keyof typeof m365ToolCatalog, z.ZodType<Record<string, OwnedJson>>> = {
+  "list-mail-folders": boundedListArguments,
+  "list-mail-messages": boundedListArguments,
+  "get-mail-message": withId("messageId"),
+  "create-draft-email": withBody,
+  "update-mail-message": withIdAndBody("messageId"),
+  "delete-mail-message": z.strictObject({ messageId: id, "If-Match": id.optional() }),
+  "move-mail-message": withIdAndBody("messageId"),
+  "send-mail": withBody,
+  "send-draft-message": withId("messageId"),
+  "reply-mail-message": withIdAndBody("messageId"),
+  "reply-all-mail-message": withIdAndBody("messageId"),
+  "forward-mail-message": withIdAndBody("messageId"),
+  "list-calendars": boundedListArguments,
+  "list-calendar-events": boundedListArguments.extend({ timezone: z.string().trim().min(1).max(64).optional() }),
+  "get-calendar-event": withId("eventId"),
+  "create-calendar-event": withBody,
+  "update-calendar-event": withIdAndBody("eventId"),
+  "delete-calendar-event": z.strictObject({ eventId: id, "If-Match": id.optional() }),
+  "list-drives": boundedListArguments,
+  "get-drive-root-item": withId("driveId"),
+  "list-folder-files": boundedListArguments.extend({ driveId: id, driveItemId: id }),
+  "search-onedrive-files": boundedDriveSearchArguments,
+  "get-drive-item": driveItemMetadataArguments,
+  "create-onedrive-folder": withTwoIdsAndBody("driveId", "driveItemId"),
+  "upload-file-content": z.strictObject({ driveId: id, driveItemId: id, body: z.string().max(5_600_000) }),
+  "move-rename-onedrive-item": withTwoIdsAndBody("driveId", "driveItemId"),
+  "copy-drive-item": withTwoIdsAndBody("driveId", "driveItemId"),
+  "delete-onedrive-file": deleteRequestArguments,
+  "list-chats": boundedListArguments,
+  "list-chat-messages": boundedListArguments.extend({ chatId: id }),
+  "list-joined-teams": boundedListArguments,
+  "list-team-channels": boundedListArguments.extend({ teamId: id }),
+  "list-channel-messages": boundedListArguments.extend({ teamId: id, channelId: id }),
+  "send-chat-message": withIdAndBody("chatId"),
+  "reply-to-chat-message": withTwoIdsAndBody("chatId", "chatMessageId"),
+  "send-channel-message": withTwoIdsAndBody("teamId", "channelId"),
+  "reply-to-channel-message": withThreeIdsAndBody("teamId", "channelId", "chatMessageId"),
+};
+
+const displayNames: Record<keyof typeof m365ToolCatalog, string> = {
+  "list-mail-folders": "List mail folders", "list-mail-messages": "List email messages", "get-mail-message": "Read email message",
+  "create-draft-email": "Create email draft", "update-mail-message": "Update email", "delete-mail-message": "Delete email",
+  "move-mail-message": "Move email", "send-mail": "Send email", "send-draft-message": "Send draft",
+  "reply-mail-message": "Reply to email", "reply-all-mail-message": "Reply all", "forward-mail-message": "Forward email",
+  "list-calendars": "List calendars", "list-calendar-events": "List calendar events", "get-calendar-event": "Read calendar event",
+  "create-calendar-event": "Create calendar event", "update-calendar-event": "Update calendar event", "delete-calendar-event": "Delete calendar event",
+  "list-drives": "List OneDrive drives", "get-drive-root-item": "Read drive root", "list-folder-files": "List folder files",
+  "search-onedrive-files": "Search OneDrive", "get-drive-item": "Read OneDrive metadata", "create-onedrive-folder": "Create OneDrive folder",
+  "upload-file-content": "Upload file content", "move-rename-onedrive-item": "Move or rename OneDrive item", "copy-drive-item": "Copy OneDrive item", "delete-onedrive-file": "Delete OneDrive file",
+  "list-chats": "List Teams chats", "list-chat-messages": "Read Teams chat messages", "list-joined-teams": "List joined teams",
+  "list-team-channels": "List team channels", "list-channel-messages": "Read channel messages", "send-chat-message": "Send Teams chat message",
+  "reply-to-chat-message": "Reply in Teams chat", "send-channel-message": "Send channel message", "reply-to-channel-message": "Reply in Teams channel",
+};
+
+export const m365CapabilityDefinitions = Object.fromEntries(
+  Object.entries(m365ToolCatalog).map(([name, metadata]) => [name, definition(
+    `m365.${name}`,
+    `onecomputer.m365.${name}.v1`,
+    displayNames[name as keyof typeof m365ToolCatalog],
+    metadata.risk === "read" ? `Read Microsoft 365 data using ${name}.` : `Change Microsoft 365 data using ${name}.`,
+    metadata.service,
+    metadata.risk,
+    metadata.decision,
+    toolSchemas[name as keyof typeof m365ToolCatalog],
+  )]),
+) as Record<keyof typeof m365ToolCatalog, CapabilityDefinition>;
 
 export const m365LiteLlmServerId = createHash("sha256")
   .update("onecomputer_ms365|http://ms365-mcp:3000/mcp|http|oauth2|")
@@ -162,15 +241,15 @@ export class McpPolicyService {
     if (policyDecision === "allow") return {
       schemaVersion: 1,
       decision: "allow",
-      code: "MCP_BOUNDED_READ_ALLOWED",
+      code: "MCP_POLICY_ALLOWED",
       capabilityId: capability.capabilityId,
       schemaId: capability.schemaId,
       schemaHash: capability.schemaHash,
       operationId: null,
     };
 
-    const executionArguments: Record<string, OwnedJson> = request.toolName === "delete-onedrive-file"
-      ? { ...canonicalArguments, confirm: true, excludeResponse: true }
+    const executionArguments: Record<string, OwnedJson> = capability.risk === "write"
+      ? { ...canonicalArguments, confirm: true, ...(request.toolName === "delete-onedrive-file" ? { excludeResponse: true } : {}) }
       : canonicalArguments;
     const requestFingerprint = createHash("sha256").update(canonicalJson({
       tenantId: request.tenantId,

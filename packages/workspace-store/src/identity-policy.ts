@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
-import { OneComputerError, runtimePolicySchema, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
+import { OneComputerError, m365ToolCatalog, runtimePolicySchema, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
 
 export type OneComputerRole = "employee" | "administrator";
 
@@ -44,10 +44,10 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
   const [mcpServer, serverPolicy] = entries[0]!;
   const tools = (serverPolicy as Record<string, unknown>)?.tools;
   const configuredToolPolicies = (serverPolicy as Record<string, unknown>)?.toolPolicies as Record<string, unknown> | undefined;
-  const toolPolicies = Object.fromEntries((Array.isArray(tools) ? tools : []).map((tool) => [
-    String(tool),
-    configuredToolPolicies?.[String(tool)] ?? (tool === "delete-onedrive-file" ? "approval_required" : "allow"),
-  ]));
+  const toolPolicies = Object.fromEntries((Array.isArray(tools) ? tools : []).map((tool) => {
+    const name = String(tool) as keyof typeof m365ToolCatalog;
+    return [name, configuredToolPolicies?.[name] ?? m365ToolCatalog[name]?.decision ?? "deny"];
+  }));
   const modelAliases = document.modelAliases;
   const allowedModelAliases = Array.isArray(modelAliases) ? modelAliases.filter((value): value is string => typeof value === "string") : [];
   const workspaceProfiles = Array.isArray(document.workspaceProfiles)
@@ -120,21 +120,14 @@ const mvpPolicyDocument = (revisionNote = "Initial MVP policy") => ({
   mcp: {
     servers: {
       onecomputer_ms365: {
-        tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"],
-        toolPolicies: {
-          "list-mail-folders": "allow",
-          "list-calendars": "allow",
-          "list-drives": "allow",
-          "search-onedrive-files": "allow",
-          "get-drive-item": "allow",
-          "delete-onedrive-file": "approval_required",
-        },
+        tools: Object.keys(m365ToolCatalog),
+        toolPolicies: Object.fromEntries(Object.entries(m365ToolCatalog).map(([name, tool]) => [name, tool.decision])),
       },
     },
   },
-  capabilities: ["ai-assistant", "coding-tools", "m365-read", "onedrive-delete-protected"],
+  capabilities: ["ai-assistant", "coding-tools", "m365-read", "m365-write-protected"],
   protectedOperations: {
-    "onedrive-delete-protected": "approval_required",
+    "m365-write-protected": "approval_required",
     defaultWrite: "deny",
   },
 }) satisfies OwnedJson;
@@ -411,11 +404,7 @@ export class PostgresIdentityPolicyStore implements IdentityPolicyStore {
       const mcp = document.mcp as Record<string, OwnedJson>;
       const servers = mcp.servers as Record<string, OwnedJson>;
       const server = servers.onecomputer_ms365 as Record<string, OwnedJson>;
-      const assignedTools = server.tools as OwnedJson[];
-      const expected = assignedTools.map(String).sort();
-      if (Object.keys(input.tools).sort().join("\0") !== expected.join("\0")) {
-        throw new OneComputerError("INVALID_TOOL_POLICY", "A decision is required for every assigned Microsoft 365 tool", 400);
-      }
+      server.tools = Object.keys(input.tools);
       server.toolPolicies = input.tools;
       const documentHash = policyHash(document);
       const existing = await client.query(
@@ -478,7 +467,7 @@ export class PostgresIdentityPolicyStore implements IdentityPolicyStore {
       ["ai-assistant", "AI assistant", "standard"],
       ["coding-tools", "Coding tools", "standard"],
       ["m365-read", "Microsoft 365 read", "standard"],
-      ["onedrive-delete-protected", "OneDrive delete", "protected"],
+      ["m365-write-protected", "Microsoft 365 protected writes", "protected"],
     ]) {
       await client.query("INSERT INTO capabilities (id,display_name,risk) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", capability);
     }

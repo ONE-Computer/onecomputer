@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import type { IdentityContext, McpPolicyRequest } from "@onecomputer/contracts";
+import { m365ToolCatalog, type IdentityContext, type McpPolicyRequest } from "@onecomputer/contracts";
 import type { GovernedToolExecutor } from "@onecomputer/litellm-adapter";
 import { MemoryWorkspaceStore, type EffectivePolicy, type IdentityPolicyStore, type SessionPrincipal } from "@onecomputer/workspace-store";
-import { McpPolicyService } from "../apps/control-api/src/mcp-policy.js";
+import { McpPolicyService, m365CapabilityDefinitions } from "../apps/control-api/src/mcp-policy.js";
 import { FixtureApprovalAuthority, GovernedOperationService } from "../apps/control-api/src/operations.js";
 
 const identity: IdentityContext = { tenantId: "acme", subjectId: "alex", audience: "onecomputer-control" };
@@ -43,7 +43,7 @@ const setup = async () => {
       agentProfile: "onecomputer-default-agent",
       modelAliases: ["onecomputer-assistant"],
       networkProfile: "controlled-egress-v1",
-      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"] } } },
+      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file", "list-chats", "send-chat-message"] } } },
       capabilities: ["m365-read", "onedrive-delete-protected"],
       protectedOperations: { "onedrive-delete-protected": "approval_required", defaultWrite: "deny" },
     },
@@ -73,6 +73,13 @@ const setup = async () => {
   };
   return { store, workspace, policy, base, effective, operations };
 };
+
+test("the curated Microsoft 365 surface is complete and defaults every write to approval", () => {
+  assert.equal(Object.keys(m365ToolCatalog).length, 37);
+  assert.deepEqual(Object.keys(m365CapabilityDefinitions).sort(), Object.keys(m365ToolCatalog).sort());
+  assert.equal(Object.values(m365ToolCatalog).filter((tool) => tool.risk === "read" && tool.decision === "allow").length, 16);
+  assert.equal(Object.values(m365ToolCatalog).filter((tool) => tool.risk === "write" && tool.decision === "approval_required").length, 21);
+});
 
 test("Control auto-allows only an exact assigned bounded Microsoft 365 read", async () => {
   const { policy, base } = await setup();
@@ -108,6 +115,22 @@ test("Control permits only the exact version metadata projection for a drive ite
   assert.equal((await policy.authorize(request, "drive-item-metadata")).decision, "allow");
   assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, includeHeaders: false } }, "drive-item-no-headers")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
   assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, select: "*" } }, "drive-item-broad-select")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+});
+
+test("Teams reads are bounded and Teams sends are held for approval", async () => {
+  const { store, policy, base } = await setup();
+  assert.equal((await policy.authorize({ ...base, toolName: "list-chats", arguments: { top: 10 } }, "teams-list")).decision, "allow");
+  assert.equal((await policy.authorize({ ...base, toolName: "list-chats", arguments: { fetchAllPages: true } }, "teams-list-broad")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+
+  const held = await policy.authorize({
+    ...base,
+    toolName: "send-chat-message",
+    arguments: { chatId: "chat-1", body: { body: { contentType: "html", content: "Hello" } } },
+  }, "teams-send");
+  assert.equal(held.decision, "approval_required");
+  const operation = await store.getOwnedOperation(identity, held.operationId!);
+  assert.equal(operation?.toolName, "send-chat-message");
+  assert.equal((operation?.arguments as Record<string, unknown>).confirm, true);
 });
 
 test("the effective per-tool policy can require approval or deny an otherwise bounded read", async () => {

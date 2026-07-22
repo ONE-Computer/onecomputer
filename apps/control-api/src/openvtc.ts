@@ -18,7 +18,7 @@ import type {
   WorkspaceStore,
 } from "@onecomputer/workspace-store";
 
-const DELETE_ONEDRIVE_TASK_TYPE = "https://onecomputer.dev/spec/microsoft365/delete-onedrive-file/0.1";
+const MICROSOFT365_TASK_TYPE = "https://onecomputer.dev/spec/microsoft365/tool-call/0.1";
 const ENROLLMENT_TTL_MS = 5 * 60 * 1000;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -55,6 +55,11 @@ const transportIdentity = (approver: OpenVtcApproverRecord): IdentityContext => 
   subjectId: approver.subjectId,
   audience: "onecomputer-control",
 });
+
+const effectKind = (toolName: string) => toolName.startsWith("delete-") ? "delete"
+  : toolName.startsWith("send-") || toolName.startsWith("reply-") || toolName.startsWith("forward-") ? "send"
+    : toolName.startsWith("create-") || toolName.startsWith("upload-") || toolName.startsWith("copy-") ? "create"
+      : "update";
 
 export class OpenVtcApprovalCoordinator {
   constructor(
@@ -148,22 +153,24 @@ export class OpenVtcApprovalCoordinator {
       issuedAt: createdAt.toISOString(),
       expiresAt: operation.expiresAt.toISOString(),
       challenge,
-      taskType: DELETE_ONEDRIVE_TASK_TYPE,
+      taskType: MICROSOFT365_TASK_TYPE,
       taskPayload,
       requesterDid: `did:onecomputer:agent:${operation.agentId ?? "workspace-agent"}`,
       approverSet: "onecomputer-workspace-owners",
       minApprovals: 1,
       excludeRequester: true,
-      sideEffects: "destructive",
+      sideEffects: operation.toolName.startsWith("delete-") ? "destructive" : "mutating",
       exposure: { discloses: "none", actsAsSubject: true },
-      effects: [{ kind: "delete", summary: operation.safeSummary, path: operation.resourceLocation }],
-      consequences: ["This operation permanently removes the selected Microsoft 365 resource."],
+      effects: [{ kind: effectKind(operation.toolName), summary: operation.safeSummary, path: operation.resourceLocation }],
+      consequences: [operation.toolName.startsWith("delete-")
+        ? "This operation removes the selected Microsoft 365 resource."
+        : "This operation changes Microsoft 365 data or communicates as the signed-in user."],
       subject: `urn:onecomputer:operation:${operation.id}`,
       origin: "ONEComputer Control",
       statePin: { resource: operation.resourceName, version: operation.operationDigest },
       sign: (input) => this.executor.sign(input),
     });
-    const payloadDigest = taskConsentPayloadDigest(DELETE_ONEDRIVE_TASK_TYPE, taskPayload, challenge);
+    const payloadDigest = taskConsentPayloadDigest(MICROSOFT365_TASK_TYPE, taskPayload, challenge);
     return this.store.createOpenVtcConsentTask({
       id: taskId,
       outboxId: randomUUID(),
@@ -172,7 +179,7 @@ export class OpenVtcApprovalCoordinator {
       approverId: approver.id,
       executorDid: this.executor.did,
       challenge,
-      taskType: DELETE_ONEDRIVE_TASK_TYPE,
+      taskType: MICROSOFT365_TASK_TYPE,
       payloadDigest,
       requestDocument: request as OwnedJson,
       requestHash: sha256(jcsCanonicalize(request)),
@@ -269,7 +276,7 @@ export class OpenVtcApprovalCoordinator {
     const request = task.requestDocument;
     if (!isObject(request) || request.issuer !== this.executor.did || request.recipient !== approver.approverDid
       || sha256(jcsCanonicalize(request)) !== task.requestHash
-      || task.taskType !== DELETE_ONEDRIVE_TASK_TYPE
+      || task.taskType !== MICROSOFT365_TASK_TYPE
       || task.payloadDigest !== taskConsentPayloadDigest(task.taskType, taskPayloadFor(operation), task.challenge)) {
       throw new OneComputerError("OPENVTC_TASK_BINDING_INVALID", "The persisted consent request no longer matches its governed operation", 409);
     }

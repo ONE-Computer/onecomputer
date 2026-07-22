@@ -320,6 +320,52 @@ export type OperationView = z.infer<typeof operationViewSchema>;
 export const mcpToolPolicyDecisionSchema = z.enum(["allow", "approval_required", "deny"]);
 export type McpToolPolicyDecision = z.infer<typeof mcpToolPolicyDecisionSchema>;
 
+export const m365ToolCatalog = {
+  "list-mail-folders": { service: "mail", risk: "read", decision: "allow" },
+  "list-mail-messages": { service: "mail", risk: "read", decision: "allow" },
+  "get-mail-message": { service: "mail", risk: "read", decision: "allow" },
+  "create-draft-email": { service: "mail", risk: "write", decision: "approval_required" },
+  "update-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "delete-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "move-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "send-mail": { service: "mail", risk: "write", decision: "approval_required" },
+  "send-draft-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "reply-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "reply-all-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "forward-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
+  "list-calendars": { service: "calendar", risk: "read", decision: "allow" },
+  "list-calendar-events": { service: "calendar", risk: "read", decision: "allow" },
+  "get-calendar-event": { service: "calendar", risk: "read", decision: "allow" },
+  "create-calendar-event": { service: "calendar", risk: "write", decision: "approval_required" },
+  "update-calendar-event": { service: "calendar", risk: "write", decision: "approval_required" },
+  "delete-calendar-event": { service: "calendar", risk: "write", decision: "approval_required" },
+  "list-drives": { service: "onedrive", risk: "read", decision: "allow" },
+  "get-drive-root-item": { service: "onedrive", risk: "read", decision: "allow" },
+  "list-folder-files": { service: "onedrive", risk: "read", decision: "allow" },
+  "search-onedrive-files": { service: "onedrive", risk: "read", decision: "allow" },
+  "get-drive-item": { service: "onedrive", risk: "read", decision: "allow" },
+  "create-onedrive-folder": { service: "onedrive", risk: "write", decision: "approval_required" },
+  "upload-file-content": { service: "onedrive", risk: "write", decision: "approval_required" },
+  "move-rename-onedrive-item": { service: "onedrive", risk: "write", decision: "approval_required" },
+  "copy-drive-item": { service: "onedrive", risk: "write", decision: "approval_required" },
+  "delete-onedrive-file": { service: "onedrive", risk: "write", decision: "approval_required" },
+  "list-chats": { service: "teams", risk: "read", decision: "allow" },
+  "list-chat-messages": { service: "teams", risk: "read", decision: "allow" },
+  "list-joined-teams": { service: "teams", risk: "read", decision: "allow" },
+  "list-team-channels": { service: "teams", risk: "read", decision: "allow" },
+  "list-channel-messages": { service: "teams", risk: "read", decision: "allow" },
+  "send-chat-message": { service: "teams", risk: "write", decision: "approval_required" },
+  "reply-to-chat-message": { service: "teams", risk: "write", decision: "approval_required" },
+  "send-channel-message": { service: "teams", risk: "write", decision: "approval_required" },
+  "reply-to-channel-message": { service: "teams", risk: "write", decision: "approval_required" },
+} as const satisfies Record<string, {
+  service: "mail" | "calendar" | "onedrive" | "teams";
+  risk: "read" | "write";
+  decision: McpToolPolicyDecision;
+}>;
+
+export type M365ToolName = keyof typeof m365ToolCatalog;
+
 export const mcpToolPolicySchema = z.object({
   serverName: z.literal("onecomputer_ms365"),
   version: z.number().int().positive(),

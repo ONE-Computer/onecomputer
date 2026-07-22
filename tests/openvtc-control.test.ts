@@ -21,7 +21,7 @@ class FakeExecutor implements GovernedToolExecutor {
   calls: GovernedToolExecutionInput[] = [];
   async executeGovernedTool(input: GovernedToolExecutionInput): Promise<GovernedToolExecutionResult> {
     this.calls.push(input);
-    return { upstreamReference: `m365:${input.operationId}`, resultSummary: "Deleted the approved OneDrive item", result: { deleted: true } };
+    return { upstreamReference: `m365:${input.operationId}`, resultSummary: `Executed approved ${input.toolName}`, result: { completed: true } };
   }
 }
 
@@ -131,6 +131,60 @@ test("a signed browser denial is durable and reaches the connector zero times", 
   assert.equal(denied.state, "denied");
   assert.equal(denied.approval?.decision, "deny");
   assert.equal(executor.calls.length, 0);
+});
+
+test("a protected Calendar write uses the generic redacted OpenVTC path and executes once", async () => {
+  const { workspace, executor, coordinator, browser, transportToken, service } = await setup();
+  const sensitiveSubject = "private-calendar-subject-must-not-enter-approval-ui";
+  const sensitiveBody = "private-calendar-body-must-not-enter-audit-projection";
+  const pending = await service.createMicrosoft365Operation(
+    identity,
+    workspace.id,
+    {
+      capabilityId: "m365.create-calendar-event",
+      serverName: "onecomputer_ms365",
+      toolName: "create-calendar-event",
+      schemaId: "onecomputer.m365.create-calendar-event.v1",
+      arguments: {
+        confirm: true,
+        body: {
+          subject: sensitiveSubject,
+          body: { contentType: "text", content: sensitiveBody },
+          start: { dateTime: "2026-07-23T09:00:00", timeZone: "Asia/Singapore" },
+          end: { dateTime: "2026-07-23T09:15:00", timeZone: "Asia/Singapore" },
+        },
+      },
+      displayName: "Create calendar event",
+    },
+    "agent-calendar",
+    { policyVersionId: "policy-calendar", policyHash: "f".repeat(64) },
+    "calendar-create-idempotency",
+    "calendar-create-correlation",
+  );
+  assert.equal(pending.state, "approval_required");
+  assert.equal(pending.resourceLocation, "Outlook Calendar");
+  assert.equal(pending.safeSummary, "Create calendar event");
+  assert.ok(!JSON.stringify(pending).includes(sensitiveSubject));
+  assert.ok(!JSON.stringify(pending).includes(sensitiveBody));
+  assert.equal(executor.calls.length, 0);
+
+  const request = await coordinator.inbox(transportToken) as Record<string, unknown>;
+  assert.ok(!JSON.stringify(request).includes(sensitiveSubject));
+  assert.ok(!JSON.stringify(request).includes(sensitiveBody));
+  const decision = signedDecision(request, browser, "approve");
+  const [completed, replay] = await Promise.all([
+    service.applyOpenVtcDecision(transportToken, decision, "calendar-create-decision"),
+    service.applyOpenVtcDecision(transportToken, decision, "calendar-create-replay"),
+  ]);
+  assert.equal(completed.state, "succeeded");
+  assert.equal(replay.state, "succeeded");
+  assert.equal(executor.calls.length, 1);
+  assert.equal(executor.calls[0]?.toolName, "create-calendar-event");
+  assert.equal((executor.calls[0]?.arguments.body as Record<string, unknown>)?.subject, sensitiveSubject);
+
+  const audit = await service.audit(identity, pending.id);
+  assert.ok(!JSON.stringify(audit).includes(sensitiveSubject));
+  assert.ok(!JSON.stringify(audit).includes(sensitiveBody));
 });
 
 test("re-enrolling a browser rebinds a live request to the new device key", async () => {

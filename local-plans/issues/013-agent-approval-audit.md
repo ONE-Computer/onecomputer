@@ -104,3 +104,12 @@ closes the human positive-path portion of this issue. Physical denial, a
 same-browser approval after reload/reconnect, workspace and Control/adapter
 restart durability, and confirmation that those paths retain a single signing
 gesture remain required before Issue 013 can close.
+
+Automated verification on 2026-07-22 extended the accepted OneDrive path to a
+generic protected Calendar write. Before approval the connector call count is
+zero; the signed OpenVTC request contains only the safe action summary and
+operation binding, not the event subject or body. One valid approval executes
+the exact Calendar tool once, a concurrent replay returns the same terminal
+operation without a second connector call, and the owned audit projection
+remains redacted. The full human denial and same-profile/restart durability
+checks remain deferred rather than waived.

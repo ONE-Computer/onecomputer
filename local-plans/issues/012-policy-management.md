@@ -117,3 +117,8 @@ active policy version 7 with 37 tools (16 Allow, 21 Require approval, 0 Block),
 and the running sandbox has the identical 37-tool projection. The deliberate
 live Allow/Block/Require-approval behavior review remains the gate-closing
 human check.
+
+The product owner explicitly deferred that small live UI matrix on 2026-07-22
+so work could continue. The automated checks are retained and the unchecked
+human proof is not waived; it must be completed before the final golden-path
+acceptance.

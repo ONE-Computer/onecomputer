@@ -1,6 +1,6 @@
 # 014: run the complete human Microsoft 365 agent journey
 
-Status: `blocked`
+Status: `verification`
 
 Gate: M
 Depends on: 013
@@ -69,7 +69,13 @@ Not complete. A partial golden-path rehearsal passed on 2026-07-22: the user
 launched the managed workspace, instructed the real agent to find and delete a
 disposable OneDrive file, approved the exact OpenVTC request, saw the agent
 resume, confirmed the file deletion, and inspected the successful audit state.
-The complete journey remains blocked on Issue 013 and still requires Microsoft
-connection from the prescribed starting state, Mail and Calendar reads, an
-administrator policy change, Teams read/reply, the expanded write surface, a
-denied action, restart/reconnect repetition, and supported cleanup.
+The expanded Mail, Calendar, OneDrive, and Teams tool projection has also been
+observed in the real sandbox. On 2026-07-22 the product owner explicitly
+authorized this issue to enter verification while the small Issue 012 live
+policy matrix and Issue 013 denial/restart checks remain deferred. The
+sequencing exception does not waive those checks. The complete journey still
+requires Microsoft connection from the prescribed starting state, natural-
+language Mail, Calendar, OneDrive, and Teams reads, governed disposable writes,
+an administrator policy change, one approved and one denied action,
+restart/reconnect repetition, audit inspection, and supported cleanup. The
+exact UI-only runbook is maintained in `infra/issue-014/README.md`.

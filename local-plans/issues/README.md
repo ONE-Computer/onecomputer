@@ -36,7 +36,11 @@ three-effect policy review. The expanded 37-tool grouped policy editor and its
 real sandbox projection were accepted as implemented on 2026-07-22, moving
 Issues 011 and 012 from implementation to verification.
 These open checks block the complete Issue 014 journey and final MVP
-acceptance. Completing an issue normally makes only its immediate successor
+acceptance. On 2026-07-22 the product owner explicitly deferred the small live
+Issue 012 policy matrix and Issue 013 denial/restart checks and authorized Issue
+014 verification to begin. This sequencing exception does not pass or waive
+those checks; Issue 014 and final MVP acceptance cannot close until they are
+completed. Completing an issue normally makes only its immediate successor
 ready. Gate-closing issues require explicit human review.
 
 ## Execution rules

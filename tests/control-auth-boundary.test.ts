@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { m365ToolCatalog, type IdentityContext, type McpToolPolicyDecision } from "@onecomputer/contracts";
+import { m365ToolCatalog, type IdentityContext, type McpToolPolicyDecision, type RuntimePolicy } from "@onecomputer/contracts";
 import type { GatewayClient } from "@onecomputer/litellm-adapter";
 import { MemoryWorkspaceStore, type EffectivePolicy, type IdentityPolicyStore, type SessionPrincipal } from "@onecomputer/workspace-store";
 import { createControlServer } from "../apps/control-api/src/server.js";
@@ -117,6 +117,10 @@ test("only an administrator can assign and revoke the tenant policy through Cont
       },
     },
   };
+  const workspaceStore = new MemoryWorkspaceStore();
+  const activeWorkspace = await workspaceStore.createOrGet(alpha, "personal", "active-policy-refresh-workspace");
+  await workspaceStore.update(activeWorkspace.id, { state: "ready" });
+  effectivePolicy.workspaceId = activeWorkspace.id;
   const identityPolicyStore = {
     listUsers: async (tenantId) => tenantId === "acme" ? [{ userId: "alpha", email: principal.email, displayName: principal.displayName, roles: principal.roles, effectivePolicy: revoked ? null : effectivePolicy }] : [],
     assignMvpPolicy: async () => { assigned = true; revoked = false; return effectivePolicy; },
@@ -124,14 +128,26 @@ test("only an administrator can assign and revoke the tenant policy through Cont
     revokeMvpPolicy: async () => { revoked = true; return true; },
     updateMvpToolPolicy: async ({ tools }: { tools: Record<string, McpToolPolicyDecision> }) => {
       savedToolPolicy = tools;
+      effectivePolicy.policyVersionId = "version-2";
+      effectivePolicy.version = 2;
+      effectivePolicy.documentHash = "b".repeat(64);
+      const document = effectivePolicy.document as {
+        mcp: { servers: { onecomputer_ms365: { toolPolicies: Record<string, McpToolPolicyDecision> } } };
+      };
+      document.mcp.servers.onecomputer_ms365.toolPolicies = tools;
       return { id: "version-2", version: 2, documentHash: "b".repeat(64) };
     },
   } as unknown as IdentityPolicyStore;
   const revokedKeys: string[] = [];
+  const refreshedPolicies: RuntimePolicy[] = [];
   const gateway = {
+    ensureGrant: async ({ workspaceId, policy }: { workspaceId: string; policy?: RuntimePolicy }) => {
+      if (policy) refreshedPolicies.push(policy);
+      return { baseUrl: "http://litellm:4000", credential: `sk-${workspaceId}-at-least-24-characters`, modelAlias: "claude-sonnet-4-5", expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    },
     revoke: async (workspaceId, agentId) => { revokedKeys.push(`${workspaceId}:${agentId ?? "default"}`); },
   } as unknown as GatewayClient;
-  const app = createControlServer(new MemoryWorkspaceStore(), {} as ControllerClient, proxyToken, gateway, undefined, {}, {
+  const app = createControlServer(workspaceStore, {} as ControllerClient, proxyToken, gateway, undefined, {}, {
     authentication: authentication(administrator), identityPolicyStore,
   });
   const headers = { "x-onecomputer-proxy-token": proxyToken, cookie: "onecomputer_session=valid" };
@@ -153,11 +169,15 @@ test("only an administrator can assign and revoke the tenant policy through Cont
     });
     assert.equal(savedPolicy.statusCode, 200);
     assert.equal(savedPolicy.json().version, 2);
+    assert.deepEqual(savedPolicy.json().workspaceGrants, { refreshed: 1, failed: 0 });
     assert.equal(savedToolPolicy?.["list-calendars"], "deny");
+    assert.equal(refreshedPolicies.length, 1);
+    assert.equal(refreshedPolicies[0]?.policyVersionId, "version-2");
+    assert.equal(refreshedPolicies[0]?.toolPolicies["list-calendars"], "deny");
 
     const assign = await app.inject({ method: "POST", url: "/v1/admin/users/alpha/policy", headers });
     assert.equal(assign.statusCode, 200);
-    assert.equal(assign.json().version, 1);
+    assert.equal(assign.json().version, 2);
 
     const crossTenantTarget = await app.inject({ method: "POST", url: "/v1/admin/users/outsider/policy", headers });
     assert.equal(crossTenantTarget.statusCode, 404);
@@ -167,8 +187,8 @@ test("only an administrator can assign and revoke the tenant policy through Cont
     const revoke = await app.inject({ method: "DELETE", url: "/v1/admin/users/alpha/policy", headers });
     assert.equal(revoke.statusCode, 204);
     assert.deepEqual(revokedKeys.sort(), [
-      "11111111-1111-4111-8111-111111111111:agent-1",
-      "11111111-1111-4111-8111-111111111111:default",
+      `${activeWorkspace.id}:agent-1`,
+      `${activeWorkspace.id}:default`,
     ]);
   } finally {
     await app.close();

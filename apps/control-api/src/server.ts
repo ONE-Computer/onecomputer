@@ -223,7 +223,7 @@ export function createControlServer(
     return operations.getForAgent(
       { tenantId: actor.tenantId, subjectId: actor.subjectId, audience: "onecomputer-control" },
       request.params.operationId,
-      { workspaceId: actor.workspaceId, agentId: actor.agentId, policyHash: actor.policyHash },
+      { workspaceId: actor.workspaceId, agentId: actor.agentId },
     );
   });
   app.get<{ Querystring: { return?: string } }>("/v1/auth/login", async (request, reply) => {
@@ -310,7 +310,28 @@ export function createControlServer(
     const input = saveMcpToolPolicySchema.parse(request.body ?? {});
     const expected = Object.keys(m365CapabilityDefinitions).sort();
     if (Object.keys(input.tools).sort().join("\0") !== expected.join("\0")) throw new OneComputerError("INVALID_TOOL_POLICY", "A decision is required for every assigned Microsoft 365 tool", 400);
-    return security.identityPolicyStore.updateMvpToolPolicy({ tenantId: actor.tenantId, updatedBy: actor.userId, tools: input.tools });
+    const savedPolicy = await security.identityPolicyStore.updateMvpToolPolicy({ tenantId: actor.tenantId, updatedBy: actor.userId, tools: input.tools });
+    const users = await security.identityPolicyStore.listUsers(actor.tenantId);
+    const refreshes = await Promise.allSettled(users.map(async (user) => {
+      if (!user.effectivePolicy) return false;
+      const userIdentity = identityContextSchema.parse({
+        tenantId: actor.tenantId,
+        subjectId: user.userId,
+        audience: "onecomputer-control",
+      });
+      const settings = await store.getSandboxSettings?.(userIdentity, "personal");
+      return service.refreshPolicyGrant(
+        userIdentity,
+        runtimePolicyFor(user.effectivePolicy, settings?.modelAlias, settings?.profileId),
+      );
+    }));
+    return {
+      ...savedPolicy,
+      workspaceGrants: {
+        refreshed: refreshes.filter((result) => result.status === "fulfilled" && result.value).length,
+        failed: refreshes.filter((result) => result.status === "rejected").length,
+      },
+    };
   });
   app.get("/v1/connections/microsoft-365", async (request) => requireConnections().status(identity(request)));
   app.get("/v1/connections/microsoft-365/authorize", async (request, reply) => {

@@ -122,3 +122,16 @@ The product owner explicitly deferred that small live UI matrix on 2026-07-22
 so work could continue. The automated checks are retained and the unchecked
 human proof is not waived; it must be completed before the final golden-path
 acceptance.
+
+Issue 014 verification then exposed a real live-policy defect on 2026-07-22:
+Admin showed `create-calendar-event` as Allow while the running workspace grant
+still carried the prior policy hash, so Control failed closed with a binding
+mismatch. Policy save now refreshes every active tenant workspace grant without
+recreating its sandbox and reports any refresh failure in the Admin toast. The
+agent's read-only operation-status channel is scoped by tenant, subject,
+workspace, and agent rather than the mutable current policy hash, allowing an
+already-bound operation to remain observable across policy rotation while its
+stored policy version/hash remain immutable. Automated route, service, policy,
+build, and full-suite tests pass; the live LiteLLM grant was inspected at policy
+version 9 with the same redacted hash prefix as Control. A human retry remains
+required to close the Allow-path UI proof.

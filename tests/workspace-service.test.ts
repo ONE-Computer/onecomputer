@@ -113,6 +113,30 @@ test("workspace lifetime remains UI-managed while its gateway grant can renew", 
   assert.equal(gateway.grants, 2);
 });
 
+test("an active workspace grant can adopt a new policy without recreating the sandbox", async () => {
+  const controller = new FakeController();
+  const store = new MemoryWorkspaceStore();
+  const gateway = new FakeGateway();
+  const service = new WorkspaceService(store, controller, gateway);
+  const created = await service.create(alex, policy, "personal", "policy-refresh-create", "correlation-1");
+  const updatedPolicy = {
+    ...policy,
+    policyVersionId: "policy-version-2",
+    policyVersion: 2,
+    policyHash: "b".repeat(64),
+    toolPolicies: { ...policy.toolPolicies, "create-calendar-event": "allow" as const },
+  };
+
+  const refreshed = await service.refreshPolicyGrant(alex, updatedPolicy);
+
+  assert.equal(refreshed, true);
+  assert.equal(gateway.grants, 2);
+  assert.equal(gateway.lastPolicy?.policyVersionId, "policy-version-2");
+  assert.equal(gateway.lastPolicy?.toolPolicies["create-calendar-event"], "allow");
+  assert.equal(controller.creates, 1);
+  assert.equal(created.state, "ready");
+});
+
 test("restart destroys the prior sandbox and retains product identity", async () => {
   const controller = new FakeController();
   const service = new WorkspaceService(new MemoryWorkspaceStore(), controller);

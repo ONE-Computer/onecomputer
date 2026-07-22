@@ -169,12 +169,11 @@ test("the effective per-tool policy can require approval or deny an otherwise bo
   const agentView = await operations.getForAgent(identity, held.operationId!, {
     workspaceId: base.workspaceId,
     agentId: base.agentId,
-    policyHash: base.policyHash!,
   });
   assert.equal(agentView.policyVersionId, base.policyVersionId);
   assert.equal(agentView.policyHash, base.policyHash);
   await assert.rejects(
-    operations.getForAgent(identity, held.operationId!, { workspaceId: base.workspaceId, agentId: base.agentId, policyHash: "b".repeat(64) }),
+    operations.getForAgent(identity, held.operationId!, { workspaceId: base.workspaceId, agentId: "another-agent" }),
     /Governed operation not found/,
   );
 
@@ -218,16 +217,14 @@ test("a policy edit affects new calls without mutating an already-bound operatio
   assert.equal((await operations.getForAgent(identity, held.operationId!, {
     workspaceId: base.workspaceId,
     agentId: base.agentId,
-    policyHash,
   })).policyVersionId, policyVersionId);
-  await assert.rejects(
-    operations.getForAgent(identity, held.operationId!, {
-      workspaceId: base.workspaceId,
-      agentId: base.agentId,
-      policyHash: nextPolicyHash,
-    }),
-    /Governed operation not found/,
-  );
+  // Operation status is read-only and remains visible to the same
+  // workspace/agent after policy rotation. The operation itself stays bound
+  // to the immutable policy version/hash captured above.
+  assert.equal((await operations.getForAgent(identity, held.operationId!, {
+    workspaceId: base.workspaceId,
+    agentId: base.agentId,
+  })).policyHash, policyHash);
 });
 
 test("protected OneDrive delete persists before approval and an exact lease dispatches once", async () => {

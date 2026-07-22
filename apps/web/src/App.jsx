@@ -1018,7 +1018,9 @@ export function App() {
       const refreshed = await adminApi.mcpPolicy();
       setMcpPolicy(refreshed);
       await refreshAdminUsers();
-      setToast(`Microsoft 365 tool policy version ${saved.version} is active. Restart running workspaces to apply it.`);
+      setToast(saved.workspaceGrants?.failed
+        ? `Microsoft 365 tool policy version ${saved.version} is active. ${saved.workspaceGrants.failed} running workspace grant could not refresh; restart that workspace before retrying.`
+        : `Microsoft 365 tool policy version ${saved.version} is active for new calls${saved.workspaceGrants?.refreshed ? ` in ${saved.workspaceGrants.refreshed} running workspace` : ""}.`);
     } catch (error) { showApiError(error); }
     finally { setMcpPolicySaving(false); }
   };

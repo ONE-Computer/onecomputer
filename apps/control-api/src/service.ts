@@ -91,6 +91,13 @@ export class WorkspaceService {
     return this.view(record, policy);
   }
 
+  async refreshPolicyGrant(identity: IdentityContext, policy: RuntimePolicy, grantId = "personal") {
+    const record = await this.store.getCurrent(identity, grantId);
+    if (!record || !this.gateway || !["ready", "open"].includes(record.state)) return false;
+    await this.gateway.ensureGrant({ workspaceId: record.id, identity, agentId: policy.agentId, policy });
+    return true;
+  }
+
   async create(identity: IdentityContext, policy: RuntimePolicy, grantId: string, idempotencyKey: string, correlationId: string) {
     let record = await this.store.createOrGet(identity, grantId, idempotencyKey);
     if (["ready", "open", "provisioning", "restarting"].includes(record.state)) return this.view(record, policy);

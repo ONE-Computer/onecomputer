@@ -79,3 +79,10 @@ language Mail, Calendar, OneDrive, and Teams reads, governed disposable writes,
 an administrator policy change, one approved and one denied action,
 restart/reconnect repetition, audit inspection, and supported cleanup. The
 exact UI-only runbook is maintained in `infra/issue-014/README.md`.
+
+The first Allow-path Calendar attempt on 2026-07-22 correctly found a stale
+running-workspace policy projection: Admin displayed Allow, but Control denied
+the older grant's policy binding. Issue 012 was corrected to refresh active
+grants on policy save without sandbox recreation, and the deployed grant was
+inspected at the active policy version/hash. The Calendar creation retry is
+pending human confirmation and is not yet counted as passing evidence.

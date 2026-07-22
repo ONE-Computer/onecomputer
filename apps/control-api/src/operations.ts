@@ -289,9 +289,9 @@ export class GovernedOperationService {
     return toView(record);
   }
 
-  async getForAgent(identity: IdentityContext, operationId: string, binding: { workspaceId: string; agentId: string; policyHash: string }) {
+  async getForAgent(identity: IdentityContext, operationId: string, binding: { workspaceId: string; agentId: string }) {
     const record = await this.store.recoverOperation(identity, operationId, new Date(), "agent-operation-read");
-    if (!record || record.workspaceId !== binding.workspaceId || record.agentId !== binding.agentId || record.policyHash !== binding.policyHash) {
+    if (!record || record.workspaceId !== binding.workspaceId || record.agentId !== binding.agentId) {
       throw new OneComputerError("OPERATION_NOT_FOUND", "Governed operation not found", 404);
     }
     return toView(record);

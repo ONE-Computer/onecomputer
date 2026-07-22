@@ -73,6 +73,23 @@ def omit_nulls(value: object) -> object:
     return value
 
 
+def normalize_graph_etag(value: str) -> str:
+    """Restore the HTTP quoting Graph requires around a drive-item eTag.
+
+    Models sometimes preserve the opaque version value while dropping the
+    outer quotes shown in the JSON result. Only normalize the documented
+    Graph drive-item shape; leave every other value unchanged so Microsoft can
+    reject malformed or unsupported validators.
+    """
+    candidate = value.strip()
+    if ((candidate.startswith('"') and candidate.endswith('"'))
+            or (candidate.startswith('W/"') and candidate.endswith('"'))):
+        return candidate
+    if candidate.startswith("{") and "}," in candidate:
+        return f'"{candidate}"'
+    return candidate
+
+
 def discover_tools() -> list[dict]:
     response = request_json("/mcp-rest/tools/list")
     tools = response.get("tools", [])
@@ -179,6 +196,7 @@ def call_tool(name: str, arguments: dict) -> dict:
     if name == "delete-onedrive-file":
         if not isinstance(arguments.get("If-Match"), str) or not arguments["If-Match"].strip():
             return error_result(DELETE_ONEDRIVE_MISSING_ETAG)
+        arguments["If-Match"] = normalize_graph_etag(arguments["If-Match"])
     try:
         response = request_json("/mcp-rest/tools/call", {
             "server_id": server_id,

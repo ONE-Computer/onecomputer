@@ -95,3 +95,12 @@ workspace. A diagnostic probe created one blank 30-minute calendar event at
 2026-07-22 10:30 UTC; governed cleanup operation
 `1eb64d93-3884-441d-a857-88e187d3aa88` is pending signed approval and must be
 completed before this issue's cleanup inventory can pass.
+
+A post-restart protected OneDrive delete on 2026-07-22 verified that the
+browser approver enrollment persisted and that the signed decision reached
+execution. Microsoft rejected the dispatch because the model removed the
+outer HTTP quotes from an otherwise current drive-item eTag. The item remained
+present. The managed bridge now restores quotes only for the documented Graph
+drive-item eTag shape before Control binds the operation. The same rehearsal
+also exposed and corrected narrow-drawer overflow in the signed approval
+button row. Both corrections await the next product-owner retry.

@@ -174,7 +174,7 @@ test("Claude Desktop cannot choose connector flags and the managed bridge confir
     method: "tools/call",
     params: {
       name: "delete-onedrive-file",
-      arguments: { driveId: "drive", driveItemId: "item", "If-Match": "etag", confirm: true, excludeResponse: false },
+      arguments: { driveId: "drive", driveItemId: "item", "If-Match": "{E1CFF1EF-69D6-4F68-A75F-29D6C6DB2670},3", confirm: true, excludeResponse: false },
     },
   })}\n`);
 
@@ -191,7 +191,12 @@ test("Claude Desktop cannot choose connector flags and the managed bridge confir
     ((responses[0]?.result as { tools: Array<{ description: string }> }).tools[0]?.description ?? ""),
     /remote Microsoft 365 action, not a local filesystem action/,
   );
-  assert.deepEqual(forwardedArguments, { driveId: "drive", driveItemId: "item", "If-Match": "etag", confirm: true });
+  assert.deepEqual(forwardedArguments, {
+    driveId: "drive",
+    driveItemId: "item",
+    "If-Match": '"{E1CFF1EF-69D6-4F68-A75F-29D6C6DB2670},3"',
+    confirm: true,
+  });
 });
 
 test("Claude Desktop bridge supplies Softeria confirmation for an allowed calendar write", async (context) => {

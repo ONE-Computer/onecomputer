@@ -1229,6 +1229,18 @@ summary:focus-visible {
   font-size: 13px;
 }
 
+.drawer-approval-review .approval-review-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(84px, auto);
+}
+
+.drawer-approval-review .approval-review-actions .primary-button,
+.drawer-approval-review .approval-review-actions .secondary-button {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 12px;
+}
+
 .connection-actions .primary-button,
 .connection-actions .secondary-button {
   min-width: 190px;
@@ -1745,6 +1757,10 @@ summary:focus-visible {
   }
 
   .approval-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .drawer-approval-review .approval-review-actions {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,6 @@
 # 011: connect the real agent to governed Microsoft 365 tools
 
-Status: `implementation` (OneDrive approved-delete slice accepted; broader governed Microsoft surface requested)
+Status: `verification` (expanded governed Microsoft surface is active; cross-service action checks remain)
 
 Gate: J
 Depends on: 010
@@ -121,3 +121,14 @@ arbitrary Teams messages is not a supported Microsoft Graph promise; the MVP
 uses the useful read/send/reply boundary instead. This scope change returns the
 issue to implementation until the curated manifest, schemas, policy defaults,
 Entra consent, and human checks are complete.
+
+The expanded implementation was then deployed and activated on 2026-07-22.
+The administrator saved the reviewed 37-tool Mail, Calendar, OneDrive, and
+Teams policy, reconnected Microsoft 365 with the expanded admin-consented
+delegated scopes, and stopped and started the sandbox so the new immutable
+policy assignment was projected into the agent workspace. The product owner
+confirmed that Claude Desktop now receives the expanded governed surface. The
+curated manifest, strict schemas, safe defaults, connection grant, and real
+sandbox projection are therefore accepted implementation evidence. Issue 011
+moves to verification; natural-language cross-service actions and the listed
+negative, credential-custody, and restart checks remain open.

@@ -1,6 +1,6 @@
 # 012: manage workspace, agent, model, and tool policy in ONEComputer
 
-Status: `implementation` (six-tool UI implemented; expanded Microsoft tool matrix remains)
+Status: `verification` (expanded grouped policy UI is active; three-effect behavior review remains)
 
 Gate: K
 Depends on: 011
@@ -94,3 +94,13 @@ manifest. Safe defaults are reads=`allow`, writes=`require_approval`, and
 unlisted=`deny`; an administrator may explicitly change an individual tool to
 Allow or Block. Existing bound operations must retain their original policy
 version when the expanded policy is saved.
+
+On 2026-07-22 the expanded grouped policy editor was deployed and reviewed in
+the real product. It presents all 37 curated tools under Mail, Calendar,
+OneDrive, and Teams, with reads defaulting to Allow and mutations defaulting to
+Require approval. The administrator successfully saved the policy and, after
+a Microsoft reconnect and sandbox stop/start, the real Claude Desktop agent
+received the expanded assignment. Issue 012 therefore moves to verification.
+The next review must deliberately exercise Allow, Require approval, and Block
+on new agent actions and prove that an already-bound operation retains its
+original policy version and effect.

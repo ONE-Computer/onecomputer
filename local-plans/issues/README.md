@@ -30,8 +30,11 @@ OneDrive file, receive the governed OpenVTC request, approve it with the browser
 device, let the waiting agent observe completion, and inspect the successful
 operation and audit trail. This is accepted positive-path evidence for Issues
 011 and 013. Issues 009 and 013 remain in verification for physical denial and
-restart/reconnect durability; Issue 011 additionally retains its Mail and
-Calendar human checks, and Issue 012 still needs explicit policy-UI review.
+restart/reconnect durability; Issue 011 additionally retains its Mail,
+Calendar, and Teams cross-service checks, and Issue 012 still needs an explicit
+three-effect policy review. The expanded 37-tool grouped policy editor and its
+real sandbox projection were accepted as implemented on 2026-07-22, moving
+Issues 011 and 012 from implementation to verification.
 These open checks block the complete Issue 014 journey and final MVP
 acceptance. Completing an issue normally makes only its immediate successor
 ready. Gate-closing issues require explicit human review.

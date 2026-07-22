@@ -127,11 +127,20 @@ task contents in chat.
 | 008 | G | Govern the Microsoft 365 MCP capability surface | 007 | Yes |
 | 009 | H | Integrate OpenVTC device-backed approval and durable evidence | 008 | Yes |
 | 010 | I | Launch a configurable real conversational agent workspace | 009 implementation checkpoint | Yes |
-| 011 | J | Connect the real agent to governed Microsoft 365 tools | 010 | Yes |
-| 012 | K | Manage workspace, agent, model, and tool policy in ONEComputer | 011 | Yes |
+| 011 | J | Connect the real agent to a governed Mail, Calendar, OneDrive, and Teams tool surface | 010 | Yes |
+| 012 | K | Manage workspace, agent, model, and per-tool Microsoft policy in ONEComputer | 011 | Yes |
 | 013 | L | Complete agent-triggered OpenVTC approval and audit UX | 012 and 009 verification | Yes |
 | 014 | M | Run the complete human Microsoft 365 MVP journey | 013 | Yes |
 | 015 | N | Run clean-state MVP acceptance | 014 | Yes |
+
+The product owner expanded the Gate J Microsoft 365 slice on 2026-07-22. The
+MVP now includes bounded Outlook Mail, Calendar, OneDrive, and Teams
+interaction. This does not mean exposing Softeria's complete Graph surface:
+ONEComputer must pin a reviewed tool manifest, validate each input schema, and
+default every write to signed approval until an administrator deliberately
+changes that tool's policy. Teams MVP means read chats/channels and send or
+reply as the signed-in user; Microsoft Graph does not provide ordinary full
+CRUD over arbitrary Teams messages and the product must not claim otherwise.
 
 ## Assignment template
 

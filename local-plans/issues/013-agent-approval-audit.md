@@ -16,6 +16,8 @@ audit trail from chat intent to provider receipt.
 ## In scope
 
 - Close the deferred Issue 009 physical denial and restart checks.
+- Apply the same OpenVTC path to selected Mail, Calendar, OneDrive, and Teams
+  writes rather than special-casing OneDrive deletion.
 - Notify and deep-link the user from the agent/ONEComputer UI to the exact
   pending governed operation.
 - Present a safe human summary with action, target, requester agent/workspace,
@@ -33,8 +35,7 @@ audit trail from chat intent to provider receipt.
 ## Out of scope
 
 - Mobile push delivery, production SIEM export, a second approval factor,
-  multi-approver quorum, broad evidence-retention administration, or additional
-  protected operations.
+  multi-approver quorum, or broad evidence-retention administration.
 
 ## Required implementation
 
@@ -87,6 +88,12 @@ signature/replay/concurrency suites pass. Human denial, restart, and
 same-browser single-gesture durability verification remain open. Replacement
 enrollment is expected to require a setup gesture plus the decision gesture;
 an already-enrolled matching browser must require only the decision gesture.
+
+The Microsoft 365 surface expansion also requires proving that the generic
+operation binding, safe summary, signed decision, one-time lease, provider
+receipt, and audit projection work for at least one non-OneDrive protected
+write (preferably a disposable Calendar event or Teams reply). Sensitive email
+or message bodies must not be copied into the audit view.
 
 The product owner completed the real-agent approval path on 2026-07-22. The
 agent proposed the protected OneDrive deletion, Control created one pending

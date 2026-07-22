@@ -20,7 +20,9 @@ the resulting audit trail.
 - Configure and launch the approved real-agent sandbox profile.
 - Connect the employee's Microsoft 365 account through ONEComputer.
 - Ask the agent natural-language questions over bounded Outlook Mail, Calendar,
-  and OneDrive data.
+  OneDrive, and Teams data.
+- Create disposable examples that demonstrate one governed write in Mail or
+  Calendar and one Teams send/reply, in addition to the OneDrive lifecycle.
 - Create uniquely named disposable OneDrive fixtures and run one approved and
   one denied delete journey.
 - Inspect the policy reason, OpenVTC decision, exact provider result, agent
@@ -69,5 +71,5 @@ disposable OneDrive file, approved the exact OpenVTC request, saw the agent
 resume, confirmed the file deletion, and inspected the successful audit state.
 The complete journey remains blocked on Issue 013 and still requires Microsoft
 connection from the prescribed starting state, Mail and Calendar reads, an
-administrator policy change, a denied deletion, restart/reconnect repetition,
-and supported cleanup.
+administrator policy change, Teams read/reply, the expanded write surface, a
+denied action, restart/reconnect repetition, and supported cleanup.

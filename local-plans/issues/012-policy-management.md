@@ -1,6 +1,6 @@
 # 012: manage workspace, agent, model, and tool policy in ONEComputer
 
-Status: `verification` (implemented; explicit policy-UI review remains)
+Status: `implementation` (six-tool UI implemented; expanded Microsoft tool matrix remains)
 
 Gate: K
 Depends on: 011
@@ -19,7 +19,10 @@ allowed, denied, or held for approval according to that durable policy.
 - Configure workspace profile, model aliases/budget/rate limits, MCP toolsets,
   and per-operation effects: `allow`, `deny`, or `require_approval`.
 - Seed a safe MVP policy: bounded Microsoft reads allowed; OneDrive delete
-  requires approval; unlisted operations denied.
+  and all other Microsoft writes require approval; unlisted operations denied.
+- Present the selected Mail, Calendar, OneDrive, and Teams tools in service
+  groups so an administrator can review the larger surface without treating a
+  raw vendor catalog as policy.
 - Validate conflicts and show why a specific agent/tool action received its
   effect.
 - Persist policy version and decision inputs on every governed operation.
@@ -43,8 +46,9 @@ allowed, denied, or held for approval according to that durable policy.
 
 - [ ] An administrator can configure and preview the MVP workspace, model,
   toolset, and approval policies without editing files or vendor databases.
-- [ ] Read=`allow`, delete=`require_approval`, explicit deny, and unlisted deny
-  produce the correct agent-visible behavior on the next action.
+- [ ] Read=`allow`, write=`require_approval`, explicit deny, and unlisted deny
+  produce the correct agent-visible behavior on the next action for each of
+  Mail, Calendar, OneDrive, and Teams.
 - [ ] A normal user and workspace agent cannot create, edit, assign, or bypass
   policy.
 - [ ] Wrong tenant/role/subject/workspace/agent/tool/schema, conflicting rules,
@@ -82,3 +86,11 @@ was enforced: OneDrive discovery/read was allowed and deletion was held for a
 device-backed approval. It did not yet constitute the required administrator
 UI review of changing a tool among Allow, Require approval, and Block, nor the
 proof that a policy edit affects only new calls. Those checks remain open.
+
+The later Microsoft 365 scope expansion reopens implementation for this issue.
+The existing per-tool policy mechanism remains the authority, but the UI and
+policy document must now carry the reviewed Mail, Calendar, OneDrive, and Teams
+manifest. Safe defaults are reads=`allow`, writes=`require_approval`, and
+unlisted=`deny`; an administrator may explicitly change an individual tool to
+Allow or Block. Existing bound operations must retain their original policy
+version when the expanded policy is saved.

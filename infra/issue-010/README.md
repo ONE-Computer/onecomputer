@@ -15,8 +15,8 @@ workspace-scoped LiteLLM gateway.
   `7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0`
 - Kasm Ubuntu Jammy base:
   `sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580`
-- resulting local workspace image:
-  `sha256:52e34e95b9b9eb76730da0ddee7f0acd298f5b7c7e2e5ef8d274d567ce1d8506`
+- resulting local workspace image is printed by `build-workspace.sh` and pinned
+  in the ignored local `.env`.
 
 This follows Anthropic's supported Linux and gateway paths:
 
@@ -65,9 +65,11 @@ broker key. The user process receives no provider key, LiteLLM master key, or
 Control credential.
 
 The workspace network is an internal Docker network containing only the
-workspace and LiteLLM. Direct provider, Graph, MCP, PostgreSQL, Docker, Control,
-and OpenVTC routes therefore have no path. MCP remains disabled in Desktop for
-Issue 010; Issue 011 will add policy-scoped Microsoft 365 tools.
+workspace, LiteLLM, and a root-owned loopback broker. Direct provider, Graph,
+PostgreSQL, Docker, Control, and OpenVTC routes therefore have no user-process
+path. Claude Desktop receives only the policy-scoped Microsoft 365 MCP tools;
+the broker submits protected actions to Control and waits for the signed
+OpenVTC decision without exposing gateway or provider credentials.
 
 ## Managed profile
 

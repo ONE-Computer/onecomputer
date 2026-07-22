@@ -142,6 +142,14 @@ test("idempotency key cannot be reused with mutated arguments", async () => {
   );
 });
 
+test("an exact idempotent retry returns the original governed operation", async () => {
+  const { workspace, service } = await setup();
+  const first = await service.createDeleteFile(identity, workspace.id, "/Finance/2026/Q3-draft.docx", "delete-request-exact-retry", "request-first");
+  const second = await service.createDeleteFile(identity, workspace.id, "/Finance/2026/Q3-draft.docx", "delete-request-exact-retry", "request-second");
+  assert.equal(second.id, first.id);
+  assert.equal(second.state, "approval_required");
+});
+
 test("direct status mutation without a verified approval record cannot issue a lease", async () => {
   const { store, workspace, executor, service } = await setup();
   const operation = await service.createDeleteFile(identity, workspace.id, "/Finance/2026/Q3-draft.docx", "delete-request-006", "request-7");

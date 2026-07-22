@@ -1,6 +1,6 @@
 # 013: complete agent-triggered OpenVTC approval and audit UX
 
-Status: `verification`
+Status: `verification` (human approve/resume/audit path accepted; denial and restart remain)
 
 Gate: L
 Depends on: 012 and completion of 009 verification
@@ -83,6 +83,17 @@ denial, expiry, or failure returns a terminal tool error without retrying the
 provider mutation. Activity now lists durable operation history and the
 operation drawer projects the correlated redacted event trail, policy binding,
 decision, lease, and receipt. Automated wait/resume and existing OpenVTC
-signature/replay/concurrency suites pass. Human approval/denial, restart, and
-single-gesture UX verification remain open; the previously noted two-passcode
-approval-device UX is not represented as resolved.
+signature/replay/concurrency suites pass. Human denial, restart, and
+same-browser single-gesture durability verification remain open. Replacement
+enrollment is expected to require a setup gesture plus the decision gesture;
+an already-enrolled matching browser must require only the decision gesture.
+
+The product owner completed the real-agent approval path on 2026-07-22. The
+agent proposed the protected OneDrive deletion, Control created one pending
+operation, ONEComputer surfaced the request, the browser device signed the
+exact approval, the provider mutation executed once, the waiting agent observed
+the completed result, and the owned UI showed the correlated audit trail. This
+closes the human positive-path portion of this issue. Physical denial, a
+same-browser approval after reload/reconnect, workspace and Control/adapter
+restart durability, and confirmation that those paths retain a single signing
+gesture remain required before Issue 013 can close.

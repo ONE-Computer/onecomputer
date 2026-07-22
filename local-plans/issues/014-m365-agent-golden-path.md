@@ -63,4 +63,11 @@ counters, rerun result, and cleanup inventory.
 
 ## Completion record
 
-Not complete. Blocked on Issue 013.
+Not complete. A partial golden-path rehearsal passed on 2026-07-22: the user
+launched the managed workspace, instructed the real agent to find and delete a
+disposable OneDrive file, approved the exact OpenVTC request, saw the agent
+resume, confirmed the file deletion, and inspected the successful audit state.
+The complete journey remains blocked on Issue 013 and still requires Microsoft
+connection from the prescribed starting state, Mail and Calendar reads, an
+administrator policy change, a denied deletion, restart/reconnect repetition,
+and supported cleanup.

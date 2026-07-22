@@ -133,9 +133,9 @@ export class OpenVtcApprovalCoordinator {
 
   async ensureTask(identity: IdentityContext, operation: GovernedOperationRecord) {
     const existing = await this.store.getOpenVtcConsentTask(identity, operation.id);
-    if (existing) return existing;
     const approver = await this.store.getActiveOpenVtcApprover(identity);
     if (!approver || operation.state !== "approval_required" || operation.expiresAt <= new Date()) return null;
+    if (existing?.approverId === approver.id || existing && !["queued", "delivered"].includes(existing.state)) return existing;
     const createdAt = new Date();
     const challenge = randomBytes(24).toString("base64url");
     const taskPayload = taskPayloadFor(operation);
@@ -178,6 +178,7 @@ export class OpenVtcApprovalCoordinator {
       requestHash: sha256(jcsCanonicalize(request)),
       createdAt,
       expiresAt: operation.expiresAt,
+      replaceApprover: Boolean(existing && existing.approverId !== approver.id),
     });
   }
 
@@ -190,6 +191,8 @@ export class OpenVtcApprovalCoordinator {
   async inboxForIdentity(identity: IdentityContext) {
     const approver = await this.store.getActiveOpenVtcApprover(identity);
     if (!approver) return null;
+    const recent = await this.store.getRecentOperation(identity);
+    if (recent?.state === "approval_required") await this.ensureTask(identity, recent);
     const task = await this.store.deliverNextOpenVtcConsentTask(approver.id, new Date());
     return task?.requestDocument ?? null;
   }

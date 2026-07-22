@@ -13,13 +13,14 @@ test("Kasm operational states map to the canonical sandbox contract", () => {
   assert.equal(mapKasmState("error"), "failed");
 });
 
-test("local Kasm creates a hardened internal network per workspace and attaches only the gateway", async () => {
+test("local Kasm creates a hardened internal network and reconciles governed service attachments", async () => {
   const directory = await mkdtemp(join(tmpdir(), "onecomputer-docker-api-"));
   const socketPath = join(directory, "docker.sock");
   const requests: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
   let createCount = 0;
   let workspaceNetworkExists = false;
   let gatewayConnected = false;
+  let controlConnected = false;
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -34,13 +35,22 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
     if (path === "/containers/sandbox-id/json") {
       response.end(JSON.stringify({
         State: { Running: true, ExitCode: 0 },
-        Config: { Labels: { "com.onecomputer.workspace-network": "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508" } },
+        Config: {
+          Labels: {
+            "com.onecomputer.workspace-network": "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508",
+            "com.onecomputer.control-attached": "true",
+          },
+          Env: ["ONECOMPUTER_AGENT_BRIDGE_TOKEN=scoped-agent-bridge-token"],
+        },
       }));
       return;
     }
     if (request.method === "GET" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508" && workspaceNetworkExists) {
       response.end(JSON.stringify({
-        Containers: gatewayConnected ? { "gateway-container-id": { Name: "onecomputer-v4-litellm" } } : {},
+        Containers: {
+          ...(gatewayConnected ? { "gateway-container-id": { Name: "onecomputer-v4-litellm" } } : {}),
+          ...(controlConnected ? { "control-container-id": { Name: "onecomputer-v4-control-api" } } : {}),
+        },
       }));
       return;
     }
@@ -60,6 +70,9 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
     }
     if (request.method === "POST" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-v4-litellm") {
       gatewayConnected = true;
+    }
+    if (request.method === "POST" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-v4-control-api") {
+      controlConnected = true;
     }
     response.end(JSON.stringify({ ok: true }));
   });
@@ -84,6 +97,7 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
       networkPrefix: "onecomputer-v4-ws",
       controlNetwork: "onecomputer-v4-control",
       gatewayContainer: "onecomputer-v4-litellm",
+      controlContainer: "onecomputer-v4-control-api",
       relayImage: "sha256:pinned-relay",
       portStart: 16920,
       portEnd: 16920,
@@ -97,6 +111,11 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
         modelAlias: "onecomputer-assistant",
         expiresAt: "2026-07-21T00:00:00.000Z",
       },
+      agentBridge: {
+        baseUrl: "http://onecomputer-control:4100",
+        token: "scoped-agent-bridge-token-at-least-24-characters",
+        expiresAt: "2026-07-21T00:00:00.000Z",
+      },
     });
     const workspaceNetwork = "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508";
     const networkCreate = requests.find((item) => item.path === "/networks/create" && item.body.Name === workspaceNetwork)!;
@@ -104,6 +123,8 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
     assert.equal((networkCreate.body.Labels as Record<string, unknown>)["com.onecomputer.workspace-id"], "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
     const gatewayAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-litellm")!;
     assert.deepEqual((gatewayAttach.body.EndpointConfig as Record<string, unknown>).Aliases, ["litellm"]);
+    const controlAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-control-api")!;
+    assert.deepEqual((controlAttach.body.EndpointConfig as Record<string, unknown>).Aliases, ["onecomputer-control"]);
     const sandboxCreate = requests.find((item) => item.path.startsWith("/containers/create?name=onecomputer-v4-sandbox"))!;
     const host = sandboxCreate.body.HostConfig as Record<string, unknown>;
     assert.equal(host.NetworkMode, workspaceNetwork);
@@ -117,13 +138,18 @@ test("local Kasm creates a hardened internal network per workspace and attaches 
     assert.ok(serialized.includes("ONECOMPUTER_ALLOWED_TOOLS=list-mail-folders,list-calendars,list-drives"));
     assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_UPSTREAM=http://litellm:4000"));
     assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_CREDENTIAL=sk-scoped-workspace-agent-key"));
+    assert.ok(serialized.includes("ONECOMPUTER_CONTROL_UPSTREAM=http://onecomputer-control:4100"));
+    assert.ok(serialized.includes("com.onecomputer.control-attached"));
     assert.ok(!serialized.includes("OPENAI_API_KEY"));
     assert.ok(!serialized.includes("LITELLM_MASTER_KEY"));
     assert.ok(!serialized.includes("CLIENT_SECRET"));
     assert.ok(!serialized.includes("DATABASE_URL"));
     assert.ok(!serialized.includes("DOCKER_HOST"));
+    // Simulate Compose replacing Control and dropping its dynamic endpoint.
+    controlConnected = false;
     await adapter.status("sandbox-id");
     assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-litellm").length, 1);
+    assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-control-api").length, 2);
     await adapter.purgeWorkspace("b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
     assert.ok(requests.some((item) => item.method === "DELETE" && item.path === `/volumes/${workspaceVolume}?force=true`));
   } finally {

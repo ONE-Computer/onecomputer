@@ -23,15 +23,18 @@ replaced it with the active sequential Issue 005–015 MVP path below. Historica
 specifications are preserved under `archive/retired-2026-07-20/`; they are not
 active dependencies. Existing Kasm, UI, LiteLLM, governed-operation, Microsoft
 OAuth, and bounded Microsoft-read evidence is carried forward and must not be
-needlessly repeated. Issues 005–008 and 010 passed human review. Issue 009 has a
-working browser approval path and one physical approval pass, but its remaining
-deny and restart verification is intentionally paused while the realistic
-agent journey is built in Issues 011–013. On 2026-07-22 the product owner
-explicitly authorized those three demo-critical implementations to proceed
-together; all remain in verification until the real-agent human pass. The
-deferred Issue 009 checks still block final MVP acceptance. Completing an issue
-normally makes only its immediate successor ready. Gate-closing issues require
-explicit human review.
+needlessly repeated. Issues 005–008 and 010 passed human review. On 2026-07-22
+the product owner completed the first real-agent approval journey: launch the
+managed Claude Desktop workspace, ask the GLM-routed agent to find and delete a
+OneDrive file, receive the governed OpenVTC request, approve it with the browser
+device, let the waiting agent observe completion, and inspect the successful
+operation and audit trail. This is accepted positive-path evidence for Issues
+011 and 013. Issues 009 and 013 remain in verification for physical denial and
+restart/reconnect durability; Issue 011 additionally retains its Mail and
+Calendar human checks, and Issue 012 still needs explicit policy-UI review.
+These open checks block the complete Issue 014 journey and final MVP
+acceptance. Completing an issue normally makes only its immediate successor
+ready. Gate-closing issues require explicit human review.
 
 ## Execution rules
 

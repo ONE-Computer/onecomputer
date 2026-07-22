@@ -139,7 +139,18 @@ export class GovernedOperationService {
     });
     if (!record) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
     if (record.operationDigest !== operationDigest) {
-      throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
+      const sameRequest = record.workspaceId === workspaceId
+        && record.agentId === null
+        && record.policyVersionId === null
+        && record.policyHash === null
+        && record.capabilityId === operationEnvelope.capabilityId
+        && record.serverName === operationEnvelope.serverName
+        && record.toolName === operationEnvelope.toolName
+        && record.schemaId === operationEnvelope.schemaId
+        && canonicalJson(record.arguments) === canonicalJson(operationEnvelope.arguments);
+      if (!sameRequest) {
+        throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
+      }
     }
     return toView(record);
   }
@@ -184,6 +195,7 @@ export class GovernedOperationService {
     policy: { policyVersionId: string; policyHash: string },
     idempotencyKey: string,
     correlationId: string,
+    retryTerminal = false,
   ) {
     const workspace = await this.store.getOwned(identity, workspaceId);
     if (!workspace) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
@@ -235,12 +247,24 @@ export class GovernedOperationService {
       resourceLocation: driveId ? `OneDrive drive ${shortDrive}` : "Microsoft 365",
       correlationId,
       idempotencyKey,
+      replaceTerminal: retryTerminal,
       createdAt: now,
       expiresAt,
     });
     if (!record) throw new OneComputerError("WORKSPACE_NOT_FOUND", "Workspace not found", 404);
     if (record.operationDigest !== operationDigest) {
-      throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
+      const sameRequest = record.workspaceId === workspaceId
+        && record.agentId === agentId
+        && record.policyVersionId === policy.policyVersionId
+        && record.policyHash === policy.policyHash
+        && record.capabilityId === input.capabilityId
+        && record.serverName === input.serverName
+        && record.toolName === input.toolName
+        && record.schemaId === input.schemaId
+        && canonicalJson(record.arguments) === canonicalJson(input.arguments);
+      if (!sameRequest) {
+        throw new OneComputerError("IDEMPOTENCY_MISMATCH", "The idempotency key was already used for a different operation", 409);
+      }
     }
     await this.openVtc?.ensureTask(identity, record);
     return toView(record);

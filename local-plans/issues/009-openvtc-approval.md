@@ -105,3 +105,13 @@ team can replace the temporary CLI test surface with a realistic conversational
 agent journey. This is a sequencing exception, not acceptance: Issue 010 may
 begin from the working implementation checkpoint, but the open denial and
 restart checks must pass before Issue 013 can close.
+
+On 2026-07-22 the product owner repeated the physical approval through the real
+Claude Desktop agent rather than the qualification CLI. Control received and
+verified the device-signed decision, issued one lease, deleted the exact bound
+OneDrive item once, and exposed the correlated audit trail. During the pass the
+browser lacked the local IndexedDB key matching the server-side approver DID,
+so it correctly required replacement enrollment and rebound the pending task.
+The enrollment flow now rolls back the server record if local key persistence
+fails, preventing a half-enrolled device. A same-profile reload/restart pass and
+the physical denial path remain required before this issue can close.

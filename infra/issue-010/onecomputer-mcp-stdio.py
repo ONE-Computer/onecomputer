@@ -13,6 +13,11 @@ import urllib.request
 BROKER = "http://127.0.0.1:4312"
 PROTOCOL_VERSION = "2024-11-05"
 TOOLS: dict[str, dict] = {}
+WAIT_TOOL_NAME = "wait-for-governed-operation"
+DELETE_ONEDRIVE_DESCRIPTION = """Delete one Microsoft OneDrive or SharePoint drive item through ONEComputer governance.
+
+This is a remote Microsoft 365 action, not a local filesystem action. Before calling it, get the item's current top-level eTag with get-drive-item (includeHeaders=true and select=id,name,eTag,parentReference). Pass that exact eTag as If-Match. Call this tool directly; do not request Cowork or local-file deletion permission. ONEComputer Control will obtain any required signed approval and this call will wait for the final result."""
+DELETE_ONEDRIVE_MISSING_ETAG = """The remote OneDrive deletion was not submitted because If-Match is missing. Call get-drive-item for this driveId and driveItemId with includeHeaders=true and select=id,name,eTag,parentReference, then call delete-onedrive-file again with the exact top-level eTag as If-Match. Do not use Cowork or local-filesystem deletion permission; ONEComputer handles approval when this remote tool is called."""
 
 
 def request_json(path: str, body: dict | None = None) -> dict:
@@ -80,24 +85,65 @@ def discover_tools() -> list[dict]:
                 properties.pop("excludeResponse", None)
             required = input_schema.get("required")
             if isinstance(required, list):
-                input_schema["required"] = [item for item in required if item not in {"confirm", "excludeResponse"}]
+                input_schema["required"] = list(dict.fromkeys([
+                    item for item in required if item not in {"confirm", "excludeResponse"}
+                ] + ["If-Match"]))
+            else:
+                input_schema["required"] = ["driveId", "driveItemId", "If-Match"]
+            input_schema["additionalProperties"] = False
         result.append({
             "name": raw["name"],
-            "description": raw.get("description", "Microsoft 365 tool governed by ONEComputer policy."),
+            "description": DELETE_ONEDRIVE_DESCRIPTION if raw["name"] == "delete-onedrive-file" else raw.get("description", "Microsoft 365 tool governed by ONEComputer policy."),
             "inputSchema": input_schema,
         })
+    TOOLS[WAIT_TOOL_NAME] = {"name": WAIT_TOOL_NAME, "onecomputer_local": True}
+    result.append({
+        "name": WAIT_TOOL_NAME,
+        "description": "Wait for a protected ONEComputer operation after another Microsoft 365 tool reports that signed approval is pending. Waits for up to 75 seconds. If the operation is still pending, call this tool again with the same operationId. Do not retry the original destructive tool.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "operationId": {
+                    "type": "string",
+                    "description": "The ONEComputer governed operation ID returned by the protected tool.",
+                },
+            },
+            "required": ["operationId"],
+            "additionalProperties": False,
+        },
+    })
     return result
 
 
-def wait_for_operation(identifier: str) -> dict:
-    deadline = time.monotonic() + 610
+def wait_for_operation(identifier: str, timeout_seconds: int = 75) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    operation: dict = {"id": identifier, "state": "approval_required"}
     while time.monotonic() < deadline:
         operation = request_json(f"/onecomputer/operations/{identifier}")
         state = operation.get("state")
         if state in {"succeeded", "denied", "failed", "expired"}:
             return operation
         time.sleep(1)
-    return {"id": identifier, "state": "expired", "failureCode": "APPROVAL_WAIT_TIMED_OUT"}
+    return operation
+
+
+def operation_result(operation: dict, identifier: str) -> dict:
+    if operation.get("state") == "succeeded":
+        receipt = operation.get("receipt") if isinstance(operation.get("receipt"), dict) else {}
+        summary = receipt.get("resultSummary") or f"{operation.get('safeSummary', 'The governed action')} completed after approval."
+        return {
+            "content": [{"type": "text", "text": str(summary)}],
+            "isError": False,
+            "_meta": {"onecomputer": {"operationId": identifier, "state": "succeeded", "approval": "openvtc-task-consent"}},
+        }
+    state = operation.get("state", "failed")
+    if state in {"approval_required", "approved", "executing"}:
+        return {
+            "content": [{"type": "text", "text": f"The signed approval for operation {identifier} is still pending or being executed. The protected action has not returned a final result. Call {WAIT_TOOL_NAME} again with this same operationId; do not retry the original destructive tool."}],
+            "isError": False,
+            "_meta": {"onecomputer": {"operationId": identifier, "state": state, "approval": "openvtc-task-consent"}},
+        }
+    return error_result(f"The governed action was {state}. No further tool execution occurred.", identifier, state)
 
 
 def call_tool(name: str, arguments: dict) -> dict:
@@ -105,11 +151,18 @@ def call_tool(name: str, arguments: dict) -> dict:
     if selected is None:
         discover_tools()
         selected = TOOLS.get(name)
+    if name == WAIT_TOOL_NAME:
+        identifier = arguments.get("operationId")
+        if not isinstance(identifier, str) or not identifier:
+            return error_result("A governed operationId is required.")
+        return operation_result(wait_for_operation(identifier), identifier)
     server_id = (selected or {}).get("mcp_info", {}).get("server_id")
     if not isinstance(server_id, str):
         return error_result("That tool is not assigned to this workspace.")
     if name == "delete-onedrive-file":
         arguments = {key: value for key, value in arguments.items() if key not in {"confirm", "excludeResponse"}}
+        if not isinstance(arguments.get("If-Match"), str) or not arguments["If-Match"].strip():
+            return error_result(DELETE_ONEDRIVE_MISSING_ETAG)
     try:
         response = request_json("/mcp-rest/tools/call", {
             "server_id": server_id,
@@ -129,17 +182,11 @@ def call_tool(name: str, arguments: dict) -> dict:
             message = nested_error(payload) or f"ONEComputer rejected the tool call (HTTP {error.code})."
             return error_result(message)
 
-    operation = wait_for_operation(identifier)
-    if operation.get("state") == "succeeded":
-        receipt = operation.get("receipt") if isinstance(operation.get("receipt"), dict) else {}
-        summary = receipt.get("resultSummary") or f"{operation.get('safeSummary', name)} completed after approval."
-        return {
-            "content": [{"type": "text", "text": str(summary)}],
-            "isError": False,
-            "_meta": {"onecomputer": {"operationId": identifier, "state": "succeeded", "approval": "openvtc-task-consent"}},
-        }
-    state = operation.get("state", "failed")
-    return error_result(f"The governed action was {state}. No further tool execution occurred.", identifier, state)
+    return {
+        "content": [{"type": "text", "text": f"Signed approval is required for operation {identifier}. The action has not run. Call {WAIT_TOOL_NAME} now with this operationId and keep calling it while approval remains pending. Do not retry the original destructive tool."}],
+        "isError": False,
+        "_meta": {"onecomputer": {"operationId": identifier, "state": "approval_required", "approval": "openvtc-task-consent"}},
+    }
 
 
 def nested_error(value: object) -> str | None:
@@ -178,6 +225,7 @@ def handle(message: dict) -> None:
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "onecomputer-microsoft-365", "version": "0.1.0"},
+                "instructions": "Microsoft 365 tools operate on remote Outlook, Calendar, and OneDrive resources. Use the corresponding MCP tool directly. Never substitute Cowork or local-filesystem permission tools. ONEComputer Control enforces policy and obtains signed approval inside protected tool calls.",
             })
         elif method == "ping":
             respond(identifier, {})

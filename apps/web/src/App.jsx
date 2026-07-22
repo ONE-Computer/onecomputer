@@ -495,7 +495,8 @@ function ApprovalDeviceCard({ displayName }) {
   const [message, setMessage] = useState("");
 
   const refresh = async () => {
-    const [remote, local] = await Promise.all([approvalApi.status(), hasBrowserApprover()]);
+    const remote = await approvalApi.status();
+    const local = await hasBrowserApprover(remote.approver?.approverDid);
     setStatus(remote);
     setLocalReady(local);
   };
@@ -509,7 +510,12 @@ function ApprovalDeviceCard({ displayName }) {
     setMessage("");
     try {
       const challenge = await approvalApi.challenge();
-      await enrollBrowserApprover(challenge, `${displayName}’s browser`, (document) => approvalApi.enroll(challenge.id, document));
+      await enrollBrowserApprover(
+        challenge,
+        `${displayName}’s browser`,
+        (document) => approvalApi.enroll(challenge.id, document),
+        () => approvalApi.revoke(),
+      );
       await refresh();
       setMessage("This browser is now your approval device.");
     } catch (error) {
@@ -658,6 +664,7 @@ export function App() {
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
   const [sandboxError, setSandboxError] = useState("");
+  const surfacedApprovalIds = useRef(new Set());
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -755,6 +762,27 @@ export function App() {
   }, [operation?.id, operation?.state]);
 
   useEffect(() => {
+    if (!session) return undefined;
+    let active = true;
+    const refreshRecentOperation = async () => {
+      try {
+        const recent = await operationApi.recent();
+        if (!active || !recent) return;
+        setOperation(recent);
+        if (recent.state === "approval_required" && !surfacedApprovalIds.current.has(recent.id)) {
+          surfacedApprovalIds.current.add(recent.id);
+          setDrawer("request");
+          setToast("An agent action is waiting for your approval.");
+        }
+      } catch (error) {
+        if (active) showApiError(error);
+      }
+    };
+    const interval = window.setInterval(refreshRecentOperation, 1500);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [session?.user.id]);
+
+  useEffect(() => {
     if (!operation) return;
     setOperationHistory((items) => [operation, ...items.filter((item) => item.id !== operation.id)]);
   }, [operation?.id, operation?.state, operation?.updatedAt]);
@@ -776,12 +804,15 @@ export function App() {
     setApprovalRequest(null);
     setApprovalRequestState("loading");
     setApprovalRequestMessage("");
-    Promise.all([approvalApi.status(), hasBrowserApprover()])
-      .then(async ([status, localReady]) => {
+    approvalApi.status()
+      .then(async (status) => {
+        const localReady = await hasBrowserApprover(status.approver?.approverDid);
         if (!status.connected || !localReady) {
           if (active) {
             setApprovalRequestState("setup");
-            setApprovalRequestMessage("Set up this browser as your approval device before deciding this operation.");
+            setApprovalRequestMessage(status.connected
+              ? "This browser profile no longer has the key for the enrolled approval device. Replace it once to rebind this pending request."
+              : "Set up this browser as your approval device before deciding this operation.");
           }
           return;
         }

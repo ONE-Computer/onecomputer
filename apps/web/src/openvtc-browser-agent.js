@@ -123,7 +123,10 @@ const databaseOperation = async (mode, operation) => {
 const readRecord = () => databaseOperation("readonly", (store) => store.get(RECORD_KEY));
 const writeRecord = (record) => databaseOperation("readwrite", (store) => store.put(record, RECORD_KEY));
 export const clearBrowserApprover = () => databaseOperation("readwrite", (store) => store.delete(RECORD_KEY));
-export const hasBrowserApprover = async () => Boolean(await readRecord());
+export const hasBrowserApprover = async (expectedDid) => {
+  const record = await readRecord();
+  return Boolean(record && (!expectedDid || record.did === expectedDid));
+};
 
 const deriveWrapKey = async (prfOutput) => {
   const material = await crypto.subtle.importKey("raw", prfOutput, "HKDF", false, ["deriveKey"]);
@@ -202,7 +205,7 @@ const signDocument = async (document, privateKeyPkcs8, verificationMethod) => {
   return { ...document, proof: { ...proof, proofValue: `z${base58Encode(signature)}` } };
 };
 
-export async function enrollBrowserApprover(challenge, displayName, enroll) {
+export async function enrollBrowserApprover(challenge, displayName, enroll, rollback) {
   const credential = await createPrfCredential();
   const wrapKey = await deriveWrapKey(credential.output);
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -229,14 +232,19 @@ export async function enrollBrowserApprover(challenge, displayName, enroll) {
   const response = await enroll(document);
   const bundle = { privateKeyPkcs8, transportToken: response.transportToken, executorDid: challenge.recipientDid };
   const wrapped = await wrapBundle(bundle, wrapKey);
-  await writeRecord({
-    version: 1,
-    did: identifiers.did,
-    verificationMethod: identifiers.verificationMethod,
-    credentialId: bytesToBase64url(credential.credentialId),
-    prfSalt: bytesToBase64url(credential.salt),
-    ...wrapped,
-  });
+  try {
+    await writeRecord({
+      version: 1,
+      did: identifiers.did,
+      verificationMethod: identifiers.verificationMethod,
+      credentialId: bytesToBase64url(credential.credentialId),
+      prfSalt: bytesToBase64url(credential.salt),
+      ...wrapped,
+    });
+  } catch (error) {
+    await rollback?.().catch(() => undefined);
+    throw new Error("The device key could not be saved in this browser profile. The incomplete enrollment was removed; check that persistent site storage is enabled and try again.", { cause: error });
+  }
   return { did: identifiers.did, displayName };
 }
 

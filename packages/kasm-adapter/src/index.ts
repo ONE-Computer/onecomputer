@@ -161,6 +161,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "com.onecomputer.workspace-network": workspaceNetwork,
         "com.onecomputer.workspace-volume": workspaceVolume,
         "com.onecomputer.gateway-attached": String(Boolean(input.gateway)),
+        "com.onecomputer.control-attached": String(Boolean(input.agentBridge)),
         "com.onecomputer.policy-version-id": input.policy.policyVersionId,
         "com.onecomputer.policy-hash": input.policy.policyHash,
         "com.onecomputer.agent-id": input.policy.agentId,
@@ -221,10 +222,17 @@ export class KasmLocalAdapter implements SandboxAdapter {
       // ready to Control or the browser.
       const restarting = state.Restarting === true;
       const running = state.Running === true && !restarting && state.Paused !== true;
-      const labels = asObject(asObject(inspected.Config).Labels);
+      const containerConfig = asObject(inspected.Config);
+      const labels = asObject(containerConfig.Labels);
       const workspaceNetwork = labels["com.onecomputer.workspace-network"];
+      const environment = Array.isArray(containerConfig.Env) ? containerConfig.Env : [];
+      const controlAttached = labels["com.onecomputer.control-attached"] === "true"
+        || environment.some((entry) => typeof entry === "string" && entry.startsWith("ONECOMPUTER_AGENT_BRIDGE_TOKEN="));
       if (running && typeof workspaceNetwork === "string" && workspaceNetwork.startsWith(`${this.config.networkPrefix}-`)) {
         await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
+        if (controlAttached && this.config.controlContainer) {
+          await this.connectContainer(workspaceNetwork, this.config.controlContainer, ["onecomputer-control"]);
+        }
       }
       const failed = restarting || (typeof state.ExitCode === "number" && state.ExitCode !== 0);
       return { providerId, state: running ? "ready" : failed ? "failed" : "stopped", failureCode: failed ? "FIXTURE_EXITED" : null };
@@ -246,12 +254,17 @@ export class KasmLocalAdapter implements SandboxAdapter {
     let name: string | undefined;
     let workspaceNetwork: string | undefined;
     let gatewayAttached = false;
+    let controlAttached = false;
     try {
       const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
       name = textValue(inspected, "Name")?.replace(/^\//, "");
-      const labels = asObject(asObject(inspected.Config).Labels);
+      const containerConfig = asObject(inspected.Config);
+      const labels = asObject(containerConfig.Labels);
+      const environment = Array.isArray(containerConfig.Env) ? containerConfig.Env : [];
       workspaceNetwork = typeof labels["com.onecomputer.workspace-network"] === "string" ? String(labels["com.onecomputer.workspace-network"]) : undefined;
       gatewayAttached = labels["com.onecomputer.gateway-attached"] === "true";
+      controlAttached = labels["com.onecomputer.control-attached"] === "true"
+        || environment.some((entry) => typeof entry === "string" && entry.startsWith("ONECOMPUTER_AGENT_BRIDGE_TOKEN="));
     } catch (error) {
       if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
     }
@@ -259,6 +272,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     await this.removeContainer(providerId);
     if (workspaceNetwork?.startsWith(`${this.config.networkPrefix}-`)) {
       if (gatewayAttached) await this.disconnectContainer(workspaceNetwork, this.config.gatewayContainer);
+      if (controlAttached && this.config.controlContainer) await this.disconnectContainer(workspaceNetwork, this.config.controlContainer);
       await this.removeNetwork(workspaceNetwork);
     }
   }

@@ -1,6 +1,6 @@
 # 012: manage workspace, agent, model, and tool policy in ONEComputer
 
-Status: `verification`
+Status: `verification` (implemented; explicit policy-UI review remains)
 
 Gate: K
 Depends on: 011
@@ -76,3 +76,9 @@ tool call; LiteLLM and Claude Desktop do not become policy authorities.
 Automated allow/approval/deny and binding tests pass. Broader workspace/model
 policy authoring remains represented by the existing Sandbox and identity
 assignment surfaces; the tool-policy UI awaits human review.
+
+The 2026-07-22 real-agent journey confirmed that the currently assigned policy
+was enforced: OneDrive discovery/read was allowed and deletion was held for a
+device-backed approval. It did not yet constitute the required administrator
+UI review of changing a tool among Allow, Require approval, and Block, nor the
+proof that a policy edit affects only new calls. Those checks remain open.

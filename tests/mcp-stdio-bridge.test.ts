@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import test from "node:test";
 
-test("Claude Desktop MCP call waits for the governed operation receipt", async (context) => {
+test("Claude Desktop MCP call returns a governed handle and waits in bounded follow-up calls", async (context) => {
   const operationId = "11111111-1111-4111-8111-111111111111";
   let statusReads = 0;
   const server = createServer((request, response) => {
@@ -58,8 +58,16 @@ test("Claude Desktop MCP call waits for the governed operation receipt", async (
   const deadline = Date.now() + 5_000;
   while (responses.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(responses.length, 2);
-  assert.equal((responses[1]?.result as { isError: boolean }).isError, false);
-  assert.equal((responses[1]?.result as { content: Array<{ text: string }> }).content[0]?.text, "Deleted after signed approval");
+  assert.match((responses[1]?.result as { content: Array<{ text: string }> }).content[0]?.text ?? "", /wait-for-governed-operation/);
+  child.stdin.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: { name: "wait-for-governed-operation", arguments: { operationId } },
+  })}\n`);
+  while (responses.length < 3 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal((responses[2]?.result as { isError: boolean }).isError, false);
+  assert.equal((responses[2]?.result as { content: Array<{ text: string }> }).content[0]?.text, "Deleted after signed approval");
   assert.equal(statusReads, 2);
 });
 
@@ -175,5 +183,68 @@ test("Claude Desktop cannot supply connector execution flags for a protected del
   const tools = ((responses[0]?.result as { tools: Array<{ inputSchema: { properties: Record<string, unknown> } }> }).tools);
   assert.equal("confirm" in tools[0]!.inputSchema.properties, false);
   assert.equal("excludeResponse" in tools[0]!.inputSchema.properties, false);
+  assert.deepEqual(
+    (tools[0]!.inputSchema as unknown as { required: string[] }).required,
+    ["driveId", "driveItemId", "If-Match"],
+  );
+  assert.match(
+    ((responses[0]?.result as { tools: Array<{ description: string }> }).tools[0]?.description ?? ""),
+    /remote Microsoft 365 action, not a local filesystem action/,
+  );
   assert.deepEqual(forwardedArguments, { driveId: "drive", driveItemId: "item", "If-Match": "etag" });
+});
+
+test("Claude Desktop receives an actionable retry when a protected delete omits the eTag", async (context) => {
+  let toolCalls = 0;
+  const server = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && request.url === "/mcp-rest/tools/list") {
+      response.end(JSON.stringify({ tools: [{
+        name: "delete-onedrive-file",
+        description: "Delete a file",
+        inputSchema: {
+          type: "object",
+          properties: {
+            driveId: { type: "string" },
+            driveItemId: { type: "string" },
+            "If-Match": { type: "string" },
+          },
+          required: ["driveId", "driveItemId"],
+        },
+        mcp_info: { server_id: "server-1" },
+      }] }));
+      return;
+    }
+    if (request.method === "POST" && request.url === "/mcp-rest/tools/call") toolCalls += 1;
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "not found" }));
+  });
+  server.listen(4312, "127.0.0.1");
+  await once(server, "listening");
+  context.after(() => server.close());
+
+  const child = spawn("python3", ["infra/issue-010/onecomputer-mcp-stdio.py"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  context.after(() => child.kill());
+  const lines = createInterface({ input: child.stdout });
+  const responses: Array<Record<string, unknown>> = [];
+  lines.on("line", (line) => responses.push(JSON.parse(line)));
+
+  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+  child.stdin.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: { name: "delete-onedrive-file", arguments: { driveId: "drive", driveItemId: "item" } },
+  })}\n`);
+
+  const deadline = Date.now() + 5_000;
+  while (responses.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  const result = responses[1]?.result as { isError: boolean; content: Array<{ text: string }> };
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]?.text ?? "", /Call get-drive-item/);
+  assert.match(result.content[0]?.text ?? "", /Do not use Cowork or local-filesystem deletion permission/);
+  assert.equal(toolCalls, 0);
 });

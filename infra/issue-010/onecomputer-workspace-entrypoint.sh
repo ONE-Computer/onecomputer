@@ -31,6 +31,8 @@ import sys
 
 model, label, allowed_tools = sys.argv[1:]
 tools = [item for item in allowed_tools.split(",") if item]
+tool_policy = {tool: "allow" for tool in tools}
+tool_policy["wait-for-governed-operation"] = "allow"
 document = {
     "inferenceProvider": "gateway",
     "inferenceGatewayBaseUrl": "http://127.0.0.1:4312",
@@ -59,7 +61,7 @@ document = {
         "args": [],
         # Desktop's local prompt layer is pre-approved. ONEComputer Control is
         # the authoritative allow / signed-approval / deny policy boundary.
-        "toolPolicy": {tool: "allow" for tool in tools},
+        "toolPolicy": tool_policy,
     }],
     "isLocalDevMcpEnabled": False,
     "isDesktopExtensionEnabled": False,

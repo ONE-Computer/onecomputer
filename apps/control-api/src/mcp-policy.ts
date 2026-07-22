@@ -172,6 +172,15 @@ export class McpPolicyService {
     const executionArguments: Record<string, OwnedJson> = request.toolName === "delete-onedrive-file"
       ? { ...canonicalArguments, confirm: true, excludeResponse: true }
       : canonicalArguments;
+    const requestFingerprint = createHash("sha256").update(canonicalJson({
+      tenantId: request.tenantId,
+      subjectId: request.subjectId,
+      workspaceId: request.workspaceId,
+      agentId: request.agentId,
+      policyVersionId: request.policyVersionId,
+      toolName: request.toolName,
+      arguments: canonicalArguments,
+    })).digest("hex");
     const operation = await this.operations.createMicrosoft365Operation(
       identity,
       request.workspaceId,
@@ -185,16 +194,11 @@ export class McpPolicyService {
       },
       runtime.agentId,
       { policyVersionId: runtime.policyVersionId, policyHash: runtime.policyHash },
-      createHash("sha256").update(canonicalJson({
-        tenantId: request.tenantId,
-        subjectId: request.subjectId,
-        workspaceId: request.workspaceId,
-        agentId: request.agentId,
-        policyVersionId: request.policyVersionId,
-        toolName: request.toolName,
-        arguments: canonicalArguments,
-      })).digest("hex"),
+      // Reuse one active approval for an identical action. The store replaces
+      // this stable slot only after denial, failure, or expiry.
+      `mcp:${requestFingerprint}`,
       correlationId || randomUUID(),
+      true,
     );
     return {
       schemaVersion: 1,

@@ -133,6 +133,57 @@ test("a signed browser denial is durable and reaches the connector zero times", 
   assert.equal(executor.calls.length, 0);
 });
 
+test("re-enrolling a browser rebinds a live request to the new device key", async () => {
+  const { store, workspace, executor, coordinator, transportToken: oldToken, service } = await setup();
+  const pending = await service.createMicrosoft365Delete(
+    identity,
+    workspace.id,
+    { driveId: "drive-rotate", driveItemId: "item-rotate", "If-Match": "etag-rotate" },
+    "agent-rotate",
+    { policyVersionId: "policy-rotate", policyHash: "e".repeat(64) },
+    "browser-rotate-idempotency",
+    "browser-rotate-create",
+  );
+  const priorTask = await store.getOpenVtcConsentTask(identity, pending.id);
+  assert.ok(priorTask);
+
+  const replacementBrowser = signer();
+  const challenge = await coordinator.createEnrollmentChallenge(identity);
+  const issuedAt = new Date().toISOString();
+  const enrollment = attachDidKeyDataIntegrityProof({
+    id: `urn:uuid:${randomUUID()}`,
+    type: ONECOMPUTER_APPROVER_ENROLLMENT_TYPE,
+    issuer: replacementBrowser.did,
+    recipient: challenge.recipientDid,
+    issuedAt,
+    expiresAt: challenge.expiresAt,
+    payload: {
+      challenge: challenge.challenge,
+      tenantId: identity.tenantId,
+      subjectId: identity.subjectId,
+      verificationMethod: replacementBrowser.verificationMethod,
+      displayName: "Mike's replacement browser",
+    },
+  }, replacementBrowser, issuedAt);
+  const replacement = await coordinator.enroll(identity, challenge.id, enrollment);
+
+  await assert.rejects(coordinator.inbox(oldToken), (error: unknown) => error instanceof Error && "code" in error && error.code === "UNAUTHENTICATED");
+  const request = await coordinator.inboxForIdentity(identity) as Record<string, unknown>;
+  assert.equal(request.recipient, replacementBrowser.did);
+  const reboundTask = await store.getOpenVtcConsentTask(identity, pending.id);
+  assert.ok(reboundTask);
+  assert.notEqual(reboundTask.id, priorTask.id);
+  assert.notEqual(reboundTask.payloadDigest, priorTask.payloadDigest);
+
+  const completed = await service.applyOpenVtcDecision(
+    replacement.transportToken,
+    signedDecision(request, replacementBrowser, "approve"),
+    "browser-rotate-decision",
+  );
+  assert.equal(completed.state, "succeeded");
+  assert.equal(executor.calls.length, 1);
+});
+
 test("the bearer transport token cannot substitute for an approver signature", async () => {
   const { workspace, coordinator, browser, transportToken, service } = await setup();
   await service.createMicrosoft365Delete(

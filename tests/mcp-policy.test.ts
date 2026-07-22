@@ -192,3 +192,33 @@ test("protected OneDrive delete persists before approval and an exact lease disp
   assert.equal((await policy.authorize(executionRequest, "dispatch-replay")).code, "MCP_EXECUTION_BINDING_INVALID");
   assert.equal((await policy.authorize({ ...executionRequest, arguments: { ...operation!.arguments as object, driveItemId: "mutated" } }, "dispatch-mutation")).code, "MCP_EXECUTION_BINDING_INVALID");
 });
+
+test("a repeated protected MCP action reuses the active approval and replaces a terminal attempt", async () => {
+  const { store, policy, base } = await setup();
+  const request: McpPolicyRequest = {
+    ...base,
+    toolName: "delete-onedrive-file",
+    arguments: { driveId: "drive-1", driveItemId: "item-1", "If-Match": "etag-1" },
+  };
+
+  const first = await policy.authorize(request, "delete-attempt-1");
+  const second = await policy.authorize(request, "delete-attempt-2");
+
+  assert.equal(first.decision, "approval_required");
+  assert.equal(second.decision, "approval_required");
+  assert.ok(first.operationId);
+  assert.ok(second.operationId);
+  assert.equal(second.operationId, first.operationId);
+  assert.equal((await store.getOwnedOperation(identity, first.operationId!))?.state, "approval_required");
+
+  const internals = store as unknown as { operations: Map<string, Record<string, unknown>> };
+  internals.operations.set(first.operationId!, {
+    ...internals.operations.get(first.operationId!)!,
+    state: "expired",
+  });
+  const third = await policy.authorize(request, "delete-attempt-3");
+  assert.equal(third.decision, "approval_required");
+  assert.ok(third.operationId);
+  assert.notEqual(third.operationId, first.operationId);
+  assert.equal((await store.getOwnedOperation(identity, third.operationId!))?.state, "approval_required");
+});

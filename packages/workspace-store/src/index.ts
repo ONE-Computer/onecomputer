@@ -67,6 +67,7 @@ export type CreateGovernedOperationRecord = Omit<GovernedOperationRecord,
   policyVersionId?: string;
   policyHash?: string;
   idempotencyKey: string;
+  replaceTerminal?: boolean;
   createdAt: Date;
 };
 
@@ -134,7 +135,7 @@ export type OpenVtcEnrollmentChallengeRecord = {
 
 export type CreateOpenVtcConsentTaskInput = Omit<OpenVtcConsentTaskRecord,
   "tenantId" | "subjectId" | "state" | "deliveredAt" | "decidedAt" | "decisionDocument" | "decisionHash" | "proofHash"
-> & { identity: IdentityContext; outboxId: string };
+> & { identity: IdentityContext; outboxId: string; replaceApprover?: boolean };
 
 export type RecordOpenVtcDecisionInput = {
   identity: IdentityContext;
@@ -455,12 +456,20 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`governed:${input.identity.tenantId}:${input.identity.subjectId}:${input.idempotencyKey}`]);
       const existing = await client.query(
-        "SELECT id FROM governed_operations WHERE tenant_id=$1 AND subject_id=$2 AND idempotency_key=$3",
+        "SELECT id,state FROM governed_operations WHERE tenant_id=$1 AND subject_id=$2 AND idempotency_key=$3",
         [input.identity.tenantId, input.identity.subjectId, input.idempotencyKey],
       );
       if (existing.rowCount) {
-        await client.query("COMMIT");
-        return this.getOwnedOperation(input.identity, String(existing.rows[0].id));
+        const existingId = String(existing.rows[0].id);
+        if (input.replaceTerminal && ["denied", "failed", "expired"].includes(String(existing.rows[0].state))) {
+          await client.query(
+            "UPDATE governed_operations SET idempotency_key=idempotency_key || ':terminal:' || id::text WHERE id=$1",
+            [existingId],
+          );
+        } else {
+          await client.query("COMMIT");
+          return this.getOwnedOperation(input.identity, existingId);
+        }
       }
       const workspace = await client.query(
         "SELECT id FROM workspaces WHERE id=$1 AND tenant_id=$2 AND subject_id=$3",
@@ -786,10 +795,6 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
         "SELECT * FROM openvtc_consent_tasks WHERE operation_id=$1 AND tenant_id=$2 AND subject_id=$3",
         [input.operationId, input.identity.tenantId, input.identity.subjectId],
       );
-      if (existing.rowCount) {
-        await client.query("COMMIT");
-        return mapOpenVtcConsentTaskRow(existing.rows[0]);
-      }
       const operationRow = operation.rows[0] as Record<string, unknown> | undefined;
       const approver = await client.query(
         `SELECT id FROM openvtc_approvers WHERE id=$1 AND tenant_id=$2 AND subject_id=$3
@@ -799,6 +804,25 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
       if (!operationRow || operationRow.state !== "approval_required" || new Date(String(operationRow.expires_at)) <= input.createdAt || !approver.rowCount) {
         await client.query("COMMIT");
         return null;
+      }
+      if (existing.rowCount) {
+        const existingRow = existing.rows[0] as Record<string, unknown>;
+        const canRebind = input.replaceApprover === true
+          && existingRow.approver_id !== input.approverId
+          && ["queued", "delivered"].includes(String(existingRow.state));
+        if (!canRebind) {
+          await client.query("COMMIT");
+          return mapOpenVtcConsentTaskRow(existingRow);
+        }
+        // The signed request is recipient-bound. A newly enrolled browser key
+        // must receive a freshly signed request; the revoked device's request
+        // cannot be transferred or accepted.
+        await client.query("DELETE FROM openvtc_consent_tasks WHERE id=$1", [existingRow.id]);
+        await client.query(
+          `INSERT INTO governed_operation_events (operation_id,tenant_id,event_type,correlation_id,safe_detail)
+           VALUES ($1,$2,'approval_delivery_rebound','openvtc-approver-rotation',$3::jsonb)`,
+          [input.operationId, input.identity.tenantId, JSON.stringify({ channel: "openvtc-task-consent", priorTaskId: existingRow.id, nextTaskId: input.id })],
+        );
       }
       const inserted = await client.query(
         `INSERT INTO openvtc_consent_tasks (
@@ -1018,7 +1042,12 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
     if (!await this.getOwned(input.identity, input.workspaceId)) return null;
     const key = `${input.identity.tenantId}:${input.identity.subjectId}:${input.idempotencyKey}`;
     const existingId = this.operationKeys.get(key);
-    if (existingId) return this.operations.get(existingId) ?? null;
+    if (existingId) {
+      const existing = this.operations.get(existingId) ?? null;
+      if (!input.replaceTerminal || !existing || !["denied", "failed", "expired"].includes(existing.state)) return existing;
+      this.operationKeys.delete(key);
+      this.operationKeys.set(`${key}:terminal:${existingId}`, existingId);
+    }
     const record: GovernedOperationRecord = {
       id: input.id,
       tenantId: input.identity.tenantId,
@@ -1225,13 +1254,19 @@ export class MemoryWorkspaceStore implements WorkspaceStore, GovernanceStore, Op
 
   async createOpenVtcConsentTask(input: CreateOpenVtcConsentTaskInput) {
     const existingId = this.openVtcTaskByOperation.get(input.operationId);
-    if (existingId) return this.openVtcTasks.get(existingId) ?? null;
+    const existing = existingId ? this.openVtcTasks.get(existingId) ?? null : null;
+    if (existing && (!input.replaceApprover || existing.approverId === input.approverId || !["queued", "delivered"].includes(existing.state))) return existing;
     const operation = await this.getOwnedOperation(input.identity, input.operationId);
     const racedExistingId = this.openVtcTaskByOperation.get(input.operationId);
-    if (racedExistingId) return this.openVtcTasks.get(racedExistingId) ?? null;
+    const racedExisting = racedExistingId ? this.openVtcTasks.get(racedExistingId) ?? null : null;
+    if (racedExisting && (!input.replaceApprover || racedExisting.approverId === input.approverId || !["queued", "delivered"].includes(racedExisting.state))) return racedExisting;
     const approver = this.openVtcApprovers.get(input.approverId)?.record;
     if (!operation || operation.state !== "approval_required" || operation.expiresAt <= input.createdAt
       || !approver || approver.status !== "active" || approver.tenantId !== input.identity.tenantId || approver.subjectId !== input.identity.subjectId) return null;
+    if (racedExistingId) {
+      this.openVtcTasks.delete(racedExistingId);
+      this.openVtcDeliveryAttempts.delete(racedExistingId);
+    }
     const task: OpenVtcConsentTaskRecord = {
       id: input.id,
       operationId: input.operationId,

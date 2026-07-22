@@ -1,6 +1,6 @@
 # 011: connect the real agent to governed Microsoft 365 tools
 
-Status: `verification`
+Status: `verification` (real-agent OneDrive approval path accepted; Mail and Calendar checks remain)
 
 Gate: J
 Depends on: 010
@@ -78,5 +78,14 @@ grants, so neither Microsoft OAuth material nor a gateway credential enters
 the agent process. A protected call remains open while the connector polls the
 exact governed operation and returns only its terminal execution receipt.
 Automated identity, tool-policy, mutation, lease, replay, and wait/resume tests
-pass. Awaiting the human natural-language Mail/Calendar/OneDrive and protected
-delete pass in the rebuilt workspace image.
+pass. The rebuilt workspace image is ready for the remaining human Mail,
+Calendar, and negative/restart checks.
+
+On 2026-07-22 the product owner completed the human real-agent OneDrive pass.
+Claude Desktop discovered the assigned Microsoft tools, found the disposable
+file, fetched the item state needed by policy, requested the protected delete,
+waited on the durable governed operation, observed the approved terminal
+receipt, and confirmed deletion. The workspace never received the Microsoft
+OAuth credential. Human Outlook Mail and Calendar reads, plus the remaining
+negative/restart checks in this issue, are still open; therefore Issue 011 is
+not yet marked complete.

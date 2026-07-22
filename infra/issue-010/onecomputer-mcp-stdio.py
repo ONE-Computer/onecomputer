@@ -43,6 +43,21 @@ def operation_id(value: object) -> str | None:
     return None
 
 
+def omit_nulls(value: object) -> object:
+    """Remove null optional fields emitted by upstream MCP adapters.
+
+    MCP result metadata, annotations, and structuredContent are optional
+    objects, not nullable values. Some gateway REST projections serialize
+    absent fields as null; strict Desktop clients discard those responses and
+    eventually report a misleading tool timeout.
+    """
+    if isinstance(value, dict):
+        return {key: omit_nulls(child) for key, child in value.items() if child is not None}
+    if isinstance(value, list):
+        return [omit_nulls(child) for child in value]
+    return value
+
+
 def discover_tools() -> list[dict]:
     response = request_json("/mcp-rest/tools/list")
     tools = response.get("tools", [])
@@ -54,10 +69,22 @@ def discover_tools() -> list[dict]:
         if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
             continue
         TOOLS[raw["name"]] = raw
+        input_schema = raw.get("inputSchema", raw.get("input_schema", {"type": "object"}))
+        if raw["name"] == "delete-onedrive-file" and isinstance(input_schema, dict):
+            # Connector execution flags are Control-owned. Do not advertise
+            # them as agent inputs; Control adds them only after approval.
+            input_schema = json.loads(json.dumps(input_schema))
+            properties = input_schema.get("properties")
+            if isinstance(properties, dict):
+                properties.pop("confirm", None)
+                properties.pop("excludeResponse", None)
+            required = input_schema.get("required")
+            if isinstance(required, list):
+                input_schema["required"] = [item for item in required if item not in {"confirm", "excludeResponse"}]
         result.append({
             "name": raw["name"],
             "description": raw.get("description", "Microsoft 365 tool governed by ONEComputer policy."),
-            "inputSchema": raw.get("inputSchema", raw.get("input_schema", {"type": "object"})),
+            "inputSchema": input_schema,
         })
     return result
 
@@ -81,12 +108,17 @@ def call_tool(name: str, arguments: dict) -> dict:
     server_id = (selected or {}).get("mcp_info", {}).get("server_id")
     if not isinstance(server_id, str):
         return error_result("That tool is not assigned to this workspace.")
+    if name == "delete-onedrive-file":
+        arguments = {key: value for key, value in arguments.items() if key not in {"confirm", "excludeResponse"}}
     try:
-        return request_json("/mcp-rest/tools/call", {
+        response = request_json("/mcp-rest/tools/call", {
             "server_id": server_id,
             "name": name,
             "arguments": arguments,
         })
+        if not isinstance(response.get("content"), list):
+            return error_result("The Microsoft 365 connector returned an invalid tool result.")
+        return omit_nulls(response)
     except urllib.error.HTTPError as error:
         try:
             payload = json.loads(error.read().decode("utf-8"))

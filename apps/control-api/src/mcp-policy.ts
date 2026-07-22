@@ -246,7 +246,19 @@ export class McpPolicyService {
 
     let canonicalArguments: Record<string, OwnedJson>;
     try {
-      canonicalArguments = capability.parse(request.arguments);
+      // Softeria requires `confirm: true` before it will execute a write. That
+      // connector guard is not a ONEComputer policy decision and must never
+      // become part of the bound operation fingerprint. The managed bridge
+      // supplies it for every write; Control removes it before validating the
+      // user-controlled arguments and independently applies Allow / Approval /
+      // Deny below.
+      const policyArguments = capability.risk === "write"
+        && request.arguments !== null
+        && typeof request.arguments === "object"
+        && !Array.isArray(request.arguments)
+        ? Object.fromEntries(Object.entries(request.arguments).filter(([key]) => !["confirm", "excludeResponse"].includes(key)))
+        : request.arguments;
+      canonicalArguments = capability.parse(policyArguments);
     } catch {
       return denied("MCP_ARGUMENTS_OUT_OF_POLICY", capability);
     }

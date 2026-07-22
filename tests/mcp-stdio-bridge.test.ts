@@ -120,7 +120,7 @@ test("Claude Desktop MCP bridge removes nullable LiteLLM result fields", async (
   });
 });
 
-test("Claude Desktop cannot supply connector execution flags for a protected delete", async (context) => {
+test("Claude Desktop cannot choose connector flags and the managed bridge confirms governed writes", async (context) => {
   let forwardedArguments: Record<string, unknown> | undefined;
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
@@ -191,7 +191,66 @@ test("Claude Desktop cannot supply connector execution flags for a protected del
     ((responses[0]?.result as { tools: Array<{ description: string }> }).tools[0]?.description ?? ""),
     /remote Microsoft 365 action, not a local filesystem action/,
   );
-  assert.deepEqual(forwardedArguments, { driveId: "drive", driveItemId: "item", "If-Match": "etag" });
+  assert.deepEqual(forwardedArguments, { driveId: "drive", driveItemId: "item", "If-Match": "etag", confirm: true });
+});
+
+test("Claude Desktop bridge supplies Softeria confirmation for an allowed calendar write", async (context) => {
+  let forwardedArguments: Record<string, unknown> | undefined;
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && request.url === "/mcp-rest/tools/list") {
+      response.end(JSON.stringify({ tools: [{
+        name: "create-calendar-event",
+        description: "Create an event",
+        inputSchema: {
+          type: "object",
+          properties: { body: { type: "object" }, confirm: { type: "boolean" } },
+          required: ["body"],
+        },
+        mcp_info: { server_id: "server-1" },
+      }] }));
+      return;
+    }
+    if (request.method === "POST" && request.url === "/mcp-rest/tools/call") {
+      forwardedArguments = JSON.parse(Buffer.concat(chunks).toString("utf8")).arguments;
+      response.end(JSON.stringify({ content: [{ type: "text", text: "created" }], isError: false }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "not found" }));
+  });
+  server.listen(4312, "127.0.0.1");
+  await once(server, "listening");
+  context.after(() => server.close());
+
+  const child = spawn("python3", ["infra/issue-010/onecomputer-mcp-stdio.py"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  context.after(() => child.kill());
+  const lines = createInterface({ input: child.stdout });
+  const responses: Array<Record<string, unknown>> = [];
+  lines.on("line", (line) => responses.push(JSON.parse(line)));
+
+  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+  child.stdin.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "create-calendar-event",
+      arguments: { body: { subject: "OC-MVP-ALLOW" }, confirm: false },
+    },
+  })}\n`);
+
+  const deadline = Date.now() + 5_000;
+  while (responses.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  const tools = ((responses[0]?.result as { tools: Array<{ inputSchema: { properties: Record<string, unknown> } }> }).tools);
+  assert.equal("confirm" in tools[0]!.inputSchema.properties, false);
+  assert.deepEqual(forwardedArguments, { body: { subject: "OC-MVP-ALLOW" }, confirm: true });
+  assert.equal((responses[1]?.result as { isError: boolean }).isError, false);
 });
 
 test("Claude Desktop receives an actionable retry when a protected delete omits the eTag", async (context) => {

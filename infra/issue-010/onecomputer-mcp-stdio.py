@@ -169,8 +169,14 @@ def call_tool(name: str, arguments: dict) -> dict:
     server_id = (selected or {}).get("mcp_info", {}).get("server_id")
     if not isinstance(server_id, str):
         return error_result("That tool is not assigned to this workspace.")
+    if name in WRITE_TOOLS:
+        # Connector execution flags are never accepted from the model. The
+        # managed bridge supplies Softeria's confirmation flag, while Control
+        # independently decides whether the action is allowed, held for signed
+        # approval, or denied before the connector can execute it.
+        arguments = {key: value for key, value in arguments.items() if key not in {"confirm", "excludeResponse", "includeHeaders"}}
+        arguments["confirm"] = True
     if name == "delete-onedrive-file":
-        arguments = {key: value for key, value in arguments.items() if key not in {"confirm", "excludeResponse"}}
         if not isinstance(arguments.get("If-Match"), str) or not arguments["If-Match"].strip():
             return error_result(DELETE_ONEDRIVE_MISSING_ETAG)
     try:

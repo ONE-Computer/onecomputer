@@ -85,4 +85,13 @@ running-workspace policy projection: Admin displayed Allow, but Control denied
 the older grant's policy binding. Issue 012 was corrected to refresh active
 grants on policy save without sandbox recreation, and the deployed grant was
 inspected at the active policy version/hash. The Calendar creation retry is
-pending human confirmation and is not yet counted as passing evidence.
+pending human confirmation and is not yet counted as passing evidence. A
+second retry exposed Softeria's separate `confirm: true` write guard after
+ONEComputer had already returned Allow. The managed agent bridge now supplies
+that connector-only flag for every write, while Control strips it from the
+canonical user arguments and independently enforces Allow, approval, or deny.
+The fix passed the full 105-test suite and build and was deployed to the active
+workspace. A diagnostic probe created one blank 30-minute calendar event at
+2026-07-22 10:30 UTC; governed cleanup operation
+`1eb64d93-3884-441d-a857-88e187d3aa88` is pending signed approval and must be
+completed before this issue's cleanup inventory can pass.

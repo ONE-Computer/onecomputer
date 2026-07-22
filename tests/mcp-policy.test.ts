@@ -143,12 +143,37 @@ test("Teams reads are bounded and Teams sends are held for approval", async () =
   const held = await policy.authorize({
     ...base,
     toolName: "send-chat-message",
-    arguments: { chatId: "chat-1", body: { body: { contentType: "html", content: "Hello" } } },
+    arguments: { chatId: "chat-1", body: { body: { contentType: "html", content: "Hello" } }, confirm: true },
   }, "teams-send");
   assert.equal(held.decision, "approval_required");
   const operation = await store.getOwnedOperation(identity, held.operationId!);
   assert.equal(operation?.toolName, "send-chat-message");
   assert.equal((operation?.arguments as Record<string, unknown>).confirm, true);
+});
+
+test("Control treats Softeria confirmation as a connector flag, not a policy decision", async () => {
+  const { policy, base, effective } = await setup();
+  effective.document.mcp.servers.onecomputer_ms365.tools.push("create-calendar-event");
+  effective.document.mcp.servers.onecomputer_ms365.toolPolicies = {
+    ...effective.document.mcp.servers.onecomputer_ms365.toolPolicies,
+    "create-calendar-event": "allow",
+  };
+
+  const decision = await policy.authorize({
+    ...base,
+    toolName: "create-calendar-event",
+    arguments: {
+      body: {
+        subject: "OC-MVP-ALLOW",
+        start: { dateTime: "2026-07-23T15:00:00", timeZone: "Singapore Standard Time" },
+        end: { dateTime: "2026-07-23T15:15:00", timeZone: "Singapore Standard Time" },
+      },
+      confirm: true,
+    },
+  }, "calendar-write-allow");
+
+  assert.equal(decision.decision, "allow");
+  assert.equal(decision.code, "MCP_POLICY_ALLOWED");
 });
 
 test("the effective per-tool policy can require approval or deny an otherwise bounded read", async () => {

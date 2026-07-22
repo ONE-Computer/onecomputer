@@ -135,3 +135,13 @@ stored policy version/hash remain immutable. Automated route, service, policy,
 build, and full-suite tests pass; the live LiteLLM grant was inspected at policy
 version 9 with the same redacted hash prefix as Control. A human retry remains
 required to close the Allow-path UI proof.
+
+The policy surface was reorganized on 2026-07-22 after product review. The
+37-tool matrix no longer lives directly on the generic Admin page. Connections
+now opens a Microsoft 365 connector detail with familiar Overview and **Tools &
+approvals** tabs; administrators manage Allow, Require approval, and Block
+there, beside the connector whose behavior they affect. Admin retains policy
+version creation and user assignment, with a compact link to the connector
+settings instead of a duplicate editor. This is an information-architecture
+change only: the existing role-gated Control API, immutable policy versions,
+workspace grant refresh, and enforcement path remain authoritative.

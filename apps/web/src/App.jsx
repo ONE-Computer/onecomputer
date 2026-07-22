@@ -12,6 +12,7 @@ import { Delete24Regular } from "@fluentui/react-icons/svg/delete";
 import { Person24Regular } from "@fluentui/react-icons/svg/person";
 import { ChevronDown16Regular } from "@fluentui/react-icons/svg/chevron-down";
 import { ChevronRight16Regular } from "@fluentui/react-icons/svg/chevron-right";
+import { ArrowLeft24Regular } from "@fluentui/react-icons/svg/arrow-left";
 import { Dismiss24Regular } from "@fluentui/react-icons/svg/dismiss";
 import { Navigation24Regular } from "@fluentui/react-icons/svg/navigation";
 import { ShieldCheckmark24Regular } from "@fluentui/react-icons/svg/shield-checkmark";
@@ -292,26 +293,17 @@ function SignInScreen({ error }) {
   );
 }
 
-function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, policySaving, onPolicyChange, onPolicySave }) {
+function ToolPolicyEditor({ mcpPolicy, loading, policySaving, onPolicyChange, onPolicySave }) {
   const serviceLabels = { mail: "Outlook Mail", calendar: "Calendar", onedrive: "OneDrive", teams: "Teams" };
   const groupedTools = Object.entries(serviceLabels).map(([service, label]) => ({ service, label, tools: mcpPolicy?.tools.filter((tool) => tool.service === service) ?? [] }));
+  if (loading && !mcpPolicy) return <div className="tool-policy-loading">Loading Microsoft 365 tools…</div>;
   return (
-    <div className="secondary-screen admin-screen">
-      <header className="page-heading compact">
-        <p>Organization administration</p>
-        <h1>Workspace policy</h1>
-        <span>Inspect and assign the single versioned MVP policy bundle. Changes affect downstream authority without deleting persistent workspaces.</span>
-      </header>
-      <div className="admin-toolbar">
-        <div><strong>MVP standard workspace</strong><small>Workspace, agent, model, network, Microsoft 365 read, and protected-operation rules</small></div>
-        <button className="secondary-button" type="button" onClick={onVersion}>Create new version</button>
-      </div>
-      <section className="tool-policy-card" aria-labelledby="tool-policy-heading">
+      <section className="tool-policy-card connector-tool-policy" aria-labelledby="tool-policy-heading">
         <div className="tool-policy-heading">
-          <div><p>Microsoft 365 connector</p><h2 id="tool-policy-heading">Tool approval policy</h2></div>
+          <div><p>Organization tool policy</p><h2 id="tool-policy-heading">Tools &amp; approvals</h2></div>
           {mcpPolicy && <span>Version {mcpPolicy.version} · {mcpPolicy.documentHash.slice(0, 12)}…</span>}
         </div>
-        <p className="tool-policy-intro">Choose what the workspace agent may run immediately, what requires a signed OpenVTC approval, and what is blocked entirely. Changes create an immutable policy version.</p>
+        <p className="tool-policy-intro">Choose what assigned workspace agents may run immediately, what requires a signed approval, and what is blocked. Saving creates an immutable policy version and refreshes running workspace grants.</p>
         <div className="tool-policy-groups">
           {groupedTools.map((group) => <section key={group.service} className="tool-policy-group">
             <h3>{group.label}<span>{group.tools.length} tools</span></h3>
@@ -331,8 +323,32 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
         </div>
         <div className="tool-policy-actions">
           <span><ShieldCheckmark24Regular aria-hidden="true" />Approval rules are enforced in Control, not trusted to the desktop client.</span>
-          <button className="primary-button compact-button" type="button" onClick={onPolicySave} disabled={!mcpPolicy || policySaving}>{policySaving ? "Saving policy" : "Save tool policy"}</button>
+          <button className="primary-button compact-button" type="button" onClick={onPolicySave} disabled={!mcpPolicy || policySaving}>{policySaving ? "Saving changes" : "Save changes"}</button>
         </div>
+      </section>
+  );
+}
+
+function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, onConfigureConnector }) {
+  return (
+    <div className="secondary-screen admin-screen">
+      <header className="page-heading compact">
+        <p>Organization administration</p>
+        <h1>Workspace policy</h1>
+        <span>Manage policy versions and who receives workspace authority. Connector-specific controls live with each connection.</span>
+      </header>
+      <div className="admin-toolbar">
+        <div><strong>MVP standard workspace</strong><small>Workspace, agent, model, network, connector, and protected-operation rules</small></div>
+        <button className="secondary-button" type="button" onClick={onVersion}>Create new version</button>
+      </div>
+      <section className="admin-connector-summary" aria-labelledby="admin-connector-heading">
+        <span className="connection-logo compact"><PlugConnected24Regular aria-hidden="true" /></span>
+        <div>
+          <p>Microsoft 365 connector</p>
+          <h2 id="admin-connector-heading">Tool controls are configured with the connection</h2>
+          <small>{mcpPolicy ? `Active policy version ${mcpPolicy.version} · ${mcpPolicy.tools.length} tools` : "Open the connector to review its tools and approval rules."}</small>
+        </div>
+        <button className="secondary-button" type="button" onClick={onConfigureConnector}>Open connector settings<ChevronRight16Regular aria-hidden="true" /></button>
       </section>
       <section className="admin-user-list" aria-label="Organization users">
         {loading ? <p>Loading organization users…</p> : users.map((item) => (
@@ -581,12 +597,69 @@ function ApprovalDeviceCard({ displayName }) {
   );
 }
 
-function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect, displayName }) {
+function Microsoft365Detail({ connection, loading, busy, onConnect, onDisconnect, displayName, isAdmin, activeTab, onTabChange, onBack, mcpPolicy, policyLoading, policySaving, onPolicyChange, onPolicySave }) {
   const connected = connection?.state === "connected";
   const expired = connection?.state === "expired";
   const connectedAt = connection?.connectedAt
     ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(connection.connectedAt))
     : null;
+  return (
+    <div className="secondary-screen connections-screen connector-detail-screen">
+      <button className="connector-back-button" type="button" onClick={onBack}><ArrowLeft24Regular aria-hidden="true" />Back to Connections</button>
+      <header className="connector-detail-header">
+        <div className="connection-logo"><PlugConnected24Regular aria-hidden="true" /></div>
+        <div>
+          <p>Connected service</p>
+          <h1>Microsoft 365</h1>
+          <span>Outlook Mail, Calendar, OneDrive, and Teams</span>
+        </div>
+        <span className={`connection-status ${connected ? "connected" : expired ? "expired" : "disconnected"}`}>
+          {loading ? "Checking" : connected ? "Connected" : expired ? "Reconnect required" : "Not connected"}
+        </span>
+      </header>
+
+      <nav className="connector-tabs" aria-label="Microsoft 365 settings">
+        <button className={activeTab === "overview" ? "active" : ""} type="button" onClick={() => onTabChange("overview")}>Overview</button>
+        {isAdmin && <button className={activeTab === "tools" ? "active" : ""} type="button" onClick={() => onTabChange("tools")}>Tools &amp; approvals</button>}
+      </nav>
+
+      {activeTab === "tools" && isAdmin ? (
+        <ToolPolicyEditor mcpPolicy={mcpPolicy} loading={policyLoading} policySaving={policySaving} onPolicyChange={onPolicyChange} onPolicySave={onPolicySave} />
+      ) : (
+        <div className="connector-overview">
+          <section className="connector-overview-card">
+            <div>
+              <p>Connection status</p>
+              <h2>{connected ? "Ready for assigned workspaces" : expired ? "Microsoft access needs attention" : "Connect your work account"}</h2>
+              <span>{connected ? "Your workspace agent can use the tools your organization has allowed." : "Connect once to make approved Microsoft 365 tools available to your workspace."}</span>
+              <div className="connection-services" aria-label="Included services"><span>Outlook Mail</span><span>Calendar</span><span>OneDrive</span><span>Teams</span></div>
+              {connectedAt && <p className="connection-metadata">Connected {connectedAt}</p>}
+            </div>
+            <div className="connection-actions">
+              {connected ? (
+                <button className="secondary-button" type="button" onClick={onDisconnect} disabled={busy || loading}>{busy ? "Disconnecting" : "Disconnect"}</button>
+              ) : (
+                <button className="primary-button" type="button" onClick={onConnect} disabled={busy || loading}><PlugConnected24Regular aria-hidden="true" />{busy ? "Opening Microsoft" : expired ? "Reconnect" : "Connect Microsoft 365"}</button>
+              )}
+            </div>
+          </section>
+          <ApprovalDeviceCard displayName={displayName} />
+          <div className="connection-privacy-note"><ShieldCheckmark24Regular aria-hidden="true" /><p>Microsoft tokens stay in the MCP gateway. The browser approval key stays encrypted on this device. Neither secret is sent to the workspace.</p></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisconnect, displayName, isAdmin, view, onViewChange, mcpPolicy, policyLoading, policySaving, onPolicyChange, onPolicySave }) {
+  const connected = connection?.state === "connected";
+  const expired = connection?.state === "expired";
+  const connectedAt = connection?.connectedAt
+    ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(connection.connectedAt))
+    : null;
+  if (view !== "list") {
+    return <Microsoft365Detail connection={connection} loading={loading} busy={busy} onConnect={onConnect} onDisconnect={onDisconnect} displayName={displayName} isAdmin={isAdmin} activeTab={view === "microsoft365-tools" ? "tools" : "overview"} onTabChange={(tab) => onViewChange(`microsoft365-${tab}`)} onBack={() => onViewChange("list")} mcpPolicy={mcpPolicy} policyLoading={policyLoading} policySaving={policySaving} onPolicyChange={onPolicyChange} onPolicySave={onPolicySave} />;
+  }
   return (
     <div className="secondary-screen connections-screen">
       <header className="page-heading compact">
@@ -603,7 +676,7 @@ function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisc
           <div className="connection-title-row">
             <div>
               <h2 id="microsoft-365-title">Microsoft 365</h2>
-              <p>Outlook Mail, Calendar, and OneDrive</p>
+              <p>Outlook Mail, Calendar, OneDrive, and Teams</p>
             </div>
             <span className={`connection-status ${connected ? "connected" : expired ? "expired" : "disconnected"}`}>
               {loading ? "Checking" : connected ? "Connected" : expired ? "Reconnect required" : "Not connected"}
@@ -611,15 +684,16 @@ function ConnectionsScreen({ connection, loading, busy, error, onConnect, onDisc
           </div>
           <p className="connection-description">Use approved Microsoft 365 tools through the ONEComputer AI gateway. Protected actions require approval.</p>
           <div className="connection-services" aria-label="Included services">
-            <span>Outlook Mail</span><span>Calendar</span><span>OneDrive</span>
+            <span>Outlook Mail</span><span>Calendar</span><span>OneDrive</span><span>Teams</span>
           </div>
           {connectedAt && <p className="connection-metadata">Connected {connectedAt}</p>}
         </div>
         <div className="connection-actions">
           {connected ? (
-            <button className="secondary-button" type="button" onClick={onDisconnect} disabled={busy || loading}>
-              {busy ? "Disconnecting" : "Disconnect"}
-            </button>
+            <>
+              <button className="primary-button" type="button" onClick={() => onViewChange(isAdmin ? "microsoft365-tools" : "microsoft365-overview")}>Manage<ChevronRight16Regular aria-hidden="true" /></button>
+              <button className="connection-quiet-button" type="button" onClick={onDisconnect} disabled={busy || loading}>{busy ? "Disconnecting" : "Disconnect"}</button>
+            </>
           ) : (
             <button className="primary-button" type="button" onClick={onConnect} disabled={busy || loading}>
               <PlugConnected24Regular aria-hidden="true" />
@@ -662,10 +736,12 @@ export function App() {
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionError, setConnectionError] = useState("");
+  const [connectionsView, setConnectionsView] = useState("list");
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminBusyUserId, setAdminBusyUserId] = useState("");
   const [mcpPolicy, setMcpPolicy] = useState(null);
+  const [mcpPolicyLoading, setMcpPolicyLoading] = useState(false);
   const [mcpPolicySaving, setMcpPolicySaving] = useState(false);
   const [sandboxSettings, setSandboxSettings] = useState(null);
   const [sandboxLoading, setSandboxLoading] = useState(false);
@@ -718,6 +794,7 @@ export function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("view") !== "connections") return;
     setActiveNav("Connections");
+    setConnectionsView("microsoft365-overview");
     const result = params.get("m365");
     if (result === "connected") {
       setToast("Microsoft 365 is connected.");
@@ -741,6 +818,15 @@ export function App() {
       .catch(showApiError)
       .finally(() => setAdminLoading(false));
   }, [activeNav, session?.user.id]);
+
+  useEffect(() => {
+    if (activeNav !== "Connections" || !session?.roles.includes("administrator") || connectionsView !== "microsoft365-tools") return;
+    setMcpPolicyLoading(true);
+    adminApi.mcpPolicy()
+      .then(setMcpPolicy)
+      .catch(showApiError)
+      .finally(() => setMcpPolicyLoading(false));
+  }, [activeNav, connectionsView, session?.user.id]);
 
   useEffect(() => {
     if (activeNav !== "Sandbox" || !session) return;
@@ -983,7 +1069,13 @@ export function App() {
 
   const selectNav = (name) => {
     setActiveNav(name);
+    if (name === "Connections") setConnectionsView("list");
     setMobileNavOpen(false);
+  };
+
+  const configureMicrosoft365 = () => {
+    setActiveNav("Connections");
+    setConnectionsView("microsoft365-tools");
   };
 
   const refreshAdminUsers = () => adminApi.users().then((value) => setAdminUsers(value.users));
@@ -1107,9 +1199,17 @@ export function App() {
             onConnect={connectMicrosoft365}
             onDisconnect={disconnectMicrosoft365}
             displayName={session.user.displayName}
+            isAdmin={session.roles.includes("administrator")}
+            view={connectionsView}
+            onViewChange={setConnectionsView}
+            mcpPolicy={mcpPolicy}
+            policyLoading={mcpPolicyLoading}
+            policySaving={mcpPolicySaving}
+            onPolicyChange={changeMcpPolicy}
+            onPolicySave={saveMcpPolicy}
           />
         )}
-        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} policySaving={mcpPolicySaving} onPolicyChange={changeMcpPolicy} onPolicySave={saveMcpPolicy} />}
+        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} onConfigureConnector={configureMicrosoft365} />}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 

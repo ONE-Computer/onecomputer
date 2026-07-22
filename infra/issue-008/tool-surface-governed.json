@@ -13,7 +13,7 @@
   ],
   "defaultAllow": [
     "list-mail-folders", "list-mail-messages", "get-mail-message", "list-calendars", "list-calendar-events",
-    "get-calendar-event", "list-drives", "get-drive-root-item", "list-folder-files", "search-onedrive-files",
+    "get-calendar-view", "get-calendar-event", "list-drives", "get-drive-root-item", "list-folder-files", "search-onedrive-files",
     "get-drive-item", "list-chats", "list-chat-messages", "list-joined-teams", "list-team-channels",
     "list-channel-messages"
   ],

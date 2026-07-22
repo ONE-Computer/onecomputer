@@ -25,6 +25,9 @@ DELETE_ONEDRIVE_DESCRIPTION = """Delete one Microsoft OneDrive or SharePoint dri
 
 This is a remote Microsoft 365 action, not a local filesystem action. Before calling it, get the item's current top-level eTag with get-drive-item (includeHeaders=true and select=id,name,eTag,parentReference). Pass that exact eTag as If-Match. Call this tool directly; do not request Cowork or local-file deletion permission. ONEComputer Control will obtain any required signed approval and this call will wait for the final result."""
 DELETE_ONEDRIVE_MISSING_ETAG = """The remote OneDrive deletion was not submitted because If-Match is missing. Call get-drive-item for this driveId and driveItemId with includeHeaders=true and select=id,name,eTag,parentReference, then call delete-onedrive-file again with the exact top-level eTag as If-Match. Do not use Cowork or local-filesystem deletion permission; ONEComputer handles approval when this remote tool is called."""
+CALENDAR_VIEW_DESCRIPTION = """Get chronological event occurrences from the signed-in user's default Outlook calendar within an explicit time window.
+
+Use this tool for requests such as next, upcoming, today, this week, or events between two dates. For upcoming events, set startDateTime to the current time and endDateTime to a bounded future time in ISO 8601 format. Do not use list-calendar-events for upcoming events because that tool returns event series without an implicit from-now window."""
 
 
 def request_json(path: str, body: dict | None = None) -> dict:
@@ -100,7 +103,7 @@ def discover_tools() -> list[dict]:
             input_schema["additionalProperties"] = False
         result.append({
             "name": raw["name"],
-            "description": DELETE_ONEDRIVE_DESCRIPTION if raw["name"] == "delete-onedrive-file" else raw.get("description", "Microsoft 365 tool governed by ONEComputer policy."),
+            "description": DELETE_ONEDRIVE_DESCRIPTION if raw["name"] == "delete-onedrive-file" else CALENDAR_VIEW_DESCRIPTION if raw["name"] == "get-calendar-view" else raw.get("description", "Microsoft 365 tool governed by ONEComputer policy."),
             "inputSchema": input_schema,
         })
     TOOLS[WAIT_TOOL_NAME] = {"name": WAIT_TOOL_NAME, "onecomputer_local": True}

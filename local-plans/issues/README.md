@@ -35,6 +35,10 @@ Calendar, and Teams cross-service checks, and Issue 012 still needs an explicit
 three-effect policy review. The expanded 37-tool grouped policy editor and its
 real sandbox projection were accepted as implemented on 2026-07-22, moving
 Issues 011 and 012 from implementation to verification.
+Calendar verification later that day added a bounded `get-calendar-view` read,
+bringing the current curated surface to 38 tools; the prior 37-tool statement
+remains historical evidence for policy version 7. The refreshed policy must be
+saved and projected into the sandbox before the Calendar check passes.
 These open checks block the complete Issue 014 journey and final MVP
 acceptance. On 2026-07-22 the product owner explicitly deferred the small live
 Issue 012 policy matrix and Issue 013 denial/restart checks and authorized Issue

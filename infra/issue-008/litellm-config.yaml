@@ -93,6 +93,7 @@ mcp_servers:
       - forward-mail-message
       - list-calendars
       - list-calendar-events
+      - get-calendar-view
       - get-calendar-event
       - create-calendar-event
       - update-calendar-event

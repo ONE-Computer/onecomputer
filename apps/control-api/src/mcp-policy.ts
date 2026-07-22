@@ -22,6 +22,21 @@ const boundedListArguments = z.strictObject({
   count: z.boolean().optional(),
 });
 
+const calendarViewArguments = boundedListArguments.extend({
+  startDateTime: z.string().datetime({ offset: true }),
+  endDateTime: z.string().datetime({ offset: true }),
+  timezone: z.string().trim().min(1).max(64).optional(),
+}).superRefine((value, context) => {
+  const start = Date.parse(value.startDateTime);
+  const end = Date.parse(value.endDateTime);
+  if (end <= start) {
+    context.addIssue({ code: "custom", path: ["endDateTime"], message: "Calendar view end must be after start" });
+  }
+  if (end - start > 93 * 24 * 60 * 60 * 1_000) {
+    context.addIssue({ code: "custom", path: ["endDateTime"], message: "Calendar view cannot exceed 93 days" });
+  }
+});
+
 const id = z.string().trim().min(1).max(512);
 const body = z.record(z.string().min(1).max(128), z.json());
 const noArguments = z.strictObject({});
@@ -101,6 +116,7 @@ const toolSchemas: Record<keyof typeof m365ToolCatalog, z.ZodType<Record<string,
   "forward-mail-message": withIdAndBody("messageId"),
   "list-calendars": boundedListArguments,
   "list-calendar-events": boundedListArguments.extend({ timezone: z.string().trim().min(1).max(64).optional() }),
+  "get-calendar-view": calendarViewArguments,
   "get-calendar-event": withId("eventId"),
   "create-calendar-event": withBody,
   "update-calendar-event": withIdAndBody("eventId"),
@@ -131,7 +147,7 @@ const displayNames: Record<keyof typeof m365ToolCatalog, string> = {
   "create-draft-email": "Create email draft", "update-mail-message": "Update email", "delete-mail-message": "Delete email",
   "move-mail-message": "Move email", "send-mail": "Send email", "send-draft-message": "Send draft",
   "reply-mail-message": "Reply to email", "reply-all-mail-message": "Reply all", "forward-mail-message": "Forward email",
-  "list-calendars": "List calendars", "list-calendar-events": "List calendar events", "get-calendar-event": "Read calendar event",
+  "list-calendars": "List calendars", "list-calendar-events": "List calendar event series", "get-calendar-view": "Get upcoming calendar view", "get-calendar-event": "Read calendar event",
   "create-calendar-event": "Create calendar event", "update-calendar-event": "Update calendar event", "delete-calendar-event": "Delete calendar event",
   "list-drives": "List OneDrive drives", "get-drive-root-item": "Read drive root", "list-folder-files": "List folder files",
   "search-onedrive-files": "Search OneDrive", "get-drive-item": "Read OneDrive metadata", "create-onedrive-folder": "Create OneDrive folder",

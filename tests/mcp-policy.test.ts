@@ -43,7 +43,7 @@ const setup = async () => {
       agentProfile: "onecomputer-default-agent",
       modelAliases: ["onecomputer-assistant"],
       networkProfile: "controlled-egress-v1",
-      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file", "list-chats", "send-chat-message"] } } },
+      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders", "list-calendars", "get-calendar-view", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file", "list-chats", "send-chat-message"] } } },
       capabilities: ["m365-read", "onedrive-delete-protected"],
       protectedOperations: { "onedrive-delete-protected": "approval_required", defaultWrite: "deny" },
     },
@@ -75,10 +75,28 @@ const setup = async () => {
 };
 
 test("the curated Microsoft 365 surface is complete and defaults every write to approval", () => {
-  assert.equal(Object.keys(m365ToolCatalog).length, 37);
+  assert.equal(Object.keys(m365ToolCatalog).length, 38);
   assert.deepEqual(Object.keys(m365CapabilityDefinitions).sort(), Object.keys(m365ToolCatalog).sort());
-  assert.equal(Object.values(m365ToolCatalog).filter((tool) => tool.risk === "read" && tool.decision === "allow").length, 16);
+  assert.equal(Object.values(m365ToolCatalog).filter((tool) => tool.risk === "read" && tool.decision === "allow").length, 17);
   assert.equal(Object.values(m365ToolCatalog).filter((tool) => tool.risk === "write" && tool.decision === "approval_required").length, 21);
+});
+
+test("Control permits only a bounded explicit Calendar view", async () => {
+  const { policy, base } = await setup();
+  const request = {
+    ...base,
+    toolName: "get-calendar-view",
+    arguments: {
+      startDateTime: "2026-07-22T09:00:00+08:00",
+      endDateTime: "2026-07-29T09:00:00+08:00",
+      top: 3,
+      timezone: "Asia/Singapore",
+    },
+  };
+  assert.equal((await policy.authorize(request, "calendar-upcoming")).decision, "allow");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, endDateTime: "2026-07-22T08:00:00+08:00" } }, "calendar-reversed")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, endDateTime: "2027-01-22T09:00:00+08:00" } }, "calendar-over-broad")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
+  assert.equal((await policy.authorize({ ...request, arguments: { ...request.arguments, fetchAllPages: true } }, "calendar-fetch-all")).code, "MCP_ARGUMENTS_OUT_OF_POLICY");
 });
 
 test("Control auto-allows only an exact assigned bounded Microsoft 365 read", async () => {

@@ -335,6 +335,7 @@ export const m365ToolCatalog = {
   "forward-mail-message": { service: "mail", risk: "write", decision: "approval_required" },
   "list-calendars": { service: "calendar", risk: "read", decision: "allow" },
   "list-calendar-events": { service: "calendar", risk: "read", decision: "allow" },
+  "get-calendar-view": { service: "calendar", risk: "read", decision: "allow" },
   "get-calendar-event": { service: "calendar", risk: "read", decision: "allow" },
   "create-calendar-event": { service: "calendar", risk: "write", decision: "approval_required" },
   "update-calendar-event": { service: "calendar", risk: "write", decision: "approval_required" },

@@ -132,3 +132,17 @@ curated manifest, strict schemas, safe defaults, connection grant, and real
 sandbox projection are therefore accepted implementation evidence. Issue 011
 moves to verification; natural-language cross-service actions and the listed
 negative, credential-custody, and restart checks remain open.
+
+During natural-language verification on 2026-07-22, `list-calendar-events`
+returned historical series because it has no implicit from-now window. The
+curated surface now also includes Softeria's `get-calendar-view`, with required
+ISO start/end values, a maximum 93-day window, normal 25-item pagination
+bounds, and explicit agent guidance to use it for next/upcoming/today/week
+queries. No additional Entra scope is required. The same verification exposed
+LiteLLM's four-request workspace concurrency ceiling as the source of agent
+retry storms; the workspace grant now permits 30 parallel requests while
+retaining the existing 30 RPM, token, and budget limits. Automated build and
+all 102 tests pass. The deployed LiteLLM registration advertises 38 governed
+tools including `get-calendar-view`, and the live workspace key reports 30
+parallel requests. A new administrator policy save and sandbox stop/start are
+still required to project tool 38 into the immutable workspace assignment.

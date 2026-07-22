@@ -15,7 +15,7 @@ MVP limits per workspace agent:
 - USD 1 per 30 days;
 - 30 requests per minute;
 - 50,000 tokens per minute;
-- four parallel requests;
+- 30 parallel requests, while retaining the 30 requests-per-minute ceiling;
 - no fallback deployment.
 
 `onecomputer-agent chat PROMPT` and `onecomputer-agent stream PROMPT` send model

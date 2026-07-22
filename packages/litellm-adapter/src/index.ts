@@ -120,7 +120,11 @@ const WORKSPACE_RPM_LIMIT = 30;
 // first message. Keep the workspace budget authoritative, but do not mistake
 // that initial context for abusive request volume.
 const WORKSPACE_TPM_LIMIT = 500_000;
-const WORKSPACE_MAX_PARALLEL_REQUESTS = 4;
+// Claude Desktop overlaps its streaming model request, managed MCP calls, and
+// short-lived background work. A limit of four caused healthy agent sessions
+// to deadlock into LiteLLM's retry loop. Keep the 30 RPM and budget controls,
+// while allowing that burst to complete.
+const WORKSPACE_MAX_PARALLEL_REQUESTS = 30;
 
 const desktopTransportAliases: Record<string, string> = {
   "onecomputer-claude": "claude-sonnet-4-6",

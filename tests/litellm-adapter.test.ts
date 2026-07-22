@@ -304,7 +304,7 @@ test("workspace grant materializes the exact Control policy rather than adapter 
     assert.equal(grantBody.budget_duration, "30d");
     assert.equal(grantBody.rpm_limit, 30);
     assert.equal(grantBody.tpm_limit, 500_000);
-    assert.equal(grantBody.max_parallel_requests, 4);
+    assert.equal(grantBody.max_parallel_requests, 30);
     assert.deepEqual(grantBody.object_permission, {
       mcp_servers: ["onecomputer_ms365"],
       mcp_tool_permissions: {
@@ -441,7 +441,7 @@ test("availability check exposes safe route usage without sending a prompt", asy
           budget_reset_at: "2026-08-19T00:00:00.000Z",
           rpm_limit: 30,
           tpm_limit: 500_000,
-          max_parallel_requests: 4,
+          max_parallel_requests: 30,
         }],
       }));
       return;

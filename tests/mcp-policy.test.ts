@@ -165,6 +165,53 @@ test("the effective per-tool policy can require approval or deny an otherwise bo
   assert.equal(blocked.code, "MCP_TOOL_BLOCKED_BY_POLICY");
 });
 
+test("a policy edit affects new calls without mutating an already-bound operation", async () => {
+  const { store, policy, base, effective, operations } = await setup();
+  effective.document.mcp.servers.onecomputer_ms365.toolPolicies = {
+    ...effective.document.mcp.servers.onecomputer_ms365.toolPolicies,
+    "list-mail-folders": "approval_required",
+  };
+
+  const held = await policy.authorize(base, "policy-v1-held");
+  assert.equal(held.decision, "approval_required");
+  const original = await store.getOwnedOperation(identity, held.operationId!);
+  assert.equal(original?.policyVersionId, policyVersionId);
+  assert.equal(original?.policyHash, policyHash);
+
+  const nextPolicyVersionId = randomUUID();
+  const nextPolicyHash = "b".repeat(64);
+  effective.policyVersionId = nextPolicyVersionId;
+  effective.version = 3;
+  effective.documentHash = nextPolicyHash;
+  effective.document.mcp.servers.onecomputer_ms365.toolPolicies["list-mail-folders"] = "deny";
+
+  const next = await policy.authorize({
+    ...base,
+    policyVersionId: nextPolicyVersionId,
+    policyHash: nextPolicyHash,
+  }, "policy-v2-blocked");
+  assert.equal(next.decision, "deny");
+  assert.equal(next.code, "MCP_TOOL_BLOCKED_BY_POLICY");
+
+  const unchanged = await store.getOwnedOperation(identity, held.operationId!);
+  assert.equal(unchanged?.policyVersionId, policyVersionId);
+  assert.equal(unchanged?.policyHash, policyHash);
+  assert.equal(unchanged?.state, "approval_required");
+  assert.equal((await operations.getForAgent(identity, held.operationId!, {
+    workspaceId: base.workspaceId,
+    agentId: base.agentId,
+    policyHash,
+  })).policyVersionId, policyVersionId);
+  await assert.rejects(
+    operations.getForAgent(identity, held.operationId!, {
+      workspaceId: base.workspaceId,
+      agentId: base.agentId,
+      policyHash: nextPolicyHash,
+    }),
+    /Governed operation not found/,
+  );
+});
+
 test("protected OneDrive delete persists before approval and an exact lease dispatches once", async () => {
   const { store, policy, base } = await setup();
   const requested = await policy.authorize({

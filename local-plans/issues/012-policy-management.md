@@ -44,16 +44,16 @@ allowed, denied, or held for approval according to that durable policy.
 
 ## Required verification
 
-- [ ] An administrator can configure and preview the MVP workspace, model,
+- [x] An administrator can configure and preview the MVP workspace, model,
   toolset, and approval policies without editing files or vendor databases.
 - [ ] Read=`allow`, write=`require_approval`, explicit deny, and unlisted deny
   produce the correct agent-visible behavior on the next action for each of
   Mail, Calendar, OneDrive, and Teams.
-- [ ] A normal user and workspace agent cannot create, edit, assign, or bypass
+- [x] A normal user and workspace agent cannot create, edit, assign, or bypass
   policy.
 - [ ] Wrong tenant/role/subject/workspace/agent/tool/schema, conflicting rules,
   missing assignment, stale version, and database outage fail closed.
-- [ ] A policy edit does not mutate the digest, effect, approver requirements,
+- [x] A policy edit does not mutate the digest, effect, approver requirements,
   or legal path of an already-bound operation.
 - [ ] Policy and secret data are redacted appropriately in UI, logs, and
   evidence.
@@ -104,3 +104,16 @@ received the expanded assignment. Issue 012 therefore moves to verification.
 The next review must deliberately exercise Allow, Require approval, and Block
 on new agent actions and prove that an already-bound operation retains its
 original policy version and effect.
+
+Automated verification was strengthened on 2026-07-22. Control now has
+regression coverage proving that employee sessions receive `403` for both
+policy reads and writes, administrators must submit a complete 37-tool policy,
+and an incomplete policy is rejected without reaching persistence. A second
+regression creates an approval-required operation under one policy version,
+changes the effective policy so the same new action is blocked, and proves the
+existing operation retains its original policy version, hash, state, and agent
+binding. The full build and all 100 tests pass. Live read-only inspection found
+active policy version 7 with 37 tools (16 Allow, 21 Require approval, 0 Block),
+and the running sandbox has the identical 37-tool projection. The deliberate
+live Allow/Block/Require-approval behavior review remains the gate-closing
+human check.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { IdentityContext } from "@onecomputer/contracts";
+import { m365ToolCatalog, type IdentityContext, type McpToolPolicyDecision } from "@onecomputer/contracts";
 import type { GatewayClient } from "@onecomputer/litellm-adapter";
 import { MemoryWorkspaceStore, type EffectivePolicy, type IdentityPolicyStore, type SessionPrincipal } from "@onecomputer/workspace-store";
 import { createControlServer } from "../apps/control-api/src/server.js";
@@ -63,6 +63,21 @@ test("runtime identity comes only from the authenticated server session", async 
       headers: { "x-onecomputer-proxy-token": proxyToken, cookie: "onecomputer_session=valid", "x-onecomputer-role": "administrator" },
     });
     assert.equal(admin.statusCode, 403);
+
+    const employeePolicyRead = await app.inject({
+      method: "GET",
+      url: "/v1/admin/mcp-policy",
+      headers: { "x-onecomputer-proxy-token": proxyToken, cookie: "onecomputer_session=valid" },
+    });
+    assert.equal(employeePolicyRead.statusCode, 403);
+
+    const employeePolicyWrite = await app.inject({
+      method: "PUT",
+      url: "/v1/admin/mcp-policy",
+      headers: { "x-onecomputer-proxy-token": proxyToken, cookie: "onecomputer_session=valid", "content-type": "application/json" },
+      payload: { tools: {} },
+    });
+    assert.equal(employeePolicyWrite.statusCode, 403);
   } finally {
     await app.close();
   }
@@ -85,11 +100,32 @@ test("only an administrator can assign and revoke the tenant policy through Cont
   };
   let assigned = false;
   let revoked = false;
+  let savedToolPolicy: Record<string, McpToolPolicyDecision> | null = null;
+  effectivePolicy.document = {
+    schemaVersion: 1,
+    workspaceProfile: "claude-desktop-standard-v1",
+    workspaceProfiles: ["claude-desktop-standard-v1"],
+    agentProfile: "claude-desktop-managed-v1",
+    modelAliases: ["onecomputer-claude"],
+    networkProfile: "controlled-egress-v1",
+    mcp: {
+      servers: {
+        onecomputer_ms365: {
+          tools: Object.keys(m365ToolCatalog),
+          toolPolicies: Object.fromEntries(Object.entries(m365ToolCatalog).map(([name, tool]) => [name, tool.decision])),
+        },
+      },
+    },
+  };
   const identityPolicyStore = {
-    listUsers: async (tenantId) => tenantId === "acme" ? [{ userId: "alpha", email: principal.email, displayName: principal.displayName, roles: principal.roles, effectivePolicy: assigned && !revoked ? effectivePolicy : null }] : [],
+    listUsers: async (tenantId) => tenantId === "acme" ? [{ userId: "alpha", email: principal.email, displayName: principal.displayName, roles: principal.roles, effectivePolicy: revoked ? null : effectivePolicy }] : [],
     assignMvpPolicy: async () => { assigned = true; revoked = false; return effectivePolicy; },
     getEffectivePolicy: async () => assigned && !revoked ? effectivePolicy : null,
     revokeMvpPolicy: async () => { revoked = true; return true; },
+    updateMvpToolPolicy: async ({ tools }: { tools: Record<string, McpToolPolicyDecision> }) => {
+      savedToolPolicy = tools;
+      return { id: "version-2", version: 2, documentHash: "b".repeat(64) };
+    },
   } as unknown as IdentityPolicyStore;
   const revokedKeys: string[] = [];
   const gateway = {
@@ -100,6 +136,25 @@ test("only an administrator can assign and revoke the tenant policy through Cont
   });
   const headers = { "x-onecomputer-proxy-token": proxyToken, cookie: "onecomputer_session=valid" };
   try {
+    const policy = await app.inject({ method: "GET", url: "/v1/admin/mcp-policy", headers });
+    assert.equal(policy.statusCode, 200);
+    assert.equal(policy.json().tools.length, 37);
+
+    const incompletePolicy = await app.inject({
+      method: "PUT", url: "/v1/admin/mcp-policy", headers: { ...headers, "content-type": "application/json" }, payload: { tools: {} },
+    });
+    assert.equal(incompletePolicy.statusCode, 400);
+    assert.equal(savedToolPolicy, null);
+
+    const decisions = Object.fromEntries(Object.entries(m365ToolCatalog).map(([name, tool]) => [name, tool.decision])) as Record<string, McpToolPolicyDecision>;
+    decisions["list-calendars"] = "deny";
+    const savedPolicy = await app.inject({
+      method: "PUT", url: "/v1/admin/mcp-policy", headers: { ...headers, "content-type": "application/json" }, payload: { tools: decisions },
+    });
+    assert.equal(savedPolicy.statusCode, 200);
+    assert.equal(savedPolicy.json().version, 2);
+    assert.equal(savedToolPolicy?.["list-calendars"], "deny");
+
     const assign = await app.inject({ method: "POST", url: "/v1/admin/users/alpha/policy", headers });
     assert.equal(assign.statusCode, 200);
     assert.equal(assign.json().version, 1);

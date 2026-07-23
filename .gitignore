@@ -13,4 +13,5 @@ coverage/
 *.log
 .DS_Store
 
-# local-plans/ is intentionally tracked on the greenfield branch.
+# Local plans are intentionally tracked. Active plans and archived milestones
+# remain with the feature branch for product and verification traceability.

@@ -1,12 +1,14 @@
 # Local plans
 
-These files are intentionally version-controlled on `mike/greenfield-v1`.
+## Active planning
 
-- `LEARNINGS.md` records what was learned from the disposable prototype.
-- `v4-greenfield-governed-agent-platform.md` is the authoritative product and
-  architecture plan.
-- `issues/` contains the progressive implementation sequence and proof rules.
+Start V2 work in [`v2/`](v2/). This directory is intentionally clean: add the
+new product brief, decisions, and issue sequence only after the V2 scope is
+agreed.
 
-Legacy V1–V3 migration and fork-retirement plans are intentionally absent.
-They assumed that the inherited OneCLI codebase had to be preserved. That
-assumption has been rejected.
+## Archive
+
+[`archive/greenfield-v1/`](archive/greenfield-v1/) is the complete historical
+record for the V1 greenfield MVP: architecture decisions, implementation
+issues, verification notes, learnings, and retired issue history. It is kept
+for traceability and is not an active dependency for V2.

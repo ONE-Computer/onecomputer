@@ -26,6 +26,7 @@ import { clipboardStatusForBrowser } from "./clipboard-status.js";
 import {
   clearBrowserApprover,
   enrollBrowserApprover,
+  getBrowserApproverIdentity,
   hasBrowserApprover,
   loadPendingApproval,
   signApprovalDecision,
@@ -699,7 +700,8 @@ function ApprovalDeviceCard({ displayName }) {
   const [message, setMessage] = useState("");
 
   const refresh = async () => {
-    const remote = await approvalApi.status();
+    const localIdentity = await getBrowserApproverIdentity();
+    const remote = await approvalApi.status(localIdentity?.did);
     const local = await hasBrowserApprover(remote.approver?.approverDid);
     setStatus(remote);
     setLocalReady(local);
@@ -718,7 +720,7 @@ function ApprovalDeviceCard({ displayName }) {
         challenge,
         `${displayName}’s browser`,
         (document) => approvalApi.enroll(challenge.id, document),
-        () => approvalApi.revoke(),
+        (approverDid) => approvalApi.revoke(approverDid),
       );
       await refresh();
       setMessage("This browser is now your approval device.");
@@ -734,8 +736,8 @@ function ApprovalDeviceCard({ displayName }) {
     setBusy("disconnect");
     setMessage("");
     try {
-      await approvalApi.revoke();
-      await clearBrowserApprover();
+      await approvalApi.revoke(status?.approver?.approverDid);
+      await clearBrowserApprover(status?.approver?.approverDid);
       await refresh();
       setMessage("The browser approval device was removed.");
     } catch (error) {
@@ -1096,9 +1098,10 @@ export function App() {
     setApprovalRequest(null);
     setApprovalRequestState("loading");
     setApprovalRequestMessage("");
-    approvalApi.status()
-      .then(async (status) => {
-        const localReady = await hasBrowserApprover(status.approver?.approverDid);
+    getBrowserApproverIdentity()
+      .then(async (local) => {
+        const status = await approvalApi.status(local?.did);
+        const localReady = Boolean(local) && await hasBrowserApprover(status.approver?.approverDid);
         if (!status.connected || !localReady) {
           if (active) {
             setApprovalRequestState("setup");
@@ -1108,7 +1111,7 @@ export function App() {
           }
           return;
         }
-        const request = await loadPendingApproval(approvalApi.pending, status.executorDid);
+        const request = await loadPendingApproval(() => approvalApi.pending(local.did), status.executorDid);
         if (!active) return;
         setApprovalRequest(request);
         setApprovalRequestState(request ? "ready" : "empty");

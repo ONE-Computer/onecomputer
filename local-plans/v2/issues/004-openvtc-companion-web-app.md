@@ -28,6 +28,8 @@ device-signed decision. The Kasm desktop does not need to be open.
   task summary, then require an explicit approve or deny signing gesture.
 - Show notification permission, subscription health, last successful delivery,
   pending/expired/revoked/decided state, and actionable recovery guidance.
+- Show the signed-in user a paginated, read-only Activity history of their
+  protected requests, decisions, outcomes, and safe audit timeline.
 - Support multiple enrolled companion browsers without allowing duplicate
   notifications or decisions to create multiple legal execution paths.
 
@@ -101,4 +103,16 @@ correlation, storage/cache inspection, and cleanup.
 
 ## Completion record
 
-Not complete.
+Implementation was merged into `mike/greenfield-v2` on 2026-07-23. The owned
+`/companion` PWA, generic Web Push adapter, encrypted
+multi-browser subscription storage, durable deduplicated retry outbox,
+recipient-bound multi-device task delivery, exact signed decision path,
+revocation, health UI, identity-scoped paginated Activity history, minimized
+audit projection, and automated negative coverage are implemented.
+
+The issue remains blocked and is not complete. Runtime VAPID secrets have not
+been provisioned, and the required physical browser/platform, background
+delivery, authenticator, provider outage, restart, storage inspection, and
+screenshot evidence has not been collected. See `infra/issue-004/README.md`
+for the implemented protocol, support boundary, pins, minimized payload, and
+remaining verification.

@@ -1,0 +1,12 @@
+{
+  "id": "/companion",
+  "name": "ONEComputer Companion",
+  "short_name": "ONE Companion",
+  "description": "Review and sign ONEComputer governed-operation approvals.",
+  "start_url": "/companion",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#18243a",
+  "categories": ["business", "productivity", "security"]
+}

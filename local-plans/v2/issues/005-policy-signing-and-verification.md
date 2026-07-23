@@ -1,6 +1,6 @@
 # 005: sign projected policy and verify it at enforcement points
 
-Status: `blocked`
+Status: `complete`
 
 Priority: P3
 Depends on: 004
@@ -65,26 +65,26 @@ cannot change the routes or capabilities the workspace actually receives.
 
 ## Required verification
 
-- [ ] A valid signed bundle provisions the exact expected workspace, agent,
+- [x] A valid signed bundle provisions the exact expected workspace, agent,
       model, tool, egress, and resource grants after clean start and restart.
-- [ ] Editing the sandbox's Claude base URL to direct Anthropic, changing model
+- [x] Editing the sandbox's Claude base URL to direct Anthropic, changing model
       or MCP endpoints, enabling a blocked tool, changing an approval effect,
       adding an agent, or editing the local bundle cannot change external
       enforcement or issue a valid grant.
-- [ ] Byte/content mutation, non-canonical encoding, field omission/addition,
+- [x] Byte/content mutation, non-canonical encoding, field omission/addition,
       unknown algorithm/version/key, signature substitution, cross-tenant/user/
       workspace/agent copy, expiry, future issuance, replay, and rollback fail
       closed.
-- [ ] Signing-key rotation and revocation, policy refresh, concurrent updates,
+- [x] Signing-key rotation and revocation, policy refresh, concurrent updates,
       partial projection, controller/proxy/LiteLLM restart, clock-boundary
       behavior, and signer/store outage preserve one consistent verified
       version or deny new privileged activity.
-- [ ] An already-bound governed operation retains its immutable policy digest
+- [x] An already-bound governed operation retains its immutable policy digest
       and legal path across policy and signing-key rotation; new actions use
       only the new verified assignment.
-- [ ] Removing the local verifier, replacing its public key, or falsifying its
+- [x] Removing the local verifier, replacing its public key, or falsifying its
       UI/result cannot influence the external verifier.
-- [ ] No private key, provider credential, full policy secret, or prohibited
+- [x] No private key, provider credential, full policy secret, or prohibited
       payload appears in the sandbox, image, API response, logs, screenshots,
       or evidence.
 
@@ -111,4 +111,16 @@ restart/concurrency/outage results, drift UI, and secret scan.
 
 ## Completion record
 
-Not complete.
+Implementation and deployed verification are complete.
+
+- Profile, threat model, custody, enforcement, and verification record:
+  `local-plans/v2/decisions/005-policy-integrity-profile.md`
+- Automated suite: 128/128 passed; the full workspace build passed.
+- A pre-signing sandbox was stopped and rebuilt through Control on immutable
+  image `sha256:a08f0bb545c6743f84638606c034688072529c26ba7b25d9322cf21783dd663d`.
+- Live Control state reported policy version 9 matching across assigned,
+  projected, and externally enforced policy digests under active Ed25519 key
+  `psk_policy_2026_07_23`.
+- Both selected agents and all readiness categories returned ready. Runtime
+  inspection confirmed root-owned public projection files and no signing
+  private key or prohibited platform credential in the workspace.

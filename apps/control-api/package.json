@@ -13,6 +13,7 @@
     "@onecomputer/egress-policy": "*",
     "@onecomputer/litellm-adapter": "*",
     "@onecomputer/openvtc-adapter": "*",
+    "@onecomputer/policy-integrity": "*",
     "@onecomputer/workspace-store": "*",
     "fastify": "5.10.0",
     "jose": "6.1.3",

@@ -15,7 +15,10 @@
     "dev:web": "npm run dev -w web",
     "db:migrate": "tsx apps/control-api/src/migrate.ts",
     "key:openvtc": "node scripts/generate-openvtc-executor-key.mjs",
-    "key:web-push": "node scripts/generate-web-push-keys.mjs"
+    "key:web-push": "node scripts/generate-web-push-keys.mjs",
+    "key:policy": "node scripts/generate-policy-signing-key.mjs",
+    "key:egress": "node scripts/generate-egress-grant-secret.mjs",
+    "dev:ui-fixture": "node scripts/ui-fixture-server.mjs"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

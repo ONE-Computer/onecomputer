@@ -31,6 +31,7 @@ import {
   loadPendingApproval,
   signApprovalDecision,
 } from "./openvtc-browser-agent.js";
+import { ConfirmDialog, PolicyIntegrityCard, TextPromptDialog } from "./ui.jsx";
 
 const capabilities = [
   {
@@ -100,6 +101,7 @@ function ExternalNavLink({ icon: Icon, label, href }) {
 }
 
 function Drawer({ title, children, onClose }) {
+  const drawerRef = useRef(null);
   const closeButtonRef = useRef(null);
   const closeHandlerRef = useRef(onClose);
 
@@ -111,7 +113,21 @@ function Drawer({ title, children, onClose }) {
   useEffect(() => {
     const previouslyFocused = document.activeElement;
     const onKeyDown = (event) => {
-      if (event.key === "Escape") closeHandlerRef.current();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeHandlerRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = [...(drawerRef.current?.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])") ?? [])];
+      if (!items.length) return;
+      if (event.shiftKey && document.activeElement === items[0]) {
+        event.preventDefault();
+        items.at(-1).focus();
+      } else if (!event.shiftKey && document.activeElement === items.at(-1)) {
+        event.preventDefault();
+        items[0].focus();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     closeButtonRef.current?.focus();
@@ -124,6 +140,7 @@ function Drawer({ title, children, onClose }) {
   return (
     <div className="drawer-layer" role="presentation" onMouseDown={onClose}>
       <section
+        ref={drawerRef}
         className="drawer"
         role="dialog"
         aria-modal="true"
@@ -235,6 +252,19 @@ function HomeScreen({ userName, workspace, workspaceState, apiError, operation, 
           )}
         </div>
       </section>
+
+      <div className="workspace-protection-grid" aria-label="Workspace protections">
+        <div className="workspace-protection">
+          <Laptop24Regular aria-hidden="true" />
+          <span><strong>Native copy and paste</strong><small>Use your normal keyboard shortcuts. Clipboard contents are never sent to Control.</small></span>
+        </div>
+        <div className="workspace-protection">
+          <ShieldCheckmark24Regular aria-hidden="true" />
+          <span><strong>Controlled internet access</strong><small>Only approved destinations can leave the workspace, enforced by its external firewall.</small></span>
+        </div>
+      </div>
+
+      <PolicyIntegrityCard integrity={workspace?.policyIntegrity} />
 
       <section className="support-grid">
         <div className="capabilities-block">
@@ -698,6 +728,7 @@ function ApprovalDeviceCard({ displayName }) {
   const [localReady, setLocalReady] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const refresh = async () => {
     const localIdentity = await getBrowserApproverIdentity();
@@ -732,7 +763,7 @@ function ApprovalDeviceCard({ displayName }) {
   };
 
   const disconnect = async () => {
-    if (!window.confirm("Remove this browser as your approval device? Pending approvals will remain blocked until another device is enrolled.")) return;
+    setConfirmRemove(false);
     setBusy("disconnect");
     setMessage("");
     try {
@@ -750,33 +781,45 @@ function ApprovalDeviceCard({ displayName }) {
   const connected = status?.connected;
   const usable = connected && localReady;
   return (
-    <section className="connection-card approval-device-card" aria-labelledby="approval-device-title">
-      <div className="connection-logo"><ShieldCheckmark24Regular aria-hidden="true" /></div>
-      <div className="connection-copy">
-        <div className="connection-title-row">
-          <div>
-            <h2 id="approval-device-title">Approval device</h2>
-            <p>OpenVTC browser agent</p>
+    <>
+      <section className="connection-card approval-device-card" aria-labelledby="approval-device-title">
+        <div className="connection-logo"><ShieldCheckmark24Regular aria-hidden="true" /></div>
+        <div className="connection-copy">
+          <div className="connection-title-row">
+            <div>
+              <h2 id="approval-device-title">Approval device</h2>
+              <p>OpenVTC browser agent</p>
+            </div>
+            <span className={`connection-status ${usable ? "connected" : "disconnected"}`}>
+              {usable ? "Ready" : connected ? "Key unavailable" : "Not enrolled"}
+            </span>
           </div>
-          <span className={`connection-status ${usable ? "connected" : "disconnected"}`}>
-            {usable ? "Ready" : connected ? "Key unavailable" : "Not enrolled"}
-          </span>
+          <p className="connection-description">Set up this browser once. Protected actions appear in their governed-operation panel and require one deliberate biometric, PIN, or security-key confirmation.</p>
+          {connected && <p className="connection-metadata">{status.approver.displayName} · {status.approver.approverDid.slice(0, 26)}…</p>}
+          {message && <p className="approval-device-message" role="status" aria-live="polite">{message}</p>}
         </div>
-        <p className="connection-description">Set up this browser once. Protected actions appear in their governed-operation panel and require one deliberate biometric, PIN, or security-key confirmation.</p>
-        {connected && <p className="connection-metadata">{status.approver.displayName} · {status.approver.approverDid.slice(0, 26)}…</p>}
-        {message && <p className="approval-device-message" role="status">{message}</p>}
-      </div>
-      <div className="connection-actions">
-        {usable ? (
-          <button className="secondary-button" type="button" onClick={disconnect} disabled={Boolean(busy)}>{busy === "disconnect" ? "Removing" : "Remove device"}</button>
-        ) : (
-          <button className="primary-button" type="button" onClick={enroll} disabled={Boolean(busy)}>
-            <ShieldCheckmark24Regular aria-hidden="true" />
-            {busy === "enroll" ? "Waiting for device" : connected ? "Replace approval device" : "Set up this browser"}
-          </button>
-        )}
-      </div>
-    </section>
+        <div className="connection-actions">
+          {usable ? (
+            <button className="secondary-button" type="button" onClick={() => setConfirmRemove(true)} disabled={Boolean(busy)}>{busy === "disconnect" ? "Removing" : "Remove device"}</button>
+          ) : (
+            <button className="primary-button" type="button" onClick={enroll} disabled={Boolean(busy)}>
+              <ShieldCheckmark24Regular aria-hidden="true" />
+              {busy === "enroll" ? "Waiting for device" : connected ? "Replace approval device" : "Set up this browser"}
+            </button>
+          )}
+        </div>
+      </section>
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove this approval device?"
+          description="Pending protected actions will remain blocked until this browser or another companion is enrolled again."
+          confirmLabel="Remove device"
+          danger
+          onConfirm={disconnect}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -932,7 +975,22 @@ export function App() {
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
   const [sandboxError, setSandboxError] = useState("");
+  const [confirmation, setConfirmation] = useState(null);
+  const [revisionPromptOpen, setRevisionPromptOpen] = useState(false);
+  const [revisionSaving, setRevisionSaving] = useState(false);
   const surfacedApprovalIds = useRef(new Set());
+  const mainContentRef = useRef(null);
+  const sidebarRef = useRef(null);
+
+  const requestConfirmation = (options) => new Promise((resolve) => {
+    setConfirmation({ ...options, resolve });
+  });
+
+  const settleConfirmation = (accepted) => {
+    const pending = confirmation;
+    setConfirmation(null);
+    pending?.resolve(accepted);
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -948,6 +1006,35 @@ export function App() {
     const timeout = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+    const previouslyFocused = document.activeElement;
+    const sidebar = sidebarRef.current;
+    sidebar?.querySelector(".nav-button")?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileNavOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = [...(sidebar?.querySelectorAll("a[href], button:not([disabled])") ?? [])];
+      if (!items.length) return;
+      if (event.shiftKey && document.activeElement === items[0]) {
+        event.preventDefault();
+        items.at(-1).focus();
+      } else if (!event.shiftKey && document.activeElement === items.at(-1)) {
+        event.preventDefault();
+        items[0].focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [mobileNavOpen]);
 
   const applyWorkspace = (next) => {
     setWorkspace(next);
@@ -1162,7 +1249,12 @@ export function App() {
   };
 
   const deleteWorkspace = async () => {
-    if (!window.confirm("Delete this stopped workspace record? You can create a new workspace later.")) return;
+    if (!await requestConfirmation({
+      title: "Delete this workspace record?",
+      description: "The stopped workspace record and its retained home storage will be removed. You can create a new workspace later.",
+      confirmLabel: "Delete workspace",
+      danger: true,
+    })) return;
     try { await workspaceApi.delete(workspace.id); applyWorkspace(null); setToast("Workspace deleted."); }
     catch (error) { showApiError(error); }
   };
@@ -1242,7 +1334,12 @@ export function App() {
   };
 
   const disconnectMicrosoft365 = async () => {
-    if (!window.confirm("Disconnect Microsoft 365 from this ONEComputer user? Your Microsoft account and data will not be deleted.")) return;
+    if (!await requestConfirmation({
+      title: "Disconnect Microsoft 365?",
+      description: "ONEComputer will revoke this connection. Your Microsoft account and Microsoft 365 data will not be deleted.",
+      confirmLabel: "Disconnect",
+      danger: true,
+    })) return;
     setConnectionBusy(true);
     setConnectionError("");
     try {
@@ -1274,6 +1371,7 @@ export function App() {
     setActiveNav(name);
     if (name === "Connections") setConnectionsView("list");
     setMobileNavOpen(false);
+    window.requestAnimationFrame(() => mainContentRef.current?.focus());
   };
 
   const configureMicrosoft365 = () => {
@@ -1290,17 +1388,29 @@ export function App() {
     finally { setAdminBusyUserId(""); }
   };
   const revokePolicy = async (userId) => {
-    if (!window.confirm("Revoke this user’s workspace and agent authority? Their persistent workspace will not be deleted.")) return;
+    if (!await requestConfirmation({
+      title: "Revoke this user’s policy?",
+      description: "New workspace and agent authority will be revoked. Their persistent workspace storage will not be deleted.",
+      confirmLabel: "Revoke policy",
+      danger: true,
+    })) return;
     setAdminBusyUserId(userId);
     try { await adminApi.revokePolicy(userId); await refreshAdminUsers(); setToast("Workspace and agent authority was revoked."); }
     catch (error) { showApiError(error); }
     finally { setAdminBusyUserId(""); }
   };
   const createPolicyVersion = async () => {
-    const revisionNote = window.prompt("Describe this immutable policy version:", "MVP policy review");
-    if (!revisionNote) return;
-    try { const version = await adminApi.createPolicyVersion(revisionNote); setToast(`Policy version ${version.version} created. Existing assignments remain pinned.`); }
+    setRevisionPromptOpen(true);
+  };
+  const submitPolicyVersion = async (revisionNote) => {
+    setRevisionSaving(true);
+    try {
+      const version = await adminApi.createPolicyVersion(revisionNote);
+      setRevisionPromptOpen(false);
+      setToast(`Policy version ${version.version} created. Existing assignments remain pinned.`);
+    }
     catch (error) { showApiError(error); }
+    finally { setRevisionSaving(false); }
   };
   const saveEgressSecurityGroup = async (document) => {
     setEgressSaving(true);
@@ -1346,10 +1456,15 @@ export function App() {
   if (!session) return <SignInScreen error={authError} />;
   const firstName = session.user.displayName.split(" ")[0] || session.user.displayName;
   const initials = session.user.displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  const today = new Date();
+  const todayLabel = new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(today);
+  const todayValue = today.toISOString().slice(0, 10);
+  const modalActive = Boolean(drawer || confirmation || revisionPromptOpen);
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar${mobileNavOpen ? " mobile-open" : ""}`}>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+      <aside ref={sidebarRef} id="primary-navigation" className={`sidebar${mobileNavOpen ? " mobile-open" : ""}`} aria-label="Application navigation" inert={modalActive ? true : undefined}>
         <div className="brand" aria-label="ONEComputer">
           <strong>ONE</strong><span>Computer</span>
         </div>
@@ -1370,16 +1485,16 @@ export function App() {
         </div>
       </aside>
 
-      <main className="main-content">
+      <main id="main-content" ref={mainContentRef} className="main-content" tabIndex="-1" inert={mobileNavOpen || modalActive ? true : undefined}>
         <header className="topbar">
-          <button className="mobile-menu" type="button" aria-label="Open navigation" onClick={() => setMobileNavOpen((value) => !value)}>
+          <button className="mobile-menu" type="button" aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileNavOpen} aria-controls="primary-navigation" onClick={() => setMobileNavOpen((value) => !value)}>
             <Navigation24Regular aria-hidden="true" />
           </button>
           <div className="mobile-brand"><strong>ONE</strong><span>Computer</span></div>
           <div className="topbar-spacer" />
-          <time dateTime="2026-07-19">July 19, 2026</time>
+          <time dateTime={todayValue}>{todayLabel}</time>
           <span className="topbar-divider" />
-          <button className="account-button" type="button" onClick={() => setProfileOpen((value) => !value)} aria-expanded={profileOpen}>
+          <button className="account-button" type="button" onClick={() => setProfileOpen((value) => !value)} aria-expanded={profileOpen} aria-label={`Account menu for ${session.user.displayName}`}>
             <span>{initials}</span>
             <ChevronDown16Regular aria-hidden="true" />
           </button>
@@ -1438,6 +1553,30 @@ export function App() {
       </main>
 
       {mobileNavOpen && <button className="mobile-scrim" type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
+
+      {confirmation && (
+        <ConfirmDialog
+          title={confirmation.title}
+          description={confirmation.description}
+          confirmLabel={confirmation.confirmLabel}
+          danger={confirmation.danger}
+          onConfirm={() => settleConfirmation(true)}
+          onCancel={() => settleConfirmation(false)}
+        />
+      )}
+
+      {revisionPromptOpen && (
+        <TextPromptDialog
+          title="Create an immutable policy version"
+          description="Describe why this organization policy version is being created. Existing assignments remain pinned until explicitly changed."
+          label="Revision note"
+          defaultValue="Policy review"
+          confirmLabel="Create version"
+          busy={revisionSaving}
+          onConfirm={submitPolicyVersion}
+          onCancel={() => setRevisionPromptOpen(false)}
+        />
+      )}
 
       {drawer === "capabilities" && (
         <Drawer title="Assigned capabilities" onClose={() => setDrawer(null)}>

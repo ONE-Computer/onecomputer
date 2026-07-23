@@ -1,13 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { assignEgressSecurityGroupSchema, OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, ownedAgentCatalog, saveEgressSecurityGroupSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type AgentCatalogId, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
+import { assignEgressSecurityGroupSchema, OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, ownedAgentCatalog, policyVerificationKeySetSchema, saveEgressSecurityGroupSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type AgentCatalogId, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { Ed25519DidKeySigner } from "@onecomputer/openvtc-adapter";
+import { PolicyBundleSigner } from "@onecomputer/policy-integrity";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
 import { FixtureApprovalAuthority, GovernedOperationService } from "./operations.js";
 import { Microsoft365ConnectionService } from "./connections.js";
-import { EgressProxyGrantAuthority, HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
+import { EgressProxyGrantAuthority, HttpControllerClient, PolicyBundleAuthority, WorkspaceService, type ControllerClient } from "./service.js";
 import { EntraAuthenticationService, isAdministrator, testPrincipalFromHeaders } from "./auth.js";
 import { McpPolicyService, m365CapabilityDefinitions } from "./mcp-policy.js";
 import { OpenVtcApprovalCoordinator } from "./openvtc.js";
@@ -78,6 +79,10 @@ const envSchema = z.object({
   ENTRA_CLIENT_SECRET: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   EGRESS_GRANT_SECRET: z.string().min(32).optional(),
+  POLICY_SIGNING_KEY_ID: z.string().regex(/^psk_[a-z0-9][a-z0-9_-]{2,63}$/),
+  POLICY_SIGNING_PRIVATE_KEY_B64: z.string().min(40),
+  POLICY_VERIFICATION_KEYS_B64: z.string().min(32),
+  POLICY_BUNDLE_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(86_400),
   BOOTSTRAP_TENANT_ID: z.string().min(1).default("acme"),
   BOOTSTRAP_USER_ID: z.string().min(1).default("alex-morgan"),
   TENANT_DISPLAY_NAME: z.string().min(1).default("ME TECH"),
@@ -105,6 +110,7 @@ export function createControlServer(
     testIdentityMode?: boolean;
     openVtc?: OpenVtcApprovalCoordinator;
     egressGrantSecret?: string;
+    policyBundleAuthority?: PolicyBundleAuthority;
   } = {},
 ) {
   const testRuntimePolicy: RuntimePolicy = {
@@ -132,7 +138,7 @@ export function createControlServer(
   const service = new WorkspaceService(store, controller, gateway, {
     baseUrl: connectionOptions.agentBridgeUrl ?? "http://onecomputer-control:4100",
     issue: (identity, workspaceId, policy) => agentBridgeAuthority.issue(identity, workspaceId, policy),
-  }, security.egressGrantSecret ? new EgressProxyGrantAuthority(security.egressGrantSecret) : undefined);
+  }, security.egressGrantSecret ? new EgressProxyGrantAuthority(security.egressGrantSecret) : undefined, security.policyBundleAuthority);
   const executor: GovernedToolExecutor = gateway?.executeGovernedTool
     ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
     : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
@@ -640,6 +646,23 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const openVtc = env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64
     ? new OpenVtcApprovalCoordinator(store, Ed25519DidKeySigner.fromPkcs8Base64(env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64), pushProvider)
     : undefined;
+  if (!env.LITELLM_WORKSPACE_URL) throw new Error("LITELLM_WORKSPACE_URL is required for signed policy enforcement");
+  const policyVerificationKeys = policyVerificationKeySetSchema.parse(JSON.parse(
+    Buffer.from(env.POLICY_VERIFICATION_KEYS_B64, "base64").toString("utf8"),
+  ));
+  await store.registerPolicyVerificationKeys(policyVerificationKeys.keys);
+  const policyBundleAuthority = new PolicyBundleAuthority(
+    new PolicyBundleSigner({
+      keyId: env.POLICY_SIGNING_KEY_ID,
+      privateKeyPkcs8Base64: env.POLICY_SIGNING_PRIVATE_KEY_B64,
+    }),
+    policyVerificationKeys,
+    {
+      modelGateway: env.LITELLM_WORKSPACE_URL,
+      mcpControl: env.AGENT_BRIDGE_URL,
+    },
+    env.POLICY_BUNDLE_TTL_SECONDS,
+  );
   const app = createControlServer(
     store,
     new HttpControllerClient(env.CONTROLLER_URL, env.CONTROLLER_INTERNAL_TOKEN),
@@ -663,6 +686,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       }),
       openVtc,
       egressGrantSecret: env.EGRESS_GRANT_SECRET,
+      policyBundleAuthority,
     },
   );
   const pushRetryTimer = pushProvider && openVtc

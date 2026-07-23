@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { buildKasmClipboardLaunch, KasmLocalAdapter, mapKasmState } from "@onecomputer/kasm-adapter";
+import { policyFixture } from "./policy-fixture.js";
 
 test("Kasm launch forces the native clipboard contract instead of browser-local defaults", () => {
   const enabled = buildKasmClipboardLaunch("https://127.0.0.1:16920/", {
@@ -154,7 +155,13 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_ms365",
     allowedTools: ["list-mail-folders", "list-calendars", "list-drives"],
+    toolPolicies: {
+      "list-mail-folders": "allow" as const,
+      "list-calendars": "allow" as const,
+      "list-drives": "allow" as const,
+    },
   };
+  const signedPolicy = policyFixture(policy, "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
   try {
     const adapter = new KasmLocalAdapter({
       socketPath,
@@ -172,6 +179,8 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     await adapter.create({
       workspaceId: "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508",
       policy,
+      policyBundle: signedPolicy.bundle,
+      policyVerificationKeys: signedPolicy.keys,
       gateway: {
         baseUrl: "http://litellm:4000",
         credential: "sk-scoped-workspace-agent-key",
@@ -218,6 +227,11 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     assert.ok(serialized.includes("ONECOMPUTER_ALLOWED_TOOLS=list-mail-folders,list-calendars,list-drives"));
     assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_UPSTREAM=http://litellm:4000"));
     assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_CREDENTIAL=sk-scoped-workspace-agent-key"));
+    assert.ok(serialized.includes("ONECOMPUTER_SIGNED_POLICY_B64="));
+    assert.ok(serialized.includes("ONECOMPUTER_POLICY_VERIFICATION_KEYS_B64="));
+    assert.ok(serialized.includes("com.onecomputer.policy-signing-key-id"));
+    assert.ok(serialized.includes("com.onecomputer.policy-bundle-digest"));
+    assert.ok(!serialized.includes("POLICY_SIGNING_PRIVATE_KEY"));
     assert.ok(serialized.includes("ONECOMPUTER_CONTROL_UPSTREAM=http://onecomputer-control:4100"));
     assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_ENABLED=true"));
     assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE=true"));

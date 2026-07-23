@@ -1,11 +1,16 @@
 import http from "node:http";
+import { createHash } from "node:crypto";
 import {
+  canonicalJson,
   defaultClipboardPolicy,
   OneComputerError,
+  signedPolicyBundleSchema,
   type ClipboardPolicy,
   type Launch,
+  type PolicyVerificationKeySet,
   type RuntimePolicy,
   type Sandbox,
+  type SignedPolicyBundle,
 } from "@onecomputer/contracts";
 
 export interface SandboxAdapter {
@@ -19,6 +24,8 @@ export interface SandboxAdapter {
 export type SandboxCreateInput = {
   workspaceId: string;
   policy: RuntimePolicy;
+  policyBundle?: SignedPolicyBundle;
+  policyVerificationKeys?: PolicyVerificationKeySet;
   gateway?: {
     baseUrl: string;
     credential: string;
@@ -206,6 +213,10 @@ export class KasmLocalAdapter implements SandboxAdapter {
 
   async create(input: SandboxCreateInput): Promise<Sandbox> {
     const clipboard = clipboardPolicyFor(input.policy);
+    if (!input.policyBundle || !input.policyVerificationKeys) {
+      throw new OneComputerError("POLICY_SIGNATURE_REQUIRED", "A verified signed policy is required to provision the workspace", 503);
+    }
+    const policyBundleDigest = createHash("sha256").update(canonicalJson(input.policyBundle), "utf8").digest("hex");
     if (input.policy.egress && (!input.egressProxy || !this.config.egressProxyImage)) {
       throw new OneComputerError("EGRESS_PROXY_NOT_CONFIGURED", "The assigned egress firewall cannot be provisioned", 503);
     }
@@ -224,7 +235,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     const existing = await this.inspectByName(name);
     if (existing?.running) {
       await this.ensureRelay(name, existing.id, existing.port ?? await this.allocatePort(), workspaceNetwork);
-      return { providerId: existing.id, state: "ready", failureCode: null };
+      return { providerId: existing.id, workspaceId: input.workspaceId, state: "ready", failureCode: null };
     }
     if (existing) await this.destroy(existing.id);
     const port = await this.allocatePort();
@@ -243,6 +254,8 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "com.onecomputer.control-attached": String(Boolean(input.agentBridge)),
         "com.onecomputer.policy-version-id": input.policy.policyVersionId,
         "com.onecomputer.policy-hash": input.policy.policyHash,
+        "com.onecomputer.policy-signing-key-id": input.policyBundle.keyId,
+        "com.onecomputer.policy-bundle-digest": policyBundleDigest,
         "com.onecomputer.agent-id": input.policy.agentId,
         "com.onecomputer.sandbox-profile": input.policy.workspaceProfile,
         "com.onecomputer.model-alias": input.policy.modelAlias,
@@ -267,6 +280,8 @@ export class KasmLocalAdapter implements SandboxAdapter {
         `ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL=${clipboard.workspaceToLocal}`,
         `ONECOMPUTER_CLIPBOARD_MAX_BYTES=${clipboard.maxBytes}`,
         `ONECOMPUTER_ENABLED_AGENTS=${enabledAgents.join(",")}`,
+        `ONECOMPUTER_SIGNED_POLICY_B64=${Buffer.from(canonicalJson(input.policyBundle), "utf8").toString("base64url")}`,
+        `ONECOMPUTER_POLICY_VERIFICATION_KEYS_B64=${Buffer.from(canonicalJson(input.policyVerificationKeys), "utf8").toString("base64url")}`,
         ...(!input.agentGrants && input.gateway ? [
           `ONECOMPUTER_GATEWAY_UPSTREAM=${input.gateway.baseUrl}`,
           `ONECOMPUTER_GATEWAY_CREDENTIAL=${input.gateway.credential}`,
@@ -332,7 +347,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     try {
       await this.request("POST", `/containers/${providerId}/start`);
       await this.ensureRelay(name, providerId, port, workspaceNetwork);
-      return { providerId, state: "provisioning", failureCode: null };
+      return { providerId, workspaceId: input.workspaceId, state: "provisioning", failureCode: null };
     } catch (error) {
       await this.destroy(providerId).catch(() => undefined);
       throw error;
@@ -352,6 +367,19 @@ export class KasmLocalAdapter implements SandboxAdapter {
       const labels = asObject(containerConfig.Labels);
       const workspaceNetwork = labels["com.onecomputer.workspace-network"];
       const environment = Array.isArray(containerConfig.Env) ? containerConfig.Env : [];
+      const projectedPolicyEntry = environment.find((entry) => (
+        typeof entry === "string" && entry.startsWith("ONECOMPUTER_SIGNED_POLICY_B64=")
+      ));
+      let projectedPolicyBundle: SignedPolicyBundle | undefined;
+      if (typeof projectedPolicyEntry === "string") {
+        try {
+          projectedPolicyBundle = signedPolicyBundleSchema.parse(JSON.parse(
+            Buffer.from(projectedPolicyEntry.slice(projectedPolicyEntry.indexOf("=") + 1), "base64url").toString("utf8"),
+          ));
+        } catch {
+          projectedPolicyBundle = undefined;
+        }
+      }
       const controlAttached = labels["com.onecomputer.control-attached"] === "true"
         || environment.some((entry) => typeof entry === "string" && entry.startsWith("ONECOMPUTER_AGENT_BRIDGE_TOKEN="));
       if (running && typeof workspaceNetwork === "string" && this.isWorkspaceNetwork(workspaceNetwork)) {
@@ -361,7 +389,16 @@ export class KasmLocalAdapter implements SandboxAdapter {
         }
       }
       const failed = restarting || (typeof state.ExitCode === "number" && state.ExitCode !== 0);
-      return { providerId, state: running ? "ready" : failed ? "failed" : "stopped", failureCode: failed ? "FIXTURE_EXITED" : null };
+      return {
+        providerId,
+        ...(typeof labels["com.onecomputer.workspace-id"] === "string"
+          ? { workspaceId: String(labels["com.onecomputer.workspace-id"]) }
+          : {}),
+        state: running ? "ready" : failed ? "failed" : "stopped",
+        failureCode: failed ? "FIXTURE_EXITED" : null,
+        policyProjectionPresent: Boolean(projectedPolicyEntry),
+        ...(projectedPolicyBundle ? { projectedPolicyBundle } : {}),
+      };
     } catch (error) {
       if (error instanceof OneComputerError && error.statusCode === 404) return { providerId, state: "stopped", failureCode: null };
       throw error;

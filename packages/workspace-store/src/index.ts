@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import type { AgentCatalogId, GovernedOperationState, IdentityContext, OwnedJson, SandboxModelAlias, SandboxProfileId, WorkspaceState } from "@onecomputer/contracts";
+import type { AgentCatalogId, GovernedOperationState, IdentityContext, OwnedJson, PolicyVerificationKey, SandboxModelAlias, SandboxProfileId, WorkspaceState } from "@onecomputer/contracts";
 export * from "./identity-policy.js";
 
 export type WorkspaceRecord = {
@@ -270,6 +270,7 @@ export interface WorkspaceStore {
   remove(identity: IdentityContext, workspaceId: string): Promise<boolean>;
   getSandboxSettings?(identity: IdentityContext, grantId: string): Promise<SandboxSettingsRecord | null>;
   saveSandboxSettings?(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias; agentIds: AgentCatalogId[] }): Promise<SandboxSettingsRecord>;
+  registerPolicyVerificationKeys?(keys: PolicyVerificationKey[]): Promise<void>;
 }
 
 const mapRow = (row: Record<string, unknown>): WorkspaceRecord => ({
@@ -416,13 +417,41 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql", "009_operation_policy_binding.sql", "010_egress_security_groups.sql", "011_sandbox_agents.sql", "012_openvtc_companion_push.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql", "009_operation_policy_binding.sql", "010_egress_security_groups.sql", "011_sandbox_agents.sql", "012_openvtc_companion_push.sql", "013_policy_signing_keys.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
   }
 
   async close() { await this.pool.end(); }
+
+  async registerPolicyVerificationKeys(keys: PolicyVerificationKey[]) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const key of keys) {
+        await client.query(
+          `INSERT INTO policy_signing_keys (
+             key_id,algorithm,public_key_spki_base64,status,activated_at,expires_at
+           ) VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (key_id) DO UPDATE SET
+             algorithm=EXCLUDED.algorithm,
+             public_key_spki_base64=EXCLUDED.public_key_spki_base64,
+             status=EXCLUDED.status,
+             activated_at=EXCLUDED.activated_at,
+             expires_at=EXCLUDED.expires_at,
+             updated_at=now()`,
+          [key.keyId, key.algorithm, key.publicKeySpkiBase64, key.status, key.activatedAt, key.expiresAt],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   async getCurrent(identity: IdentityContext, grantId: string) {
     const result = await this.pool.query(

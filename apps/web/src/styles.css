@@ -13,6 +13,7 @@
   --warm-white: #fdfcf9;
   --sidebar: #f7f6f3;
   --soft-blue: #e8f1fb;
+  --pale-blue: var(--soft-blue);
   --green: #1a7f28;
   --amber-bg: #ffedc1;
   --focus: #2f70c9;
@@ -58,7 +59,12 @@ button {
 }
 
 button:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
   outline-offset: 3px;
 }
@@ -1749,12 +1755,15 @@ summary:focus-visible {
 @media (max-width: 880px) {
   .sidebar {
     width: 246px;
+    visibility: hidden;
     transform: translateX(-100%);
-    transition: transform 180ms ease;
+    transition: transform 180ms ease, visibility 0s linear 180ms;
   }
 
   .sidebar.mobile-open {
+    visibility: visible;
     transform: translateX(0);
+    transition-delay: 0s;
   }
 
   .mobile-scrim {

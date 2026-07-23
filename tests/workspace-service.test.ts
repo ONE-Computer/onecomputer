@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { IdentityContext, Launch, RuntimePolicy, Sandbox } from "@onecomputer/contracts";
+import type { IdentityContext, Launch, RuntimePolicy, Sandbox, SignedPolicyBundle } from "@onecomputer/contracts";
 import { MemoryWorkspaceStore } from "@onecomputer/workspace-store";
 import type { GatewayClient, GatewayGrant } from "@onecomputer/litellm-adapter";
-import { WorkspaceService, type ControllerClient } from "../apps/control-api/src/service.js";
+import { PolicyBundleAuthority, WorkspaceService, type ControllerClient } from "../apps/control-api/src/service.js";
+import { policyFixture } from "./policy-fixture.js";
 
 class FakeController implements ControllerClient {
   creates = 0;
@@ -11,10 +12,12 @@ class FakeController implements ControllerClient {
   purges = 0;
   lastGateway: GatewayGrant | undefined;
   lastPolicy: RuntimePolicy | undefined;
-  async create(input: { workspaceId: string; policy: RuntimePolicy; gateway?: GatewayGrant }): Promise<Sandbox> {
+  lastPolicyBundle: SignedPolicyBundle | undefined;
+  async create(input: { workspaceId: string; policy: RuntimePolicy; policyBundle?: SignedPolicyBundle; gateway?: GatewayGrant }): Promise<Sandbox> {
     this.creates += 1;
     this.lastGateway = input.gateway;
     this.lastPolicy = input.policy;
+    this.lastPolicyBundle = input.policyBundle;
     return { providerId: `sandbox-${input.workspaceId}`, state: "ready", failureCode: null };
   }
   async status(providerId: string): Promise<Sandbox> { return { providerId, state: "ready", failureCode: null }; }
@@ -67,6 +70,7 @@ const policy: RuntimePolicy = {
   modelAlias: "onecomputer-assistant",
   mcpServer: "onecomputer_ms365",
   allowedTools: ["list-mail-folders", "list-calendars", "list-drives"],
+  toolPolicies: {},
 };
 
 test("concurrent create calls reuse one workspace and one sandbox", async () => {
@@ -186,4 +190,30 @@ test("workspace lifecycle provisions, reports, tests, and revokes a scoped gatew
   assert.deepEqual((await service.testGateway(alex, policy, workspace.id)).tools.map((tool) => tool.name), ["search_files"]);
   await service.stop(alex, policy, workspace.id);
   assert.equal(gateway.revocations, 1);
+});
+
+test("Control signs and self-verifies policy before issuing grants or calling the controller", async () => {
+  const controller = new FakeController();
+  const gateway = new FakeGateway();
+  const signed = policyFixture(policy, "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
+  const authority = new PolicyBundleAuthority(
+    signed.signer,
+    signed.keys,
+    { modelGateway: "http://litellm:4000", mcpControl: "http://onecomputer-control:4100" },
+  );
+  const service = new WorkspaceService(
+    new MemoryWorkspaceStore(),
+    controller,
+    gateway,
+    { baseUrl: "http://onecomputer-control:4100", issue: () => "agent-bridge-token-at-least-24-characters" },
+    undefined,
+    authority,
+  );
+  const workspace = await service.create(alex, policy, "personal", "signed-policy-create", "correlation-signed");
+  assert.equal(workspace.state, "ready");
+  assert.equal(controller.lastPolicyBundle?.keyId, "psk_test_policy");
+  assert.equal(controller.lastPolicy?.policyHash, policy.policyHash);
+  assert.equal(gateway.lastPolicy?.policyHash, policy.policyHash);
+  assert.equal(workspace.policyIntegrity?.state, "unavailable");
+  assert.equal(workspace.policyIntegrity?.enforced?.keyId, "psk_test_policy");
 });

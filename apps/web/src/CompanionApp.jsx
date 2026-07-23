@@ -20,6 +20,7 @@ import {
   enableCompanionPush,
   removeCompanionPush,
 } from "./companion-push.js";
+import { ConfirmDialog } from "./ui.jsx";
 import "./companion.css";
 
 const PROTOCOL_VERSION = "onecomputer-companion-push-0.1";
@@ -217,6 +218,7 @@ export function CompanionApp() {
   const [selectedActivityId, setSelectedActivityId] = useState(null);
   const [activityDetail, setActivityDetail] = useState(null);
   const [activityDetailLoading, setActivityDetailLoading] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const activityDetailRequest = useRef(0);
   const support = useMemo(() => companionPushSupport(), [config]);
 
@@ -457,7 +459,8 @@ export function CompanionApp() {
   };
 
   const remove = async () => {
-    if (!companion || !window.confirm("Remove this companion browser? Pending operations will remain blocked unless another enrolled companion decides them.")) return;
+    if (!companion) return;
+    setConfirmRemove(false);
     setBusy("remove");
     setMessage("");
     try {
@@ -494,15 +497,16 @@ export function CompanionApp() {
 
   return (
     <div className="companion-root">
-      <header className="companion-topbar">
+      <a className="skip-link" href="#companion-main">Skip to main content</a>
+      <header className="companion-topbar" inert={confirmRemove ? true : undefined}>
         <Brand />
         <div>
           {installPrompt && <button className="companion-quiet" type="button" onClick={install}>Install app</button>}
-          <button className="companion-account" type="button" onClick={logout}><span>{session.user.displayName}</span><SignOut24Regular aria-hidden="true" /></button>
+          <button className="companion-account" type="button" onClick={logout} aria-label={`Sign out ${session.user.displayName}`}><span>{session.user.displayName}</span><SignOut24Regular aria-hidden="true" /></button>
         </div>
       </header>
 
-      <main className="companion-main">
+      <main id="companion-main" className="companion-main" inert={confirmRemove ? true : undefined}>
         <header className="companion-heading">
           <p>{activeTab === "approvals" ? "Approval companion" : "Your activity"}</p>
           <h1>{activeTab === "approvals"
@@ -590,7 +594,7 @@ export function CompanionApp() {
               ) : (
                 <div className="companion-card-actions">
                   <button className="companion-secondary" type="button" disabled={Boolean(busy)} onClick={testNotification}>{busy === "test" ? "Sending test" : "Send test alert"}</button>
-                  <button className="companion-quiet danger" type="button" disabled={Boolean(busy)} onClick={remove}>{busy === "remove" ? "Removing" : "Remove companion"}</button>
+                  <button className="companion-quiet danger" type="button" disabled={Boolean(busy)} onClick={() => setConfirmRemove(true)}>{busy === "remove" ? "Removing" : "Remove companion"}</button>
                 </div>
               )}
 
@@ -610,6 +614,16 @@ export function CompanionApp() {
           </aside>
         </div>}
       </main>
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove this companion browser?"
+          description="Pending protected actions will remain blocked unless another enrolled companion can decide them."
+          confirmLabel="Remove companion"
+          danger
+          onConfirm={remove}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
     </div>
   );
 }

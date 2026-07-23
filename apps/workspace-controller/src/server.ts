@@ -1,7 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
-import { OneComputerError, controllerCreateSchema } from "@onecomputer/contracts";
+import {
+  OneComputerError,
+  controllerCreateSchema,
+  policyVerificationKeySetSchema,
+  type PolicyIntegrityView,
+  type PolicyVerificationKeySet,
+  type RuntimePolicy,
+  type Sandbox,
+} from "@onecomputer/contracts";
 import { KasmLocalAdapter, KasmDeveloperApiAdapter, type SandboxAdapter } from "@onecomputer/kasm-adapter";
+import { PolicyVerificationError, verifySignedPolicyBundle } from "@onecomputer/policy-integrity";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -24,6 +33,7 @@ const envSchema = z.object({
   KASM_LOCAL_EGRESS_PROXY_IMAGE: z.string().optional(),
   KASM_LOCAL_EGRESS_NETWORK: z.string().default("onecomputer-egress"),
   KASM_PUBLIC_HOST: z.string().default("127.0.0.1"),
+  POLICY_VERIFICATION_KEYS_B64: z.string().min(32),
 });
 
 function sameSecret(received: string | undefined, expected: string) {
@@ -33,10 +43,89 @@ function sameSecret(received: string | undefined, expected: string) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-export function createControllerServer(adapter: SandboxAdapter, internalToken: string) {
+const unavailableIntegrity = (policy: RuntimePolicy, reasonCode: PolicyIntegrityView["reasonCode"]): PolicyIntegrityView => ({
+  state: reasonCode === "POLICY_EXPIRED" ? "expired" : reasonCode === "POLICY_SIGNATURE_INVALID" ? "invalid" : "unavailable",
+  reasonCode,
+  expected: { version: policy.policyVersion, digest: policy.policyHash },
+  projected: null,
+  enforced: null,
+});
+
+const verifiedIntegrity = (verified: ReturnType<typeof verifySignedPolicyBundle>): PolicyIntegrityView => {
+  const record = {
+    version: verified.payload.policy.policyVersion,
+    digest: verified.payload.policy.policyHash,
+    bundleDigest: verified.bundleDigest,
+    keyId: verified.keyId,
+  };
+  return {
+    state: "match",
+    reasonCode: "POLICY_INTEGRITY_MATCH",
+    expected: { version: record.version, digest: record.digest },
+    projected: { ...record, expiresAt: verified.payload.expiresAt },
+    enforced: { ...record, verifiedAt: verified.verifiedAt },
+  };
+};
+
+const publicSandbox = (
+  sandbox: Sandbox,
+  keys: PolicyVerificationKeySet,
+  expectedPolicy?: RuntimePolicy,
+): Sandbox => {
+  const { projectedPolicyBundle, policyProjectionPresent: _projectionPresent, ...safe } = sandbox;
+  if (!projectedPolicyBundle) {
+    return expectedPolicy
+      ? { ...safe, policyIntegrity: unavailableIntegrity(expectedPolicy, sandbox.policyProjectionPresent ? "POLICY_SIGNATURE_INVALID" : "POLICY_PROJECTION_UNAVAILABLE") }
+      : safe;
+  }
+  try {
+    const verified = verifySignedPolicyBundle(projectedPolicyBundle, keys, {
+      ...(sandbox.workspaceId ? { workspaceId: sandbox.workspaceId } : {}),
+      ...(expectedPolicy ? { policy: expectedPolicy, minimumPolicyVersion: expectedPolicy.policyVersion } : {}),
+    });
+    return { ...safe, policyIntegrity: verifiedIntegrity(verified) };
+  } catch (error) {
+    if (!expectedPolicy) return safe;
+    const reasonCode = error instanceof PolicyVerificationError && error.code === "POLICY_EXPIRED"
+      ? "POLICY_EXPIRED"
+      : "POLICY_SIGNATURE_INVALID";
+    return { ...safe, policyIntegrity: unavailableIntegrity(expectedPolicy, reasonCode) };
+  }
+};
+
+const verifyGrantBindings = (
+  input: z.infer<typeof controllerCreateSchema>,
+  verified: ReturnType<typeof verifySignedPolicyBundle>,
+) => {
+  const modelRoutes = [
+    input.gateway?.baseUrl,
+    ...(input.agentGrants?.map((grant) => grant.gateway.baseUrl) ?? []),
+  ].filter(Boolean);
+  const controlRoutes = [
+    input.agentBridge?.baseUrl,
+    ...(input.agentGrants?.map((grant) => grant.agentBridge.baseUrl) ?? []),
+  ].filter(Boolean);
+  if (
+    modelRoutes.some((route) => route !== verified.payload.routes.modelGateway)
+    || controlRoutes.some((route) => route !== verified.payload.routes.mcpControl)
+  ) {
+    throw new PolicyVerificationError("POLICY_BINDING_MISMATCH", "A derived grant route does not match the signed policy");
+  }
+  if (input.egressProxy && (
+    input.egressProxy.expectedGrant.tenantId !== verified.payload.tenantId
+    || input.egressProxy.expectedGrant.subjectId !== verified.payload.subjectId
+    || input.egressProxy.expectedGrant.workspaceId !== verified.payload.workspaceId
+    || input.egressProxy.expectedGrant.policyHash !== verified.payload.policy.policyHash
+  )) {
+    throw new PolicyVerificationError("POLICY_BINDING_MISMATCH", "The egress grant does not match the signed policy");
+  }
+};
+
+export function createControllerServer(adapter: SandboxAdapter, internalToken: string, verificationKeys: PolicyVerificationKeySet) {
+  const keys = policyVerificationKeySetSchema.parse(verificationKeys);
   const app = Fastify({
-    logger: { redact: ["req.headers.authorization", "req.headers.x-controller-token", "req.body.gateway.credential", "req.body.agentBridge.token", "*.launchUrl", "*.session_token"] },
-    bodyLimit: 32 * 1024,
+    logger: { redact: ["req.headers.authorization", "req.headers.x-controller-token", "req.body.gateway.credential", "req.body.agentBridge.token", "req.body.policyBundle.signature", "*.launchUrl", "*.session_token"] },
+    bodyLimit: 128 * 1024,
   });
 
   app.addHook("onRequest", async (request, reply) => {
@@ -48,17 +137,43 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
 
   app.get("/healthz", async () => ({ status: "ok" }));
   app.post("/internal/v1/sandboxes", async (request, reply) => {
+    if (!request.body || typeof request.body !== "object" || !Object.hasOwn(request.body, "policyBundle")) {
+      throw new OneComputerError("POLICY_SIGNATURE_REQUIRED", "A signed effective policy is required", 403);
+    }
     const input = controllerCreateSchema.parse(request.body);
-    return reply.code(201).send(await adapter.create({
+    let verified: ReturnType<typeof verifySignedPolicyBundle>;
+    try {
+      verified = verifySignedPolicyBundle(input.policyBundle, keys, {
+        workspaceId: input.workspaceId,
+        policy: input.policy,
+        minimumPolicyVersion: input.policy.policyVersion,
+      });
+      verifyGrantBindings(input, verified);
+    } catch (error) {
+      if (error instanceof PolicyVerificationError) {
+        throw new OneComputerError(error.code, error.message, 403);
+      }
+      throw error;
+    }
+    const sandbox = await adapter.create({
       workspaceId: input.workspaceId,
-      policy: input.policy,
+      policy: verified.payload.policy,
+      policyBundle: input.policyBundle,
+      policyVerificationKeys: keys,
       gateway: input.gateway,
       agentBridge: input.agentBridge,
       agentGrants: input.agentGrants,
       egressProxy: input.egressProxy,
-    }));
+    });
+    return reply.code(201).send(publicSandbox({
+      ...sandbox,
+      projectedPolicyBundle: sandbox.projectedPolicyBundle ?? input.policyBundle,
+      policyProjectionPresent: true,
+    }, keys, input.policy));
   });
-  app.get<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId", async (request) => adapter.status(request.params.providerId));
+  app.get<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId", async (request) => (
+    publicSandbox(await adapter.status(request.params.providerId), keys)
+  ));
   app.post<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId/open", async (request) => adapter.open(request.params.providerId));
   app.delete<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId", async (request, reply) => {
     await adapter.destroy(request.params.providerId);
@@ -70,7 +185,11 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
   });
 
   app.setErrorHandler((error, request, reply) => {
-    const known = error instanceof OneComputerError ? error : new OneComputerError("INTERNAL_ERROR", "The workspace controller could not complete the request", 500, true);
+    const known = error instanceof OneComputerError
+      ? error
+      : error instanceof z.ZodError
+        ? new OneComputerError("INVALID_REQUEST", "The controller request is invalid", 400)
+        : new OneComputerError("INTERNAL_ERROR", "The workspace controller could not complete the request", 500, true);
     request.log.error({ err: { name: error instanceof Error ? error.name : "UnknownError", message: error instanceof Error ? error.message : "Unknown controller error", code: known.code } }, "controller request failed");
     reply.code(known.statusCode).send({ error: { code: known.code, message: known.message, correlationId: request.id, retryable: known.retryable } });
   });
@@ -108,6 +227,9 @@ export function adapterFromEnv(env: z.infer<typeof envSchema>): SandboxAdapter {
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const env = envSchema.parse(process.env);
-  const app = createControllerServer(adapterFromEnv(env), env.CONTROLLER_INTERNAL_TOKEN);
+  const verificationKeys = policyVerificationKeySetSchema.parse(JSON.parse(
+    Buffer.from(env.POLICY_VERIFICATION_KEYS_B64, "base64").toString("utf8"),
+  ));
+  const app = createControllerServer(adapterFromEnv(env), env.CONTROLLER_INTERNAL_TOKEN, verificationKeys);
   await app.listen({ host: env.CONTROLLER_HOST, port: env.CONTROLLER_PORT });
 }

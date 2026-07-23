@@ -235,6 +235,7 @@ export const workspaceViewSchema = z.object({
     agentId: z.string().min(1),
     state: z.enum(["selected", "starting", "ready", "degraded", "unavailable"]),
   }).strict()).min(1).optional(),
+  policyIntegrity: z.lazy(() => policyIntegrityViewSchema).optional(),
   profile: z.object({
     id: z.string().min(1),
     client: z.string().min(1),
@@ -298,10 +299,91 @@ export const runtimePolicySchema = z.object({
 });
 export type RuntimePolicy = z.infer<typeof runtimePolicySchema>;
 
+export const policyVerificationKeySchema = z.strictObject({
+  keyId: z.string().regex(/^psk_[a-z0-9][a-z0-9_-]{2,63}$/),
+  algorithm: z.literal("Ed25519"),
+  publicKeySpkiBase64: z.string().regex(/^[A-Za-z0-9+/]+={0,2}$/).min(40).max(256),
+  status: z.enum(["active", "retiring", "revoked"]),
+  activatedAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime().nullable(),
+});
+export type PolicyVerificationKey = z.infer<typeof policyVerificationKeySchema>;
+
+export const policyVerificationKeySetSchema = z.strictObject({
+  profile: z.literal("onecomputer-policy-key-set/v1"),
+  keys: z.array(policyVerificationKeySchema).min(1).max(8),
+});
+export type PolicyVerificationKeySet = z.infer<typeof policyVerificationKeySetSchema>;
+
+export const policyBundlePayloadSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  issuer: z.literal("onecomputer-control"),
+  audience: z.literal("onecomputer-policy-enforcement"),
+  tenantId: z.string().min(1).max(128),
+  subjectId: z.string().min(1).max(128),
+  workspaceId: z.uuid(),
+  policy: runtimePolicySchema,
+  routes: z.strictObject({
+    modelGateway: z.url(),
+    mcpControl: z.url(),
+  }),
+  agentResources: z.array(z.strictObject({
+    catalogId: agentCatalogIdSchema,
+    agentId: z.string().min(1).max(128),
+    memoryMiB: z.number().int().positive().max(65_536),
+  })).min(1).max(agentCatalogIds.length),
+  issuedAt: z.iso.datetime(),
+  notBefore: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+});
+export type PolicyBundlePayload = z.infer<typeof policyBundlePayloadSchema>;
+
+export const signedPolicyBundleSchema = z.strictObject({
+  profile: z.literal("onecomputer-effective-policy/v1"),
+  canonicalization: z.literal("RFC8785-JCS"),
+  algorithm: z.literal("Ed25519"),
+  keyId: policyVerificationKeySchema.shape.keyId,
+  payload: z.string().regex(/^[A-Za-z0-9_-]+$/).min(32),
+  payloadDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  signature: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+});
+export type SignedPolicyBundle = z.infer<typeof signedPolicyBundleSchema>;
+
+export const policyIntegrityViewSchema = z.strictObject({
+  state: z.enum(["match", "drift", "invalid", "expired", "unavailable"]),
+  reasonCode: z.enum([
+    "POLICY_INTEGRITY_MATCH",
+    "POLICY_PROJECTION_DRIFT",
+    "POLICY_SIGNATURE_INVALID",
+    "POLICY_EXPIRED",
+    "POLICY_PROJECTION_UNAVAILABLE",
+  ]),
+  expected: z.strictObject({
+    version: z.number().int().positive(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  projected: z.strictObject({
+    version: z.number().int().positive(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+    bundleDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    keyId: policyVerificationKeySchema.shape.keyId,
+    expiresAt: z.iso.datetime(),
+  }).nullable(),
+  enforced: z.strictObject({
+    version: z.number().int().positive(),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+    bundleDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    keyId: policyVerificationKeySchema.shape.keyId,
+    verifiedAt: z.iso.datetime(),
+  }).nullable(),
+});
+export type PolicyIntegrityView = z.infer<typeof policyIntegrityViewSchema>;
+
 export const controllerCreateSchema = z.object({
   workspaceId: z.uuid(),
   correlationId: z.string().min(1).max(128),
   policy: runtimePolicySchema,
+  policyBundle: signedPolicyBundleSchema,
   gateway: z.object({
     baseUrl: z.url(),
     credential: z.string().min(24),
@@ -343,8 +425,12 @@ export const controllerCreateSchema = z.object({
 
 export const sandboxSchema = z.object({
   providerId: z.string().min(1),
+  workspaceId: z.uuid().optional(),
   state: z.enum(["provisioning", "ready", "stopped", "failed"]),
   failureCode: z.string().nullable().default(null),
+  policyIntegrity: policyIntegrityViewSchema.optional(),
+  projectedPolicyBundle: signedPolicyBundleSchema.optional(),
+  policyProjectionPresent: z.boolean().optional(),
 });
 export type Sandbox = z.infer<typeof sandboxSchema>;
 

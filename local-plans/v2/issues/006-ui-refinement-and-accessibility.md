@@ -1,6 +1,6 @@
 # 006: refine the complete V2 UI and accessibility
 
-Status: `blocked`
+Status: `verification`
 
 Priority: P3
 Depends on: 005
@@ -106,4 +106,14 @@ accessibility limitations, and cleanup.
 
 ## Completion record
 
-Not complete.
+Implementation, automated checks, deployed build, and bounded desktop/mobile
+browser review are complete. Product-owner visual confirmation remains.
+
+- Inventory, component/token record, accessibility target, browser checks, and
+  residual human verification:
+  `local-plans/v2/decisions/006-ui-refinement-record.md`
+- Automated suite: 128/128 passed; the full workspace build passed.
+- Desktop 1440×1024, mobile 390×844, mobile navigation/focus, modal/drawer
+  semantics, and companion 390×844 were reviewed against the established Calm
+  Launchpad direction.
+- The production web container was rebuilt and is serving the refined UI.

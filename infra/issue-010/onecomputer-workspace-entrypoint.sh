@@ -6,6 +6,8 @@ set -euo pipefail
 : "${ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE:=true}"
 : "${ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL:=true}"
 : "${ONECOMPUTER_CLIPBOARD_MAX_BYTES:=65536}"
+: "${ONECOMPUTER_SIGNED_POLICY_B64:?Signed ONEComputer policy projection is required}"
+: "${ONECOMPUTER_POLICY_VERIFICATION_KEYS_B64:?Policy verification keys are required}"
 
 claude_code_version="2.1.215"
 claude_code_checksum="7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0"
@@ -84,6 +86,48 @@ if agent_enabled claude-desktop; then
 fi
 
 install -d -o root -g root -m 0755 /etc/claude-desktop /run/onecomputer
+install -d -o root -g root -m 0755 /etc/onecomputer/policy
+python3 - "$ONECOMPUTER_SIGNED_POLICY_B64" "$ONECOMPUTER_POLICY_VERIFICATION_KEYS_B64" <<'PY'
+import base64
+import json
+import os
+import sys
+
+def decode(value):
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding).decode("utf-8")
+
+bundle_text = decode(sys.argv[1])
+keys_text = decode(sys.argv[2])
+bundle = json.loads(bundle_text)
+keys = json.loads(keys_text)
+if (
+    set(bundle) != {"profile", "canonicalization", "algorithm", "keyId", "payload", "payloadDigest", "signature"}
+    or bundle.get("profile") != "onecomputer-effective-policy/v1"
+    or bundle.get("canonicalization") != "RFC8785-JCS"
+    or bundle.get("algorithm") != "Ed25519"
+    or keys.get("profile") != "onecomputer-policy-key-set/v1"
+):
+    raise SystemExit("invalid signed policy projection")
+
+files = {
+    "/etc/onecomputer/policy/signed-policy.json": bundle_text,
+    "/etc/onecomputer/policy/verification-keys.json": keys_text,
+    "/etc/onecomputer/policy/README.txt": (
+        "This is the transparent ONEComputer policy projection. The workspace copy is not an "
+        "enforcement authority. Control and the workspace controller independently verify and "
+        "enforce the signed policy outside this sandbox.\n"
+    ),
+}
+for path, content in files.items():
+    with open(path, "w", encoding="utf-8") as output:
+        output.write(content)
+        if not content.endswith("\n"):
+            output.write("\n")
+    os.chmod(path, 0o644)
+    os.chown(path, 0, 0)
+PY
+unset ONECOMPUTER_SIGNED_POLICY_B64 ONECOMPUTER_POLICY_VERIFICATION_KEYS_B64
 python3 - \
   "$clipboard_local_to_workspace" \
   "$clipboard_workspace_to_local" \

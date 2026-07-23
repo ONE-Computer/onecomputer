@@ -1,0 +1,19 @@
+{
+  "policies": {
+    "AppAutoUpdate": false,
+    "BackgroundAppUpdate": false,
+    "DisableAppUpdate": true,
+    "DisableFirefoxStudies": true,
+    "DisableTelemetry": true,
+    "DontCheckDefaultBrowser": true,
+    "NoDefaultBookmarks": true,
+    "OfferToSaveLogins": false,
+    "Proxy": {
+      "Locked": true,
+      "Mode": "manual",
+      "HTTPProxy": "127.0.0.1:4313",
+      "UseHTTPProxyForAllProtocols": true,
+      "UseProxyForDNS": true
+    }
+  }
+}

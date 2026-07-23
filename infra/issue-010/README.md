@@ -13,6 +13,9 @@ workspace-scoped LiteLLM gateway.
 - Claude Code engine `2.1.215` (the version pinned by this Desktop build)
 - engine archive SHA-256:
   `7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0`
+- Firefox ESR `140.12.0esr` (`linux-x86_64`, English US)
+- Firefox archive SHA-256:
+  `3323ee13ac6fe4877fa2e1f4a3aa6b8009f65a620c7bbca96fe86f1a6f433d92`
 - Kasm Ubuntu Jammy base:
   `sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580`
 - resulting local workspace image is printed by `build-workspace.sh` and pinned
@@ -83,6 +86,11 @@ OpenVTC decision without exposing gateway or provider credentials.
 - Persistent `/home/kasm-user` volume retained across UI stop/start and service
   restart.
 - Claude Desktop auto-starts as the primary application.
+- Firefox ESR is available from the desktop and application menu. Enterprise
+  policy locks it to a loopback-only credential broker, which authenticates to
+  the external egress proxy sidecar. The sidecar remains the enforcement point
+  for default-deny domain, protocol, and port policy. In-place updates, studies,
+  telemetry, and saved logins are disabled.
 
 The Sandbox page persists the approved profile/model choice per user and grant.
 Changes are rejected while the workspace is running and any choice outside the

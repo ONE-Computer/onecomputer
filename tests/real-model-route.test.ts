@@ -77,3 +77,25 @@ test("the workspace image enforces bounded native text clipboard without content
   assert.match(client, /clipboard sharing is disabled/i);
   assert.doesNotMatch(client, /clipboard\.(?:read|write|readText|writeText)\s*\(/);
 });
+
+test("the workspace image includes a pinned Firefox ESR locked to governed egress", async () => {
+  const dockerfile = await source("infra/issue-010/Dockerfile.workspace");
+  const entrypoint = await source("infra/issue-010/onecomputer-workspace-entrypoint.sh");
+  const policies = JSON.parse(await source("infra/issue-010/firefox-policies.json"));
+  assert.match(dockerfile, /FIREFOX_VERSION=140\.12\.0esr/);
+  assert.match(dockerfile, /FIREFOX_SHA256=3323ee13/);
+  assert.match(dockerfile, /firefox-\$\{FIREFOX_VERSION\}\.tar\.xz/);
+  assert.match(dockerfile, /sha256sum -c/);
+  assert.match(dockerfile, /onecomputer-egress-broker\.py \/usr\/local\/libexec\/onecomputer-egress-broker/);
+  assert.match(entrypoint, /onecomputer-firefox\.desktop .*\/home\/kasm-user\/Desktop\/Firefox\.desktop/);
+  assert.match(entrypoint, /ONECOMPUTER_EGRESS_UPSTREAM="\$HTTPS_PROXY"/);
+  assert.match(entrypoint, /onecomputer-egress-broker/);
+  assert.equal(policies.policies.Proxy.Mode, "manual");
+  assert.equal(policies.policies.Proxy.Locked, true);
+  assert.equal(policies.policies.Proxy.HTTPProxy, "127.0.0.1:4313");
+  assert.equal(policies.policies.Proxy.UseHTTPProxyForAllProtocols, true);
+  assert.equal(policies.policies.Proxy.UseProxyForDNS, true);
+  assert.equal(policies.policies.DisableAppUpdate, true);
+  assert.equal(policies.policies.DisableTelemetry, true);
+  assert.equal(policies.policies.OfferToSaveLogins, false);
+});

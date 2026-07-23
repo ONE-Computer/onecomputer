@@ -6,6 +6,8 @@ ARG CLAUDE_DESKTOP_VERSION=1.22209.3
 ARG CLAUDE_DESKTOP_SHA256=d427f46ac9233dbc4d8a441a602f09f750b8a5f05d1fc7a00285d7a6ce07655c
 ARG CLAUDE_CODE_VERSION=2.1.215
 ARG CLAUDE_CODE_SHA256=7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0
+ARG FIREFOX_VERSION=140.12.0esr
+ARG FIREFOX_SHA256=3323ee13ac6fe4877fa2e1f4a3aa6b8009f65a620c7bbca96fe86f1a6f433d92
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get purge -y \
@@ -19,37 +21,50 @@ RUN export DEBIAN_FRONTEND=noninteractive \
       "https://downloads.claude.ai/claude-desktop/apt/stable/pool/main/c/claude-desktop/claude-desktop_${CLAUDE_DESKTOP_VERSION}_amd64.deb" \
     && curl -fsSLo /tmp/claude-code.zst \
       "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/linux-x64/claude.zst" \
+    && curl -fsSLo /tmp/firefox.tar.xz \
+      "https://ftp.mozilla.org/pub/firefox/releases/${FIREFOX_VERSION}/linux-x86_64/en-US/firefox-${FIREFOX_VERSION}.tar.xz" \
     && echo "${CLAUDE_DESKTOP_SHA256}  /tmp/claude-desktop.deb" | sha256sum -c - \
     && echo "${CLAUDE_CODE_SHA256}  /tmp/claude-code.zst" | sha256sum -c - \
+    && echo "${FIREFOX_SHA256}  /tmp/firefox.tar.xz" | sha256sum -c - \
     && apt-get update \
     && apt-get install -y --no-install-recommends mousepad zstd /tmp/claude-desktop.deb \
+    && tar -xJf /tmp/firefox.tar.xz -C /opt \
+    && ln -s /opt/firefox/firefox /usr/local/bin/firefox \
     && install -d -o root -g root -m 0755 "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}" \
     && unzstd -c /tmp/claude-code.zst > "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude" \
     && chmod 0755 "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude" \
     && test "$(/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude --version | awk '{print $1}')" = "${CLAUDE_CODE_VERSION}" \
+    && test "$(/opt/firefox/firefox --version | awk '{print $3}')" = "${FIREFOX_VERSION}" \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/claude-desktop.deb /tmp/claude-code.zst /opt/Telegram \
+    && rm -rf /var/lib/apt/lists/* /tmp/claude-desktop.deb /tmp/claude-code.zst /tmp/firefox.tar.xz /opt/Telegram \
       /home/kasm-default-profile/Desktop/* \
       /home/kasm-default-profile/.mozilla \
       /home/kasm-default-profile/.local/share/remmina \
     && install -d -o root -g root -m 0755 /etc/claude-desktop /run/onecomputer
 
 COPY infra/issue-010/onecomputer-gateway-proxy.py /usr/local/libexec/onecomputer-gateway-proxy
+COPY infra/issue-010/onecomputer-egress-broker.py /usr/local/libexec/onecomputer-egress-broker
 COPY infra/issue-010/onecomputer-mcp-stdio.py /usr/local/libexec/onecomputer-mcp-stdio
 COPY infra/issue-010/onecomputer-kasm-clipboard.js /usr/share/kasmvnc/www/app/onecomputer-kasm-clipboard.js
 COPY infra/issue-010/onecomputer-workspace-entrypoint.sh /usr/local/sbin/onecomputer-workspace-entrypoint
 COPY infra/issue-010/claude-desktop.desktop /usr/share/applications/onecomputer-claude-desktop.desktop
+COPY infra/issue-010/firefox.desktop /usr/share/applications/onecomputer-firefox.desktop
+COPY infra/issue-010/firefox-policies.json /opt/firefox/distribution/policies.json
 COPY infra/issue-010/claude-desktop.desktop /home/kasm-default-profile/Desktop/Claude-Desktop.desktop
+COPY infra/issue-010/firefox.desktop /home/kasm-default-profile/Desktop/Firefox.desktop
 COPY infra/issue-010/claude-desktop.desktop /home/kasm-default-profile/.config/autostart/claude-desktop.desktop
 
 RUN chmod 0755 \
+      /usr/local/libexec/onecomputer-egress-broker \
       /usr/local/libexec/onecomputer-gateway-proxy \
       /usr/local/libexec/onecomputer-mcp-stdio \
       /usr/local/sbin/onecomputer-workspace-entrypoint \
       /usr/share/applications/onecomputer-claude-desktop.desktop \
+      /usr/share/applications/onecomputer-firefox.desktop \
       /home/kasm-default-profile/Desktop/Claude-Desktop.desktop \
+      /home/kasm-default-profile/Desktop/Firefox.desktop \
       /home/kasm-default-profile/.config/autostart/claude-desktop.desktop \
-    && chmod 0644 /usr/share/kasmvnc/www/app/onecomputer-kasm-clipboard.js \
+    && chmod 0644 /usr/share/kasmvnc/www/app/onecomputer-kasm-clipboard.js /opt/firefox/distribution/policies.json \
     && grep -q 'dist/style.bundle.js' /usr/share/kasmvnc/www/index.html \
     && printf '%s\n' '<script src="/app/onecomputer-kasm-clipboard.js"></script>' >> /usr/share/kasmvnc/www/index.html \
     && chown -R 1000:1000 /home/kasm-default-profile/Desktop /home/kasm-default-profile/.config

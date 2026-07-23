@@ -142,6 +142,7 @@ PY
 install -d -o 1000 -g 1000 -m 0755 /home/kasm-user/.config/autostart /home/kasm-user/Desktop
 install -o 1000 -g 1000 -m 0755 /usr/share/applications/onecomputer-claude-desktop.desktop /home/kasm-user/.config/autostart/claude-desktop.desktop
 install -o 1000 -g 1000 -m 0755 /usr/share/applications/onecomputer-claude-desktop.desktop /home/kasm-user/Desktop/Claude-Desktop.desktop
+install -o 1000 -g 1000 -m 0755 /usr/share/applications/onecomputer-firefox.desktop /home/kasm-user/Desktop/Firefox.desktop
 
 # Claude Desktop's Chat runtime uses the exact Claude Code engine embedded in
 # its signed build manifest. Seed that generated cache from the immutable image
@@ -169,6 +170,15 @@ proxy_pid=$!
 printf '%s\n' "$proxy_pid" > /run/onecomputer/gateway-proxy.pid
 unset ONECOMPUTER_GATEWAY_CREDENTIAL ONECOMPUTER_GATEWAY_UPSTREAM \
   ONECOMPUTER_AGENT_BRIDGE_TOKEN ONECOMPUTER_CONTROL_UPSTREAM
+
+if [[ -n "${HTTPS_PROXY:-}" ]]; then
+  env -i \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    ONECOMPUTER_EGRESS_UPSTREAM="$HTTPS_PROXY" \
+    /usr/local/libexec/onecomputer-egress-broker &
+  egress_broker_pid=$!
+  printf '%s\n' "$egress_broker_pid" > /run/onecomputer/egress-broker.pid
+fi
 
 for _ in $(seq 1 50); do
   if curl -fsS http://127.0.0.1:4312/healthz >/dev/null; then break; fi

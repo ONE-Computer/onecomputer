@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Firefox ESR
+Comment=Browse approved web destinations through the ONEComputer firewall
+Exec=/usr/local/bin/firefox %u
+Icon=/opt/firefox/browser/chrome/icons/default/default128.png
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=true

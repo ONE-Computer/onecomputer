@@ -186,3 +186,5 @@ volumes:
     external: true
   onecomputer-v4-litellm-postgres-data:
     name: onecomputer-v4-litellm-postgres-data
+    # Retain the existing local LiteLLM data and OAuth connection records.
+    external: true

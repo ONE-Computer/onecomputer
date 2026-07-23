@@ -2,9 +2,9 @@
 
 ## Active planning
 
-Start V2 work in [`v2/`](v2/). This directory is intentionally clean: add the
-new product brief, decisions, and issue sequence only after the V2 scope is
-agreed.
+Greenfield V2 polishing work is planned in [`v2/`](v2/). Start with its roadmap
+and work only on the first ready issue unless the product owner explicitly
+changes the sequence.
 
 ## Archive
 

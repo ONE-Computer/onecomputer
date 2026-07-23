@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
-import { OneComputerError, m365ToolCatalog, runtimePolicySchema, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
+import { defaultClipboardPolicy, OneComputerError, m365ToolCatalog, runtimePolicySchema, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
 
 export type OneComputerRole = "employee" | "administrator";
 
@@ -55,6 +55,9 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
     : typeof document.workspaceProfile === "string" ? [document.workspaceProfile] : [];
   const modelAlias = selectedModelAlias ?? allowedModelAliases[0];
   const workspaceProfile = selectedWorkspaceProfile ?? workspaceProfiles[0];
+  const clipboard = document.clipboard && typeof document.clipboard === "object" && !Array.isArray(document.clipboard)
+    ? document.clipboard as Record<string, unknown>
+    : defaultClipboardPolicy;
   if (!modelAlias || !allowedModelAliases.includes(modelAlias)) throw new OneComputerError("MODEL_NOT_ASSIGNED", "The selected model route is not assigned by the active policy", 403);
   if (!workspaceProfile || !workspaceProfiles.includes(workspaceProfile)) throw new OneComputerError("PROFILE_NOT_ASSIGNED", "The selected sandbox profile is not assigned by the active policy", 403);
   return runtimePolicySchema.parse({
@@ -66,6 +69,12 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
     agentId: policy.agentId,
     agentProfile: document.agentProfile,
     networkProfile: document.networkProfile,
+    clipboard: {
+      enabled: clipboard.enabled ?? defaultClipboardPolicy.enabled,
+      localToWorkspace: clipboard.localToWorkspace ?? defaultClipboardPolicy.localToWorkspace,
+      workspaceToLocal: clipboard.workspaceToLocal ?? defaultClipboardPolicy.workspaceToLocal,
+      maxBytes: clipboard.maxBytes ?? defaultClipboardPolicy.maxBytes,
+    },
     modelAlias,
     mcpServer,
     allowedTools: tools,
@@ -117,6 +126,7 @@ const mvpPolicyDocument = (revisionNote = "Initial MVP policy") => ({
   agentProfile: "claude-desktop-managed-v1",
   modelAliases: ["onecomputer-claude", "onecomputer-openai", "onecomputer-glm"],
   networkProfile: "controlled-egress-v1",
+  clipboard: defaultClipboardPolicy,
   mcp: {
     servers: {
       onecomputer_ms365: {

@@ -1,5 +1,12 @@
 import http from "node:http";
-import { OneComputerError, type Launch, type RuntimePolicy, type Sandbox } from "@onecomputer/contracts";
+import {
+  defaultClipboardPolicy,
+  OneComputerError,
+  type ClipboardPolicy,
+  type Launch,
+  type RuntimePolicy,
+  type Sandbox,
+} from "@onecomputer/contracts";
 
 export interface SandboxAdapter {
   create(input: SandboxCreateInput): Promise<Sandbox>;
@@ -40,6 +47,37 @@ const textValue = (object: JsonObject, ...keys: string[]) => {
   for (const key of keys) if (typeof object[key] === "string") return object[key] as string;
   return undefined;
 };
+
+const clipboardPolicyFor = (policy?: RuntimePolicy): ClipboardPolicy => policy?.clipboard ?? defaultClipboardPolicy;
+
+export function buildKasmClipboardLaunch(launchUrl: string, policy: ClipboardPolicy, now = new Date()): Launch {
+  const enabled = policy.enabled;
+  const localToWorkspace = enabled && policy.localToWorkspace;
+  const workspaceToLocal = enabled && policy.workspaceToLocal;
+  const launch = new URL(launchUrl);
+  launch.searchParams.set("clipboard_up", String(localToWorkspace));
+  launch.searchParams.set("clipboard_down", String(workspaceToLocal));
+  launch.searchParams.set("clipboard_seamless", String(enabled && (localToWorkspace || workspaceToLocal)));
+  launch.searchParams.set("translate_shortcuts", "true");
+  launch.searchParams.set("onecomputer_clipboard", enabled ? "enabled" : "disabled");
+  launch.searchParams.set("onecomputer_clipboard_max_bytes", String(policy.maxBytes));
+  return {
+    launchUrl: launch.toString(),
+    expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
+    clipboard: {
+      status: enabled ? "available" : "policy_disabled",
+      reasonCode: enabled ? "CLIPBOARD_READY" : "CLIPBOARD_POLICY_DISABLED",
+      mode: "native",
+      localToWorkspace,
+      workspaceToLocal,
+      mimeTypes: ["text/plain"],
+      maxBytes: policy.maxBytes,
+      requiresUserGesture: true,
+      supportedBrowsers: ["chromium"],
+      fallback: "kasm-control-panel",
+    },
+  };
+}
 
 export class KasmDeveloperApiAdapter implements SandboxAdapter {
   private readonly baseUrl: string;
@@ -89,7 +127,7 @@ export class KasmDeveloperApiAdapter implements SandboxAdapter {
     if (!kasmUrl) throw new OneComputerError("KASM_INVALID_RESPONSE", "Kasm did not return a launch URL", 502, true);
     const launch = new URL(kasmUrl, this.baseUrl);
     if (sessionToken && !launch.searchParams.has("token")) launch.searchParams.set("token", sessionToken);
-    return { launchUrl: launch.toString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    return buildKasmClipboardLaunch(launch.toString(), defaultClipboardPolicy);
   }
 
   async destroy(providerId: string) {
@@ -138,6 +176,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
   }
 
   async create(input: SandboxCreateInput): Promise<Sandbox> {
+    const clipboard = clipboardPolicyFor(input.policy);
     const workspaceNetwork = this.workspaceNetwork(input.workspaceId);
     const workspaceVolume = await this.resolveWorkspaceVolume(input.workspaceId);
     await this.ensureNetwork(workspaceNetwork, true, input.workspaceId);
@@ -168,11 +207,19 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "com.onecomputer.sandbox-profile": input.policy.workspaceProfile,
         "com.onecomputer.model-alias": input.policy.modelAlias,
         "com.onecomputer.desktop-port": String(port),
+        "com.onecomputer.clipboard-enabled": String(clipboard.enabled),
+        "com.onecomputer.clipboard-local-to-workspace": String(clipboard.localToWorkspace),
+        "com.onecomputer.clipboard-workspace-to-local": String(clipboard.workspaceToLocal),
+        "com.onecomputer.clipboard-max-bytes": String(clipboard.maxBytes),
       },
       Env: [
         "VNC_PW=onecomputer",
         "VNC_RESOLUTION=1440x900",
         "VNCOPTIONS=-DisableBasicAuth=1",
+        `ONECOMPUTER_CLIPBOARD_ENABLED=${clipboard.enabled}`,
+        `ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE=${clipboard.localToWorkspace}`,
+        `ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL=${clipboard.workspaceToLocal}`,
+        `ONECOMPUTER_CLIPBOARD_MAX_BYTES=${clipboard.maxBytes}`,
         ...(input.gateway ? [
           `ONECOMPUTER_GATEWAY_UPSTREAM=${input.gateway.baseUrl}`,
           `ONECOMPUTER_GATEWAY_CREDENTIAL=${input.gateway.credential}`,
@@ -245,9 +292,23 @@ export class KasmLocalAdapter implements SandboxAdapter {
   async open(providerId: string): Promise<Launch> {
     const inspected = await this.request("GET", `/containers/${encodeURIComponent(providerId)}/json`);
     if (asObject(inspected.State).Running !== true) throw new OneComputerError("WORKSPACE_NOT_READY", "The Kasm desktop is not running", 409, true);
-    const port = Number(asObject(inspected.Config).Labels && asObject(asObject(inspected.Config).Labels)["com.onecomputer.desktop-port"]);
+    const labels = asObject(asObject(inspected.Config).Labels);
+    const port = Number(labels["com.onecomputer.desktop-port"]);
     if (!Number.isInteger(port) || port <= 0) throw new OneComputerError("KASM_INVALID_STATE", "The Kasm desktop has no assigned session port", 502);
-    return { launchUrl: `https://${this.config.publicHost ?? "127.0.0.1"}:${port}/`, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() };
+    const defaultPolicy = defaultClipboardPolicy;
+    const policy = {
+      enabled: labels["com.onecomputer.clipboard-enabled"] === undefined
+        ? defaultPolicy.enabled
+        : labels["com.onecomputer.clipboard-enabled"] === "true",
+      localToWorkspace: labels["com.onecomputer.clipboard-local-to-workspace"] === undefined
+        ? defaultPolicy.localToWorkspace
+        : labels["com.onecomputer.clipboard-local-to-workspace"] === "true",
+      workspaceToLocal: labels["com.onecomputer.clipboard-workspace-to-local"] === undefined
+        ? defaultPolicy.workspaceToLocal
+        : labels["com.onecomputer.clipboard-workspace-to-local"] === "true",
+      maxBytes: Number(labels["com.onecomputer.clipboard-max-bytes"] ?? defaultPolicy.maxBytes),
+    };
+    return buildKasmClipboardLaunch(`https://${this.config.publicHost ?? "127.0.0.1"}:${port}/`, policy);
   }
 
   async destroy(providerId: string) {

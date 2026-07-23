@@ -33,6 +33,12 @@ test("effective policy projects to the one approved workspace runtime", () => {
     agentId: "agent-1",
     agentProfile: "onecomputer-default-agent",
     networkProfile: "controlled-egress-v1",
+    clipboard: {
+      enabled: true,
+      localToWorkspace: true,
+      workspaceToLocal: true,
+      maxBytes: 65_536,
+    },
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_ms365",
     allowedTools: ["list-mail-folders", "list-calendars", "list-drives", "search-onedrive-files", "get-drive-item", "delete-onedrive-file"],

@@ -57,3 +57,23 @@ test("Claude Desktop is pinned and receives managed gateway policy rather than p
   assert.match(entrypoint, /onecomputer-mcp-stdio/);
   assert.doesNotMatch(`${dockerfile}\n${entrypoint}\n${proxy}`, /ONECOMPUTER_(?:OPENAI|CLAUDE|GLM)_API_KEY|LITELLM_MASTER_KEY/);
 });
+
+test("the workspace image enforces bounded native text clipboard without content logging", async () => {
+  const dockerfile = await source("infra/issue-010/Dockerfile.workspace");
+  const entrypoint = await source("infra/issue-010/onecomputer-workspace-entrypoint.sh");
+  const client = await source("infra/issue-010/onecomputer-kasm-clipboard.js");
+  assert.match(dockerfile, /onecomputer-kasm-clipboard\.js/);
+  assert.match(dockerfile, /COPY .* \/usr\/share\/kasmvnc\/www\/app\/onecomputer-kasm-clipboard\.js/);
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends mousepad zstd/);
+  assert.match(dockerfile, /chmod 0644 \/usr\/share\/kasmvnc\/www\/app\/onecomputer-kasm-clipboard\.js/);
+  assert.match(dockerfile, /<script src="\/app\/onecomputer-kasm-clipboard\.js">/);
+  assert.match(entrypoint, /ONECOMPUTER_CLIPBOARD_MAX_BYTES:=65536/);
+  assert.match(entrypoint, /allow_mimetypes:\s+- text\/plain/);
+  assert.match(entrypoint, /server_to_client:\s+enabled: \{workspace_to_local\}\s+size: \{max_bytes\}/);
+  assert.match(entrypoint, /client_to_server:\s+enabled: \{local_to_workspace\}\s+size: \{max_bytes\}/);
+  assert.match(entrypoint, /data_loss_prevention:\s+logging:\s+level: off/);
+  assert.match(client, /clipboard permission is blocked/i);
+  assert.match(client, /native clipboard is unavailable/i);
+  assert.match(client, /clipboard sharing is disabled/i);
+  assert.doesNotMatch(client, /clipboard\.(?:read|write|readText|writeText)\s*\(/);
+});

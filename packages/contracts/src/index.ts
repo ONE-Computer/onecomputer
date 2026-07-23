@@ -64,6 +64,21 @@ export const sandboxProfileSchema = z.object({
 });
 export type SandboxProfile = z.infer<typeof sandboxProfileSchema>;
 
+export const clipboardPolicySchema = z.object({
+  enabled: z.boolean(),
+  localToWorkspace: z.boolean(),
+  workspaceToLocal: z.boolean(),
+  maxBytes: z.number().int().positive().max(1_048_576),
+}).strict();
+export type ClipboardPolicy = z.infer<typeof clipboardPolicySchema>;
+
+export const defaultClipboardPolicy: ClipboardPolicy = Object.freeze({
+  enabled: true,
+  localToWorkspace: true,
+  workspaceToLocal: true,
+  maxBytes: 65_536,
+});
+
 export const sandboxSettingsSchema = z.object({
   grantId: z.string().min(1).max(128),
   profileId: sandboxProfileIdSchema,
@@ -121,6 +136,7 @@ export const runtimePolicySchema = z.object({
   agentId: z.string().min(1),
   agentProfile: z.enum(["onecomputer-default-agent", "claude-desktop-managed-v1"]),
   networkProfile: z.literal("controlled-egress-v1"),
+  clipboard: clipboardPolicySchema.optional(),
   modelAlias: z.string().min(1).max(128),
   mcpServer: z.string().min(1).max(128),
   allowedTools: z.array(z.string().min(1).max(128)).min(1),
@@ -154,9 +170,24 @@ export const sandboxSchema = z.object({
 });
 export type Sandbox = z.infer<typeof sandboxSchema>;
 
+export const clipboardCapabilitySchema = z.object({
+  status: z.enum(["available", "policy_disabled"]),
+  reasonCode: z.enum(["CLIPBOARD_READY", "CLIPBOARD_POLICY_DISABLED"]),
+  mode: z.literal("native"),
+  localToWorkspace: z.boolean(),
+  workspaceToLocal: z.boolean(),
+  mimeTypes: z.tuple([z.literal("text/plain")]),
+  maxBytes: z.number().int().positive().max(1_048_576),
+  requiresUserGesture: z.literal(true),
+  supportedBrowsers: z.tuple([z.literal("chromium")]),
+  fallback: z.literal("kasm-control-panel"),
+}).strict();
+export type ClipboardCapability = z.infer<typeof clipboardCapabilitySchema>;
+
 export const launchSchema = z.object({
   launchUrl: z.url(),
   expiresAt: z.iso.datetime(),
+  clipboard: clipboardCapabilitySchema,
 });
 export type Launch = z.infer<typeof launchSchema>;
 

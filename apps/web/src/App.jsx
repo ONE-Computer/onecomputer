@@ -22,6 +22,7 @@ import { PlugConnected24Regular } from "@fluentui/react-icons/svg/plug-connected
 import { Settings24Regular } from "@fluentui/react-icons/svg/settings";
 import { SignOut24Regular } from "@fluentui/react-icons/svg/sign-out";
 import { operationApi, workspaceApi, sandboxApi, connectionApi, approvalApi, authApi, adminApi } from "./workspace-api.js";
+import { clipboardStatusForBrowser } from "./clipboard-status.js";
 import {
   clearBrowserApprover,
   enrollBrowserApprover,
@@ -949,9 +950,10 @@ export function App() {
     try {
       const result = await workspaceApi.open(workspace.id);
       applyWorkspace(result.workspace);
+      const clipboardStatus = clipboardStatusForBrowser(result.launch.clipboard);
       if (sessionWindow) sessionWindow.location.replace(result.launch.launchUrl);
       else window.location.assign(result.launch.launchUrl);
-      setToast("Workspace opened in a secure window.");
+      setToast(clipboardStatus.message);
     } catch (error) {
       sessionWindow?.close();
       showApiError(error);

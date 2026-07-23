@@ -4,7 +4,46 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { KasmLocalAdapter, mapKasmState } from "@onecomputer/kasm-adapter";
+import { buildKasmClipboardLaunch, KasmLocalAdapter, mapKasmState } from "@onecomputer/kasm-adapter";
+
+test("Kasm launch forces the native clipboard contract instead of browser-local defaults", () => {
+  const enabled = buildKasmClipboardLaunch("https://127.0.0.1:16920/", {
+    enabled: true,
+    localToWorkspace: true,
+    workspaceToLocal: true,
+    maxBytes: 65_536,
+  }, new Date("2026-07-23T02:00:00.000Z"));
+  const enabledUrl = new URL(enabled.launchUrl);
+  assert.equal(enabledUrl.searchParams.get("clipboard_up"), "true");
+  assert.equal(enabledUrl.searchParams.get("clipboard_down"), "true");
+  assert.equal(enabledUrl.searchParams.get("clipboard_seamless"), "true");
+  assert.equal(enabledUrl.searchParams.get("translate_shortcuts"), "true");
+  assert.deepEqual(enabled.clipboard, {
+    status: "available",
+    reasonCode: "CLIPBOARD_READY",
+    mode: "native",
+    localToWorkspace: true,
+    workspaceToLocal: true,
+    mimeTypes: ["text/plain"],
+    maxBytes: 65_536,
+    requiresUserGesture: true,
+    supportedBrowsers: ["chromium"],
+    fallback: "kasm-control-panel",
+  });
+
+  const disabled = buildKasmClipboardLaunch("https://127.0.0.1:16920/", {
+    enabled: false,
+    localToWorkspace: true,
+    workspaceToLocal: true,
+    maxBytes: 65_536,
+  }, new Date("2026-07-23T02:00:00.000Z"));
+  const disabledUrl = new URL(disabled.launchUrl);
+  assert.equal(disabledUrl.searchParams.get("clipboard_up"), "false");
+  assert.equal(disabledUrl.searchParams.get("clipboard_down"), "false");
+  assert.equal(disabledUrl.searchParams.get("clipboard_seamless"), "false");
+  assert.equal(disabled.clipboard.status, "policy_disabled");
+  assert.equal(disabled.clipboard.reasonCode, "CLIPBOARD_POLICY_DISABLED");
+});
 
 test("Kasm operational states map to the canonical sandbox contract", () => {
   assert.equal(mapKasmState("running"), "ready");
@@ -86,6 +125,12 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     agentId: "agent-alex",
     agentProfile: "onecomputer-default-agent" as const,
     networkProfile: "controlled-egress-v1" as const,
+    clipboard: {
+      enabled: true,
+      localToWorkspace: true,
+      workspaceToLocal: true,
+      maxBytes: 65_536,
+    },
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_ms365",
     allowedTools: ["list-mail-folders", "list-calendars", "list-drives"],
@@ -139,6 +184,10 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_UPSTREAM=http://litellm:4000"));
     assert.ok(serialized.includes("ONECOMPUTER_GATEWAY_CREDENTIAL=sk-scoped-workspace-agent-key"));
     assert.ok(serialized.includes("ONECOMPUTER_CONTROL_UPSTREAM=http://onecomputer-control:4100"));
+    assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_ENABLED=true"));
+    assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE=true"));
+    assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL=true"));
+    assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_MAX_BYTES=65536"));
     assert.ok(serialized.includes("com.onecomputer.control-attached"));
     assert.ok(!serialized.includes("OPENAI_API_KEY"));
     assert.ok(!serialized.includes("LITELLM_MASTER_KEY"));

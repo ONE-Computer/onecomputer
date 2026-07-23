@@ -22,7 +22,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && echo "${CLAUDE_DESKTOP_SHA256}  /tmp/claude-desktop.deb" | sha256sum -c - \
     && echo "${CLAUDE_CODE_SHA256}  /tmp/claude-code.zst" | sha256sum -c - \
     && apt-get update \
-    && apt-get install -y --no-install-recommends zstd /tmp/claude-desktop.deb \
+    && apt-get install -y --no-install-recommends mousepad zstd /tmp/claude-desktop.deb \
     && install -d -o root -g root -m 0755 "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}" \
     && unzstd -c /tmp/claude-code.zst > "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude" \
     && chmod 0755 "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude" \
@@ -36,6 +36,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
 COPY infra/issue-010/onecomputer-gateway-proxy.py /usr/local/libexec/onecomputer-gateway-proxy
 COPY infra/issue-010/onecomputer-mcp-stdio.py /usr/local/libexec/onecomputer-mcp-stdio
+COPY infra/issue-010/onecomputer-kasm-clipboard.js /usr/share/kasmvnc/www/app/onecomputer-kasm-clipboard.js
 COPY infra/issue-010/onecomputer-workspace-entrypoint.sh /usr/local/sbin/onecomputer-workspace-entrypoint
 COPY infra/issue-010/claude-desktop.desktop /usr/share/applications/onecomputer-claude-desktop.desktop
 COPY infra/issue-010/claude-desktop.desktop /home/kasm-default-profile/Desktop/Claude-Desktop.desktop
@@ -48,6 +49,9 @@ RUN chmod 0755 \
       /usr/share/applications/onecomputer-claude-desktop.desktop \
       /home/kasm-default-profile/Desktop/Claude-Desktop.desktop \
       /home/kasm-default-profile/.config/autostart/claude-desktop.desktop \
+    && chmod 0644 /usr/share/kasmvnc/www/app/onecomputer-kasm-clipboard.js \
+    && grep -q 'dist/style.bundle.js' /usr/share/kasmvnc/www/index.html \
+    && printf '%s\n' '<script src="/app/onecomputer-kasm-clipboard.js"></script>' >> /usr/share/kasmvnc/www/index.html \
     && chown -R 1000:1000 /home/kasm-default-profile/Desktop /home/kasm-default-profile/.config
 
 HEALTHCHECK --interval=5s --timeout=2s --start-period=15s --retries=12 \

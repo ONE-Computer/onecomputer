@@ -7,6 +7,10 @@ set -euo pipefail
 : "${ONECOMPUTER_CONTROL_UPSTREAM:?control bridge upstream is required}"
 : "${ONECOMPUTER_AGENT_BRIDGE_TOKEN:?scoped control bridge token is required}"
 : "${ONECOMPUTER_ALLOWED_TOOLS:?assigned Microsoft 365 tools are required}"
+: "${ONECOMPUTER_CLIPBOARD_ENABLED:=true}"
+: "${ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE:=true}"
+: "${ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL:=true}"
+: "${ONECOMPUTER_CLIPBOARD_MAX_BYTES:=65536}"
 
 claude_code_version="2.1.215"
 claude_code_checksum="7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0"
@@ -14,6 +18,28 @@ claude_code_source="/opt/onecomputer/claude-code/${claude_code_version}/claude"
 claude_code_dir="/home/kasm-user/.config/Claude-3p/claude-code/${claude_code_version}"
 claude_code_binary="${claude_code_dir}/claude"
 claude_code_marker="${claude_code_dir}/.verified"
+
+for clipboard_boolean in \
+  "$ONECOMPUTER_CLIPBOARD_ENABLED" \
+  "$ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE" \
+  "$ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL"; do
+  [[ "$clipboard_boolean" == "true" || "$clipboard_boolean" == "false" ]] || {
+    echo "invalid clipboard policy boolean" >&2
+    exit 78
+  }
+done
+[[ "$ONECOMPUTER_CLIPBOARD_MAX_BYTES" =~ ^[0-9]+$ ]] \
+  && ((ONECOMPUTER_CLIPBOARD_MAX_BYTES >= 1 && ONECOMPUTER_CLIPBOARD_MAX_BYTES <= 1048576)) || {
+    echo "invalid clipboard size policy" >&2
+    exit 78
+  }
+
+clipboard_local_to_workspace="$ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE"
+clipboard_workspace_to_local="$ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL"
+if [[ "$ONECOMPUTER_CLIPBOARD_ENABLED" != "true" ]]; then
+  clipboard_local_to_workspace=false
+  clipboard_workspace_to_local=false
+fi
 
 case "$ONECOMPUTER_MODEL_ALIAS" in
   onecomputer-claude|claude-sonnet-4-6) model_label="Claude — organization route" ;;
@@ -24,6 +50,45 @@ case "$ONECOMPUTER_MODEL_ALIAS" in
 esac
 
 install -d -o root -g root -m 0755 /etc/claude-desktop /run/onecomputer
+python3 - \
+  "$clipboard_local_to_workspace" \
+  "$clipboard_workspace_to_local" \
+  "$ONECOMPUTER_CLIPBOARD_MAX_BYTES" <<'PY'
+import os
+import sys
+
+local_to_workspace, workspace_to_local, max_bytes = sys.argv[1:]
+document = f"""network:
+  ssl:
+    pem_certificate: ${{HOME}}/.vnc/self.pem
+    pem_key: ${{HOME}}/.vnc/self.pem
+  udp:
+    public_ip: 127.0.0.1
+runtime_configuration:
+  allow_override_standard_vnc_server_settings: true
+  allow_override_list:
+    - pointer.enabled
+data_loss_prevention:
+  logging:
+    level: off
+  clipboard:
+    delay_between_operations: none
+    allow_mimetypes:
+      - text/plain
+    server_to_client:
+      enabled: {workspace_to_local}
+      size: {max_bytes}
+      primary_clipboard_enabled: false
+    client_to_server:
+      enabled: {local_to_workspace}
+      size: {max_bytes}
+"""
+path = "/etc/kasmvnc/kasmvnc.yaml"
+with open(path, "w", encoding="utf-8") as output:
+    output.write(document)
+os.chmod(path, 0o644)
+os.chown(path, 0, 0)
+PY
 python3 - "$ONECOMPUTER_MODEL_ALIAS" "$model_label" "$ONECOMPUTER_ALLOWED_TOOLS" <<'PY'
 import json
 import os

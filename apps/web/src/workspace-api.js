@@ -80,4 +80,7 @@ export const adminApi = {
   createPolicyVersion: (revisionNote) => request("/api/v1/admin/policy/versions", mutation("POST", { revisionNote })),
   mcpPolicy: () => request("/api/v1/admin/mcp-policy"),
   saveMcpPolicy: (tools) => request("/api/v1/admin/mcp-policy", { method: "PUT", headers: jsonHeaders, body: JSON.stringify({ tools }) }),
+  egressSecurityGroups: () => request("/api/v1/admin/egress-security-groups"),
+  saveEgressSecurityGroup: (document) => request("/api/v1/admin/egress-security-groups", mutation("POST", document)),
+  assignEgressSecurityGroup: (userId, securityGroupVersionId) => request(`/api/v1/admin/users/${encodeURIComponent(userId)}/egress-security-group`, mutation("POST", { securityGroupVersionId })),
 };

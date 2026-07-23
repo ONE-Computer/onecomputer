@@ -111,8 +111,8 @@ consistent, and the completion record points to the bundle.
 | ID | Priority | Status | Outcome | Depends on |
 | --- | --- | --- | --- | --- |
 | 001 | P0 | complete | Make Kasm clipboard use native copy/paste | — |
-| 002 | P1 | ready | Enforce a workspace egress firewall at the proxy/network boundary | 001 |
-| 003 | P1 | blocked | Ship NanoClaw and Claude Desktop as policy-selected default agents | 002 |
+| 002 | P1 | complete | Enforce a workspace egress firewall at the proxy/network boundary | 001 |
+| 003 | P1 | ready | Ship NanoClaw and Claude Desktop as policy-selected default agents | 002 |
 | 004 | P2 | blocked | Add a push-capable OpenVTC companion web app | 003 |
 | 005 | P3 | blocked | Sign projected policy and verify it at enforcement points | 004 |
 | 006 | P3 | blocked | Refine the complete V2 UI and accessibility | 005 |

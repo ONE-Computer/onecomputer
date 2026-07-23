@@ -79,6 +79,79 @@ export const defaultClipboardPolicy: ClipboardPolicy = Object.freeze({
   maxBytes: 65_536,
 });
 
+export const egressProtocolSchema = z.enum(["http", "https"]);
+export type EgressProtocol = z.infer<typeof egressProtocolSchema>;
+
+export const egressSecurityGroupRuleSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{2,63}$/),
+  action: z.literal("allow"),
+  protocol: egressProtocolSchema,
+  host: z.string().min(1).max(253),
+  includeSubdomains: z.boolean(),
+  port: z.number().int().min(1).max(65_535),
+  purpose: z.string().min(3).max(240),
+}).strict();
+export type EgressSecurityGroupRule = z.infer<typeof egressSecurityGroupRuleSchema>;
+
+export const saveEgressSecurityGroupSchema = z.object({
+  securityGroupId: z.string().regex(/^esg_[a-z0-9_]{3,96}$/).optional(),
+  name: z.string().min(3).max(96),
+  description: z.string().min(3).max(500),
+  rules: z.array(egressSecurityGroupRuleSchema).max(64),
+}).strict();
+export type SaveEgressSecurityGroup = z.infer<typeof saveEgressSecurityGroupSchema>;
+
+export const assignEgressSecurityGroupSchema = z.object({
+  securityGroupVersionId: z.string().regex(/^egv_[a-z0-9_]{3,96}$/),
+}).strict();
+
+export const egressSecurityGroupVersionSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().regex(/^egv_[a-z0-9_]{3,96}$/),
+  securityGroupId: z.string().regex(/^esg_[a-z0-9_]{3,96}$/),
+  tenantId: z.string().min(1).max(128),
+  version: z.number().int().positive(),
+  name: z.string().min(3).max(96),
+  description: z.string().min(3).max(500),
+  defaultAction: z.literal("deny"),
+  rules: z.array(egressSecurityGroupRuleSchema).max(64),
+  documentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  createdBy: z.string().min(1).max(128),
+  createdAt: z.iso.datetime(),
+}).strict();
+export type EgressSecurityGroupVersion = z.infer<typeof egressSecurityGroupVersionSchema>;
+
+export const runtimeEgressPolicySchema = egressSecurityGroupVersionSchema.pick({
+  id: true,
+  securityGroupId: true,
+  version: true,
+  name: true,
+  description: true,
+  defaultAction: true,
+  rules: true,
+  documentHash: true,
+});
+export type RuntimeEgressPolicy = z.infer<typeof runtimeEgressPolicySchema>;
+
+export const egressDecisionReasonSchema = z.enum([
+  "EGRESS_ALLOWED",
+  "EGRESS_DEFAULT_DENY",
+  "EGRESS_INVALID_HOST",
+  "EGRESS_IP_LITERAL_DENIED",
+  "EGRESS_DESTINATION_RESERVED",
+  "EGRESS_DNS_UNAVAILABLE",
+  "EGRESS_TLS_SNI_REQUIRED",
+  "EGRESS_TLS_SNI_MISMATCH",
+]);
+export type EgressDecisionReason = z.infer<typeof egressDecisionReasonSchema>;
+
+export const egressDecisionSchema = z.object({
+  decision: z.enum(["allow", "deny"]),
+  reasonCode: egressDecisionReasonSchema,
+  ruleId: z.string().optional(),
+}).strict();
+export type EgressDecision = z.infer<typeof egressDecisionSchema>;
+
 export const sandboxSettingsSchema = z.object({
   grantId: z.string().min(1).max(128),
   profileId: sandboxProfileIdSchema,
@@ -86,6 +159,7 @@ export const sandboxSettingsSchema = z.object({
   profile: sandboxProfileSchema,
   availableProfiles: z.array(sandboxProfileSchema).min(1),
   availableModels: z.array(z.object({ alias: sandboxModelAliasSchema, displayName: z.string().min(1), provider: z.string().min(1) })).min(1),
+  egress: runtimeEgressPolicySchema.optional(),
   updatedAt: z.iso.datetime().nullable(),
 });
 export type SandboxSettings = z.infer<typeof sandboxSettingsSchema>;
@@ -136,6 +210,7 @@ export const runtimePolicySchema = z.object({
   agentId: z.string().min(1),
   agentProfile: z.enum(["onecomputer-default-agent", "claude-desktop-managed-v1"]),
   networkProfile: z.literal("controlled-egress-v1"),
+  egress: runtimeEgressPolicySchema.optional(),
   clipboard: clipboardPolicySchema.optional(),
   modelAlias: z.string().min(1).max(128),
   mcpServer: z.string().min(1).max(128),
@@ -160,6 +235,19 @@ export const controllerCreateSchema = z.object({
   agentBridge: z.object({
     baseUrl: z.url(),
     token: z.string().min(24),
+  }).optional(),
+  egressProxy: z.object({
+    token: z.string().min(24),
+    verificationSecret: z.string().min(32),
+    expiresAt: z.iso.datetime(),
+    expectedGrant: z.object({
+      tenantId: z.string().min(1).max(128),
+      subjectId: z.string().min(1).max(128),
+      workspaceId: z.uuid(),
+      agentId: z.string().min(1),
+      securityGroupVersionId: z.string().regex(/^egv_[a-z0-9_]{3,96}$/),
+      policyHash: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict(),
   }).optional(),
 });
 

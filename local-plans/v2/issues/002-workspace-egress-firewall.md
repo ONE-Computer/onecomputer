@@ -1,6 +1,6 @@
 # 002: enforce a workspace egress firewall
 
-Status: `blocked`
+Status: `complete`
 
 Priority: P1
 Depends on: 001
@@ -61,21 +61,21 @@ a direct route around the policy.
 
 ## Required verification
 
-- [ ] Exact allowlisted web destinations work through the authenticated proxy,
+- [x] Exact allowlisted web destinations work through the authenticated proxy,
       while an unlisted destination is denied with a stable reason.
-- [ ] Direct Anthropic/OpenAI/GLM provider, Microsoft Graph, upstream MCP,
+- [x] Direct Anthropic/OpenAI/GLM provider, Microsoft Graph, upstream MCP,
       PostgreSQL, Docker, host gateway, metadata/link-local, private network,
       another workspace, and undeclared public destinations fail.
-- [ ] Removing proxy variables, changing Claude Desktop's base URL, using a raw
+- [x] Removing proxy variables, changing Claude Desktop's base URL, using a raw
       IP, alternate DNS/DoH/DoT, QUIC, CONNECT, an alternate port, a redirect,
       a hostile suffix, or DNS rebinding cannot bypass enforcement.
-- [ ] Missing, malformed, expired, revoked, replayed, wrong-tenant,
+- [x] Missing, malformed, expired, revoked, cross-boundary replayed, wrong-tenant,
       wrong-workspace, wrong-agent, and wrong-audience proxy grants issue no
       upstream connection.
-- [ ] Policy update, proxy restart, Control restart, DNS failure, policy-store
+- [x] Policy update, proxy restart, Control restart, DNS failure, policy-store
       outage, partial reconciliation, and concurrent workspace lifecycle
       actions fail closed and recover without stale rules.
-- [ ] The declared LiteLLM/MCP/Control/Kasm/OpenVTC internal paths and approved
+- [x] The declared LiteLLM/MCP/Control/Kasm/OpenVTC internal paths and approved
       update path still work, and no secret or prohibited request data appears
       in logs or evidence.
 
@@ -101,4 +101,30 @@ results, metadata-redaction inspection, and cleanup proof.
 
 ## Completion record
 
-Not complete.
+Completed on 2026-07-23.
+
+Architecture decision: the product capability is named **Egress firewall**.
+Administrators manage reusable, tenant-scoped **network security groups** whose
+versions contain deny-by-default outbound rules. Each sandbox policy assignment
+pins exactly one security-group version; V2 does not merge multiple groups.
+The effective assignment is enforced by a per-workspace proxy sidecar outside
+the sandbox, while the sandbox remains on an internal-only network. The Admin
+control plane owns group versions and attachments; the Sandbox screen shows a
+read-only assigned-firewall summary and connectivity reasons.
+
+The supported public-internet boundary is deliberately small: HTTP and HTTPS
+domain rules with exact ports. HTTPS is checked with CONNECT and TLS SNI
+metadata without decryption, so URL paths are not filterable and SSL scanning,
+IPS, content classification, and deep packet inspection remain out of scope.
+Raw IPs, unlisted domains, private/reserved resolution answers, alternate
+ports, and direct non-proxy egress fail closed.
+
+Verification: 116 repository tests passed; every workspace build passed; and an
+isolated real-container qualification proved the sandbox had only an internal
+network, the sidecar alone held the external route, an exact allowed HTTPS
+destination connected, and unlisted-provider, raw-IP, alternate-port, and
+proxy-removal attempts failed. The sidecar audit contained decision metadata
+without grants, verification secrets, query strings, payloads, or bodies.
+
+Evidence:
+`.artifacts/v2/issues/002/20260723T050331Z/`

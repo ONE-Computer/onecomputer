@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { m365ToolCatalog, type IdentityContext, type McpToolPolicyDecision, type RuntimePolicy } from "@onecomputer/contracts";
+import { m365ToolCatalog, type EgressSecurityGroupVersion, type IdentityContext, type McpToolPolicyDecision, type RuntimePolicy } from "@onecomputer/contracts";
 import type { GatewayClient } from "@onecomputer/litellm-adapter";
 import { MemoryWorkspaceStore, type EffectivePolicy, type IdentityPolicyStore, type SessionPrincipal } from "@onecomputer/workspace-store";
 import { createControlServer } from "../apps/control-api/src/server.js";
@@ -101,6 +101,21 @@ test("only an administrator can assign and revoke the tenant policy through Cont
   let assigned = false;
   let revoked = false;
   let savedToolPolicy: Record<string, McpToolPolicyDecision> | null = null;
+  let firewallVersion: EgressSecurityGroupVersion = {
+    schemaVersion: 1,
+    id: "egv_acme_updates_v1",
+    securityGroupId: "esg_acme_updates",
+    tenantId: "acme",
+    version: 1,
+    name: "Approved updates",
+    description: "Only reviewed update destinations.",
+    defaultAction: "deny",
+    rules: [{ id: "claude-downloads", action: "allow", protocol: "https", host: "downloads.claude.ai", includeSubdomains: false, port: 443, purpose: "Download approved updates" }],
+    documentHash: "e".repeat(64),
+    createdBy: "alpha",
+    createdAt: new Date().toISOString(),
+  };
+  effectivePolicy.egressSecurityGroup = firewallVersion;
   effectivePolicy.document = {
     schemaVersion: 1,
     workspaceProfile: "claude-desktop-standard-v1",
@@ -136,6 +151,15 @@ test("only an administrator can assign and revoke the tenant policy through Cont
       };
       document.mcp.servers.onecomputer_ms365.toolPolicies = tools;
       return { id: "version-2", version: 2, documentHash: "b".repeat(64) };
+    },
+    listEgressSecurityGroups: async () => [firewallVersion],
+    saveEgressSecurityGroup: async (input: { name: string; description: string; rules: EgressSecurityGroupVersion["rules"] }) => {
+      firewallVersion = { ...firewallVersion, version: 2, id: "egv_acme_updates_v2", name: input.name, description: input.description, rules: input.rules, documentHash: "f".repeat(64) };
+      return firewallVersion;
+    },
+    assignEgressSecurityGroup: async ({ securityGroupVersionId }: { securityGroupVersionId: string }) => {
+      effectivePolicy.egressSecurityGroup = { ...firewallVersion, id: securityGroupVersionId };
+      return effectivePolicy;
     },
   } as unknown as IdentityPolicyStore;
   const revokedKeys: string[] = [];
@@ -174,6 +198,42 @@ test("only an administrator can assign and revoke the tenant policy through Cont
     assert.equal(refreshedPolicies.length, 1);
     assert.equal(refreshedPolicies[0]?.policyVersionId, "version-2");
     assert.equal(refreshedPolicies[0]?.toolPolicies["list-calendars"], "deny");
+
+    const firewalls = await app.inject({ method: "GET", url: "/v1/admin/egress-security-groups", headers });
+    assert.equal(firewalls.statusCode, 200);
+    assert.equal(firewalls.json().securityGroups[0].rules[0].host, "downloads.claude.ai");
+
+    const savedFirewall = await app.inject({
+      method: "POST",
+      url: "/v1/admin/egress-security-groups",
+      headers: { ...headers, "content-type": "application/json" },
+      payload: {
+        securityGroupId: "esg_acme_updates",
+        name: "Approved updates",
+        description: "Reviewed update and package destinations.",
+        rules: [{ id: "claude-downloads", action: "allow", protocol: "https", host: "downloads.claude.ai", includeSubdomains: false, port: 443, purpose: "Download approved updates" }],
+      },
+    });
+    assert.equal(savedFirewall.statusCode, 201);
+    assert.equal(savedFirewall.json().version, 2);
+
+    const attachedFirewall = await app.inject({
+      method: "POST",
+      url: "/v1/admin/users/alpha/egress-security-group",
+      headers: { ...headers, "content-type": "application/json" },
+      payload: { securityGroupVersionId: "egv_acme_updates_v2" },
+    });
+    assert.equal(attachedFirewall.statusCode, 409);
+    await workspaceStore.update(activeWorkspace.id, { state: "stopped" });
+    const attachedStoppedFirewall = await app.inject({
+      method: "POST",
+      url: "/v1/admin/users/alpha/egress-security-group",
+      headers: { ...headers, "content-type": "application/json" },
+      payload: { securityGroupVersionId: "egv_acme_updates_v2" },
+    });
+    assert.equal(attachedStoppedFirewall.statusCode, 200);
+    assert.equal(attachedStoppedFirewall.json().egressSecurityGroup.id, "egv_acme_updates_v2");
+    await workspaceStore.update(activeWorkspace.id, { state: "ready" });
 
     const assign = await app.inject({ method: "POST", url: "/v1/admin/users/alpha/policy", headers });
     assert.equal(assign.statusCode, 200);

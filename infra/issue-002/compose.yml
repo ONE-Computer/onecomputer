@@ -90,6 +90,7 @@ services:
 
   workspace-controller:
     container_name: onecomputer-workspace-controller
+    image: onecomputer/control-runtime:v2
     build:
       context: ../..
       dockerfile: infra/issue-001/Dockerfile.node
@@ -106,6 +107,8 @@ services:
       KASM_LOCAL_CONTROL_CONTAINER: onecomputer-control-api
       KASM_LOCAL_IMAGE: ${ONECOMPUTER_WORKSPACE_IMAGE:?build infra/issue-010 and set ONECOMPUTER_WORKSPACE_IMAGE to its sha256 image id}
       KASM_LOCAL_RELAY_IMAGE: node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
+      KASM_LOCAL_EGRESS_PROXY_IMAGE: onecomputer/control-runtime:v2
+      KASM_LOCAL_EGRESS_NETWORK: onecomputer-egress
       KASM_PUBLIC_HOST: 127.0.0.1
     networks: [control-private]
     volumes:
@@ -141,6 +144,7 @@ services:
       ENTRA_CLIENT_ID: ${ONECOMPUTER_ENTRA_CLIENT_ID:-${ONECOMPUTER_MS365_CLIENT_ID:?set ONECOMPUTER_ENTRA_CLIENT_ID}}
       ENTRA_CLIENT_SECRET: ${ONECOMPUTER_ENTRA_CLIENT_SECRET:-${ONECOMPUTER_MS365_CLIENT_SECRET:?set ONECOMPUTER_ENTRA_CLIENT_SECRET}}
       SESSION_SECRET: ${ONECOMPUTER_SESSION_SECRET:-${ONECOMPUTER_LITELLM_CREDENTIAL_SECRET:?set ONECOMPUTER_SESSION_SECRET}}
+      EGRESS_GRANT_SECRET: ${ONECOMPUTER_EGRESS_GRANT_SECRET:?set ONECOMPUTER_EGRESS_GRANT_SECRET}
       BOOTSTRAP_TENANT_ID: ${ONECOMPUTER_BOOTSTRAP_TENANT_ID:-acme}
       BOOTSTRAP_USER_ID: ${ONECOMPUTER_BOOTSTRAP_USER_ID:-alex-morgan}
       TENANT_DISPLAY_NAME: ${ONECOMPUTER_TENANT_DISPLAY_NAME:-ME TECH}

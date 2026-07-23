@@ -29,6 +29,19 @@ export type SandboxCreateInput = {
     baseUrl: string;
     token: string;
   };
+  egressProxy?: {
+    token: string;
+    verificationSecret: string;
+    expiresAt: string;
+    expectedGrant: {
+      tenantId: string;
+      subjectId: string;
+      workspaceId: string;
+      agentId: string;
+      securityGroupVersionId: string;
+      policyHash: string;
+    };
+  };
 };
 
 type KasmConfig = {
@@ -164,6 +177,8 @@ type KasmLocalConfig = {
   gatewayContainer: string;
   controlContainer?: string;
   relayImage: string;
+  egressProxyImage?: string;
+  egressNetwork?: string;
   publicHost?: string;
   portStart?: number;
   portEnd?: number;
@@ -177,11 +192,18 @@ export class KasmLocalAdapter implements SandboxAdapter {
 
   async create(input: SandboxCreateInput): Promise<Sandbox> {
     const clipboard = clipboardPolicyFor(input.policy);
+    if (input.policy.egress && (!input.egressProxy || !this.config.egressProxyImage)) {
+      throw new OneComputerError("EGRESS_PROXY_NOT_CONFIGURED", "The assigned egress firewall cannot be provisioned", 503);
+    }
     const workspaceNetwork = this.workspaceNetwork(input.workspaceId);
     const workspaceVolume = await this.resolveWorkspaceVolume(input.workspaceId);
     await this.ensureNetwork(workspaceNetwork, true, input.workspaceId);
     await this.ensureVolume(workspaceVolume, input.workspaceId);
     await this.ensureNetwork(this.config.controlNetwork, false);
+    if (input.policy.egress && input.egressProxy && this.config.egressProxyImage) {
+      await this.ensureNetwork(this.config.egressNetwork ?? "onecomputer-egress", false);
+      await this.ensureEgressProxy(input, workspaceNetwork);
+    }
     if (input.gateway) await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
     if (input.agentBridge && this.config.controlContainer) await this.connectContainer(workspaceNetwork, this.config.controlContainer, ["onecomputer-control"]);
     const name = `onecomputer-sandbox-${input.workspaceId}`;
@@ -211,6 +233,11 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "com.onecomputer.clipboard-local-to-workspace": String(clipboard.localToWorkspace),
         "com.onecomputer.clipboard-workspace-to-local": String(clipboard.workspaceToLocal),
         "com.onecomputer.clipboard-max-bytes": String(clipboard.maxBytes),
+        "com.onecomputer.egress-attached": String(Boolean(input.policy.egress)),
+        ...(input.policy.egress ? {
+          "com.onecomputer.egress-security-group-version-id": input.policy.egress.id,
+          "com.onecomputer.egress-policy-hash": input.policy.egress.documentHash,
+        } : {}),
       },
       Env: [
         "VNC_PW=onecomputer",
@@ -234,6 +261,14 @@ export class KasmLocalAdapter implements SandboxAdapter {
         ...(input.agentBridge ? [
           `ONECOMPUTER_CONTROL_UPSTREAM=${input.agentBridge.baseUrl}`,
           `ONECOMPUTER_AGENT_BRIDGE_TOKEN=${input.agentBridge.token}`,
+        ] : []),
+        ...(input.policy.egress && input.egressProxy ? [
+          `HTTP_PROXY=http://onecomputer:${encodeURIComponent(input.egressProxy.token)}@onecomputer-egress-proxy:3128`,
+          `HTTPS_PROXY=http://onecomputer:${encodeURIComponent(input.egressProxy.token)}@onecomputer-egress-proxy:3128`,
+          `http_proxy=http://onecomputer:${encodeURIComponent(input.egressProxy.token)}@onecomputer-egress-proxy:3128`,
+          `https_proxy=http://onecomputer:${encodeURIComponent(input.egressProxy.token)}@onecomputer-egress-proxy:3128`,
+          "NO_PROXY=localhost,127.0.0.1,litellm,onecomputer-control",
+          "no_proxy=localhost,127.0.0.1,litellm,onecomputer-control",
         ] : []),
       ],
       HostConfig: {
@@ -330,6 +365,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
       if (!(error instanceof OneComputerError && error.statusCode === 404)) throw error;
     }
     if (name) await this.removeContainer(`${name}-relay`);
+    if (name) await this.removeContainer(`${name}-egress`);
     await this.removeContainer(providerId);
     if (workspaceNetwork && this.isWorkspaceNetwork(workspaceNetwork)) {
       if (gatewayAttached) await this.disconnectContainer(workspaceNetwork, this.config.gatewayContainer);
@@ -514,6 +550,78 @@ export class KasmLocalAdapter implements SandboxAdapter {
     await this.connectContainer(workspaceNetwork, relayId);
   }
 
+  private async ensureEgressProxy(input: SandboxCreateInput, workspaceNetwork: string) {
+    if (!input.policy.egress || !input.egressProxy || !this.config.egressProxyImage) return;
+    if (
+      input.egressProxy.expectedGrant.workspaceId !== input.workspaceId
+      || input.egressProxy.expectedGrant.agentId !== input.policy.agentId
+      || input.egressProxy.expectedGrant.securityGroupVersionId !== input.policy.egress.id
+      || input.egressProxy.expectedGrant.policyHash !== input.policy.policyHash
+    ) {
+      throw new OneComputerError("EGRESS_PROXY_GRANT_MISMATCH", "The egress proxy grant does not match the sandbox policy", 403);
+    }
+    const sandboxName = `onecomputer-sandbox-${input.workspaceId}`;
+    const proxyName = `${sandboxName}-egress`;
+    const existing = await this.inspectByName(proxyName);
+    if (existing?.running) return;
+    if (existing) await this.removeContainer(existing.id);
+    const policy = {
+      schemaVersion: 1,
+      id: input.policy.egress.id,
+      securityGroupId: input.policy.egress.securityGroupId,
+      tenantId: input.egressProxy.expectedGrant.tenantId,
+      version: input.policy.egress.version,
+      name: input.policy.egress.name,
+      description: input.policy.egress.description,
+      defaultAction: input.policy.egress.defaultAction,
+      rules: input.policy.egress.rules,
+      documentHash: input.policy.egress.documentHash,
+      createdBy: input.egressProxy.expectedGrant.subjectId,
+      createdAt: new Date().toISOString(),
+    };
+    const created = await this.request("POST", `/containers/create?name=${encodeURIComponent(proxyName)}`, {
+      Image: this.config.egressProxyImage,
+      Cmd: ["npm", "run", "start", "-w", "@onecomputer/egress-proxy"],
+      Labels: {
+        "com.onecomputer.egress-proxy": "v2",
+        "com.onecomputer.workspace-id": input.workspaceId,
+        "com.onecomputer.egress-security-group-version-id": input.policy.egress.id,
+        "com.onecomputer.egress-policy-hash": input.policy.egress.documentHash,
+      },
+      Env: [
+        "EGRESS_PROXY_PORT=3128",
+        `EGRESS_POLICY_JSON=${JSON.stringify(policy)}`,
+        `EGRESS_EXPECTED_GRANT_JSON=${JSON.stringify(input.egressProxy.expectedGrant)}`,
+        `EGRESS_GRANT_SECRET=${input.egressProxy.verificationSecret}`,
+      ],
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [workspaceNetwork]: { Aliases: ["onecomputer-egress-proxy"] },
+        },
+      },
+      HostConfig: {
+        NetworkMode: workspaceNetwork,
+        RestartPolicy: { Name: "unless-stopped" },
+        ReadonlyRootfs: true,
+        CapDrop: ["ALL"],
+        SecurityOpt: ["no-new-privileges"],
+        PidsLimit: 128,
+        Memory: 268_435_456,
+        NanoCpus: 500_000_000,
+        Tmpfs: { "/tmp": "rw,noexec,nosuid,size=16m" },
+      },
+    });
+    const proxyId = textValue(created, "Id");
+    if (!proxyId) throw new OneComputerError("DOCKER_INVALID_RESPONSE", "Docker did not return an egress proxy identifier", 502);
+    try {
+      await this.connectContainer(this.config.egressNetwork ?? "onecomputer-egress", proxyId);
+      await this.request("POST", `/containers/${proxyId}/start`);
+    } catch (error) {
+      await this.removeContainer(proxyId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   private request(method: string, path: string, body?: JsonObject): Promise<JsonObject> {
     return new Promise((resolve, reject) => {
       const payload = body ? JSON.stringify(body) : undefined;
@@ -523,7 +631,14 @@ export class KasmLocalAdapter implements SandboxAdapter {
         response.on("end", () => {
           const text = Buffer.concat(chunks).toString("utf8");
           if ((response.statusCode ?? 500) >= 400) {
-            reject(new OneComputerError("DOCKER_API_ERROR", `Docker API returned ${response.statusCode}`, response.statusCode ?? 500));
+            let daemonMessage = "";
+            try {
+              const parsed = JSON.parse(text) as { message?: unknown };
+              if (typeof parsed.message === "string") daemonMessage = parsed.message.replace(/[\r\n]+/g, " ").slice(0, 240);
+            } catch {
+              // Keep invalid daemon responses out of the surfaced error.
+            }
+            reject(new OneComputerError("DOCKER_API_ERROR", `Docker API returned ${response.statusCode}${daemonMessage ? `: ${daemonMessage}` : ""}`, response.statusCode ?? 500));
             return;
           }
           if (!text) { resolve({}); return; }

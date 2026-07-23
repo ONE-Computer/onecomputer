@@ -21,6 +21,8 @@ const envSchema = z.object({
   KASM_LOCAL_GATEWAY_CONTAINER: z.string().default("onecomputer-litellm"),
   KASM_LOCAL_CONTROL_CONTAINER: z.string().default("onecomputer-control-api"),
   KASM_LOCAL_RELAY_IMAGE: z.string().default("node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2"),
+  KASM_LOCAL_EGRESS_PROXY_IMAGE: z.string().optional(),
+  KASM_LOCAL_EGRESS_NETWORK: z.string().default("onecomputer-egress"),
   KASM_PUBLIC_HOST: z.string().default("127.0.0.1"),
 });
 
@@ -52,6 +54,7 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
       policy: input.policy,
       gateway: input.gateway,
       agentBridge: input.agentBridge,
+      egressProxy: input.egressProxy,
     }));
   });
   app.get<{ Params: { providerId: string } }>("/internal/v1/sandboxes/:providerId", async (request) => adapter.status(request.params.providerId));
@@ -88,6 +91,8 @@ export function adapterFromEnv(env: z.infer<typeof envSchema>): SandboxAdapter {
       gatewayContainer: env.KASM_LOCAL_GATEWAY_CONTAINER,
       controlContainer: env.KASM_LOCAL_CONTROL_CONTAINER,
       relayImage: env.KASM_LOCAL_RELAY_IMAGE,
+      egressProxyImage: env.KASM_LOCAL_EGRESS_PROXY_IMAGE,
+      egressNetwork: env.KASM_LOCAL_EGRESS_NETWORK,
       publicHost: env.KASM_PUBLIC_HOST,
     });
   }

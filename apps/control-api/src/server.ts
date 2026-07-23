@@ -1,13 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
+import { assignEgressSecurityGroupSchema, OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, saveEgressSecurityGroupSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { Ed25519DidKeySigner } from "@onecomputer/openvtc-adapter";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
 import { z } from "zod";
 import { FixtureApprovalAuthority, GovernedOperationService } from "./operations.js";
 import { Microsoft365ConnectionService } from "./connections.js";
-import { HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
+import { EgressProxyGrantAuthority, HttpControllerClient, WorkspaceService, type ControllerClient } from "./service.js";
 import { EntraAuthenticationService, isAdministrator, testPrincipalFromHeaders } from "./auth.js";
 import { McpPolicyService, m365CapabilityDefinitions } from "./mcp-policy.js";
 import { OpenVtcApprovalCoordinator } from "./openvtc.js";
@@ -67,6 +67,7 @@ const envSchema = z.object({
   ENTRA_CLIENT_ID: z.string().min(1),
   ENTRA_CLIENT_SECRET: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
+  EGRESS_GRANT_SECRET: z.string().min(32).optional(),
   BOOTSTRAP_TENANT_ID: z.string().min(1).default("acme"),
   BOOTSTRAP_USER_ID: z.string().min(1).default("alex-morgan"),
   TENANT_DISPLAY_NAME: z.string().min(1).default("ME TECH"),
@@ -93,6 +94,7 @@ export function createControlServer(
     mcpPolicyToken?: string;
     testIdentityMode?: boolean;
     openVtc?: OpenVtcApprovalCoordinator;
+    egressGrantSecret?: string;
   } = {},
 ) {
   const testRuntimePolicy: RuntimePolicy = {
@@ -120,7 +122,7 @@ export function createControlServer(
   const service = new WorkspaceService(store, controller, gateway, {
     baseUrl: connectionOptions.agentBridgeUrl ?? "http://onecomputer-control:4100",
     issue: (identity, workspaceId, policy) => agentBridgeAuthority.issue(identity, workspaceId, policy),
-  });
+  }, security.egressGrantSecret ? new EgressProxyGrantAuthority(security.egressGrantSecret) : undefined);
   const executor: GovernedToolExecutor = gateway?.executeGovernedTool
     ? { executeGovernedTool: (input) => gateway.executeGovernedTool!(input) }
     : { executeGovernedTool: async () => { throw new OneComputerError("GATEWAY_NOT_CONFIGURED", "The governed tool gateway is not configured", 503, true); } };
@@ -284,6 +286,42 @@ export function createControlServer(
     const note = z.object({ revisionNote: z.string().min(3).max(160) }).parse(request.body ?? {});
     return security.identityPolicyStore.createMvpPolicyVersion({ tenantId: actor.tenantId, createdBy: actor.userId, revisionNote: note.revisionNote });
   });
+  app.get("/v1/admin/egress-security-groups", async (request) => {
+    const actor = requireAdministrator(request);
+    if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
+    return { securityGroups: await security.identityPolicyStore.listEgressSecurityGroups(actor.tenantId, actor.userId) };
+  });
+  app.post("/v1/admin/egress-security-groups", async (request, reply) => {
+    const actor = requireAdministrator(request);
+    if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
+    const input = saveEgressSecurityGroupSchema.parse(request.body ?? {});
+    const saved = await security.identityPolicyStore.saveEgressSecurityGroup({
+      tenantId: actor.tenantId,
+      updatedBy: actor.userId,
+      ...input,
+    });
+    return reply.code(201).send(saved);
+  });
+  app.post<{ Params: { userId: string } }>("/v1/admin/users/:userId/egress-security-group", async (request) => {
+    const actor = requireAdministrator(request);
+    if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
+    const input = assignEgressSecurityGroupSchema.parse(request.body ?? {});
+    const targetIdentity = identityContextSchema.parse({
+      tenantId: actor.tenantId,
+      subjectId: request.params.userId,
+      audience: "onecomputer-control",
+    });
+    const workspace = await store.getCurrent(targetIdentity, "personal");
+    if (workspace && !["not_created", "stopped", "failed"].includes(workspace.state)) {
+      throw new OneComputerError("WORKSPACE_MUST_BE_STOPPED", "Stop the workspace before changing its egress firewall", 409, true);
+    }
+    return security.identityPolicyStore.assignEgressSecurityGroup({
+      tenantId: actor.tenantId,
+      targetUserId: request.params.userId,
+      assignedBy: actor.userId,
+      securityGroupVersionId: input.securityGroupVersionId,
+    });
+  });
   app.get("/v1/admin/mcp-policy", async (request) => {
     const actor = requireAdministrator(request);
     if (!security.identityPolicyStore) throw new OneComputerError("POLICY_STORE_NOT_CONFIGURED", "Policy storage is unavailable", 503);
@@ -376,6 +414,7 @@ export function createControlServer(
       profile: availableProfiles.find((profile) => profile.id === profileId),
       availableProfiles,
       availableModels,
+      ...(effective?.egressSecurityGroup ? { egress: runtimePolicyFor(effective, modelAlias, profileId).egress } : {}),
       updatedAt: saved?.updatedAt.toISOString() ?? null,
     });
   });
@@ -401,6 +440,7 @@ export function createControlServer(
       profile,
       availableProfiles: sandboxProfiles.filter((item) => profiles.includes(item.id)),
       availableModels: sandboxModels.filter((item) => models.includes(item.alias)),
+      ...(effective?.egressSecurityGroup ? { egress: runtimePolicyFor(effective, input.modelAlias, input.profileId).egress } : {}),
       updatedAt: new Date().toISOString(),
     });
   });
@@ -532,6 +572,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         administratorEmails: env.ADMINISTRATOR_EMAILS.split(",").map((item) => item.trim()).filter(Boolean),
       }),
       openVtc,
+      egressGrantSecret: env.EGRESS_GRANT_SECRET,
     },
   );
   app.addHook("onClose", async () => { await store.close(); await identityPolicyStore.close(); });

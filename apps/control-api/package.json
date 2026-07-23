@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@onecomputer/contracts": "*",
+    "@onecomputer/egress-policy": "*",
     "@onecomputer/litellm-adapter": "*",
     "@onecomputer/openvtc-adapter": "*",
     "@onecomputer/workspace-store": "*",

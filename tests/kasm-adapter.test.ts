@@ -101,7 +101,9 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     if (request.method === "POST" && path.startsWith("/containers/create")) {
       createCount += 1;
       response.statusCode = 201;
-      response.end(JSON.stringify({ Id: createCount === 1 ? "sandbox-id" : "relay-id" }));
+      response.end(JSON.stringify({
+        Id: path.includes("-egress") ? "egress-id" : path.includes("-relay") ? "relay-id" : "sandbox-id",
+      }));
       return;
     }
     if (request.method === "POST" && path === "/networks/create" && body.Name === "onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508") {
@@ -131,6 +133,24 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
       workspaceToLocal: true,
       maxBytes: 65_536,
     },
+    egress: {
+      id: "egv_acme_updates_v1",
+      securityGroupId: "esg_acme_updates",
+      version: 1,
+      name: "Approved updates",
+      description: "Only the approved update domain.",
+      defaultAction: "deny" as const,
+      documentHash: "e".repeat(64),
+      rules: [{
+        id: "claude-downloads",
+        action: "allow" as const,
+        protocol: "https" as const,
+        host: "downloads.claude.ai",
+        includeSubdomains: false,
+        port: 443,
+        purpose: "Download Claude Desktop updates",
+      }],
+    },
     modelAlias: "onecomputer-assistant",
     mcpServer: "onecomputer_ms365",
     allowedTools: ["list-mail-folders", "list-calendars", "list-drives"],
@@ -144,6 +164,8 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
       gatewayContainer: "onecomputer-litellm",
       controlContainer: "onecomputer-control-api",
       relayImage: "sha256:pinned-relay",
+      egressProxyImage: "sha256:pinned-egress-proxy",
+      egressNetwork: "onecomputer-egress",
       portStart: 16920,
       portEnd: 16920,
     });
@@ -161,6 +183,19 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
         token: "scoped-agent-bridge-token-at-least-24-characters",
         expiresAt: "2026-07-21T00:00:00.000Z",
       },
+      egressProxy: {
+        token: "signed-workspace-egress-token-at-least-24-characters",
+        verificationSecret: "workspace-derived-verification-secret-at-least-32-characters",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+        expectedGrant: {
+          tenantId: "acme",
+          subjectId: "alex",
+          workspaceId: "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508",
+          agentId: "agent-alex",
+          securityGroupVersionId: "egv_acme_updates_v1",
+          policyHash: "d".repeat(64),
+        },
+      },
     });
     const workspaceNetwork = "onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508";
     const networkCreate = requests.find((item) => item.path === "/networks/create" && item.body.Name === workspaceNetwork)!;
@@ -170,7 +205,7 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     assert.deepEqual((gatewayAttach.body.EndpointConfig as Record<string, unknown>).Aliases, ["litellm"]);
     const controlAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-control-api")!;
     assert.deepEqual((controlAttach.body.EndpointConfig as Record<string, unknown>).Aliases, ["onecomputer-control"]);
-    const sandboxCreate = requests.find((item) => item.path.startsWith("/containers/create?name=onecomputer-sandbox"))!;
+    const sandboxCreate = requests.find((item) => item.method === "POST" && item.path.startsWith("/containers/create?name=onecomputer-sandbox") && !item.path.includes("-egress") && !item.path.includes("-relay"))!;
     const host = sandboxCreate.body.HostConfig as Record<string, unknown>;
     assert.equal(host.NetworkMode, workspaceNetwork);
     assert.deepEqual(host.CapDrop, ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]);
@@ -188,12 +223,24 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE=true"));
     assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL=true"));
     assert.ok(serialized.includes("ONECOMPUTER_CLIPBOARD_MAX_BYTES=65536"));
+    assert.ok(serialized.includes("HTTPS_PROXY=http://onecomputer:"));
+    assert.ok(serialized.includes("@onecomputer-egress-proxy:3128"));
+    assert.ok(!serialized.includes("EGRESS_GRANT_SECRET"));
     assert.ok(serialized.includes("com.onecomputer.control-attached"));
     assert.ok(!serialized.includes("OPENAI_API_KEY"));
     assert.ok(!serialized.includes("LITELLM_MASTER_KEY"));
     assert.ok(!serialized.includes("CLIENT_SECRET"));
     assert.ok(!serialized.includes("DATABASE_URL"));
     assert.ok(!serialized.includes("DOCKER_HOST"));
+    const egressCreate = requests.find((item) => item.method === "POST" && item.path.startsWith("/containers/create") && item.path.includes("-egress"))!;
+    const egressHost = egressCreate.body.HostConfig as Record<string, unknown>;
+    assert.equal(egressHost.NetworkMode, workspaceNetwork);
+    assert.deepEqual(egressHost.CapDrop, ["ALL"]);
+    assert.equal(egressHost.ReadonlyRootfs, true);
+    const egressNetworking = egressCreate.body.NetworkingConfig as { EndpointsConfig: Record<string, { Aliases: string[] }> };
+    assert.deepEqual(egressNetworking.EndpointsConfig[workspaceNetwork]?.Aliases, ["onecomputer-egress-proxy"]);
+    assert.ok(JSON.stringify(egressCreate.body).includes("downloads.claude.ai"));
+    assert.ok(requests.some((item) => item.path === "/networks/onecomputer-egress/connect" && item.body.Container === "egress-id"));
     // Simulate Compose replacing Control and dropping its dynamic endpoint.
     controlConnected = false;
     await adapter.status("sandbox-id");

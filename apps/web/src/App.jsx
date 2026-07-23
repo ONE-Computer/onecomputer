@@ -336,7 +336,88 @@ function ToolPolicyEditor({ mcpPolicy, loading, policySaving, onPolicyChange, on
   );
 }
 
-function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, onConfigureConnector }) {
+function EgressFirewallCard({ versions, saving, onSave }) {
+  const latest = versions.filter((item, index, all) => all.findIndex((candidate) => candidate.securityGroupId === item.securityGroupId) === index);
+  const [selectedId, setSelectedId] = useState("");
+  const selected = selectedId === "__new__" ? undefined : latest.find((item) => item.securityGroupId === selectedId) ?? latest[0];
+  const [draft, setDraft] = useState(null);
+  const [rule, setRule] = useState({ host: "", protocol: "https", port: 443, includeSubdomains: false, purpose: "" });
+
+  useEffect(() => {
+    if (!selected) return;
+    setSelectedId(selected.securityGroupId);
+    setDraft({
+      securityGroupId: selected.securityGroupId,
+      name: selected.name,
+      description: selected.description,
+      rules: selected.rules,
+    });
+  }, [selected?.id]);
+
+  const startNew = () => {
+    setSelectedId("__new__");
+    setDraft({ name: "Approved web access", description: "Reviewed outbound web destinations for this sandbox.", rules: [] });
+  };
+  const addRule = () => {
+    if (!draft || !rule.host.trim() || !rule.purpose.trim()) return;
+    const id = `${rule.protocol}-${rule.host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${rule.port}`.slice(0, 64);
+    setDraft({ ...draft, rules: [...draft.rules, { ...rule, id, host: rule.host.trim(), purpose: rule.purpose.trim(), action: "allow", port: Number(rule.port) }] });
+    setRule({ host: "", protocol: "https", port: 443, includeSubdomains: false, purpose: "" });
+  };
+
+  return (
+    <section className="egress-firewall-card" aria-labelledby="egress-firewall-heading">
+      <div className="egress-firewall-heading">
+        <div>
+          <p>Egress firewall</p>
+          <h2 id="egress-firewall-heading">Network security groups</h2>
+          <span>Default-deny domain, protocol, and port rules enforced outside the sandbox.</span>
+        </div>
+        <button className="secondary-button" type="button" onClick={startNew}>Create group</button>
+      </div>
+      {latest.length > 0 && (
+        <label className="egress-group-picker">
+          <span>Security group</span>
+          <select value={selectedId || selected?.securityGroupId || ""} onChange={(event) => setSelectedId(event.target.value)}>
+            {selectedId === "__new__" && <option value="__new__">New security group</option>}
+            {latest.map((item) => <option key={item.securityGroupId} value={item.securityGroupId}>{item.name} · v{item.version}</option>)}
+          </select>
+        </label>
+      )}
+      {draft && (
+        <div className="egress-editor">
+          <div className="egress-fields">
+            <label><span>Name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+            <label><span>Description</span><input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+          </div>
+          <div className="egress-rule-list">
+            {draft.rules.map((item, index) => (
+              <article key={`${item.id}-${index}`}>
+                <div><strong>{item.host}</strong><small>{item.purpose}</small></div>
+                <code>{item.protocol.toUpperCase()} :{item.port}{item.includeSubdomains ? " · includes subdomains" : " · exact domain"}</code>
+                <button type="button" aria-label={`Remove ${item.host}`} onClick={() => setDraft({ ...draft, rules: draft.rules.filter((_, ruleIndex) => ruleIndex !== index) })}>Remove</button>
+              </article>
+            ))}
+          </div>
+          <div className="egress-rule-builder">
+            <label><span>Domain</span><input placeholder="updates.example.com" value={rule.host} onChange={(event) => setRule({ ...rule, host: event.target.value })} /></label>
+            <label><span>Protocol</span><select value={rule.protocol} onChange={(event) => setRule({ ...rule, protocol: event.target.value, port: event.target.value === "https" ? 443 : 80 })}><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+            <label><span>Port</span><input type="number" min="1" max="65535" value={rule.port} onChange={(event) => setRule({ ...rule, port: event.target.value })} /></label>
+            <label className="egress-subdomains"><input type="checkbox" checked={rule.includeSubdomains} onChange={(event) => setRule({ ...rule, includeSubdomains: event.target.checked })} /><span>Include subdomains</span></label>
+            <label className="egress-purpose"><span>Purpose</span><input placeholder="Why this access is needed" value={rule.purpose} onChange={(event) => setRule({ ...rule, purpose: event.target.value })} /></label>
+            <button className="secondary-button" type="button" onClick={addRule}>Add destination</button>
+          </div>
+          <div className="egress-actions">
+            <span><ShieldCheckmark24Regular aria-hidden="true" />HTTPS paths are not inspected. Redirects are checked as new connections.</span>
+            <button className="primary-button compact-button" type="button" disabled={saving || !draft.name || !draft.description} onClick={() => onSave(draft)}>{saving ? "Saving version" : draft.securityGroupId ? "Save new version" : "Create security group"}</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, onConfigureConnector, egressVersions, egressSaving, onSaveEgress, onAttachEgress }) {
   return (
     <div className="secondary-screen admin-screen">
       <header className="page-heading compact">
@@ -357,6 +438,7 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
         </div>
         <button className="secondary-button" type="button" onClick={onConfigureConnector}>Open connector settings<ChevronRight16Regular aria-hidden="true" /></button>
       </section>
+      <EgressFirewallCard versions={egressVersions} saving={egressSaving} onSave={onSaveEgress} />
       <section className="admin-user-list" aria-label="Organization users">
         {loading ? <p>Loading organization users…</p> : users.map((item) => (
           <article key={item.userId}>
@@ -365,7 +447,15 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
               <span>{item.roles.includes("administrator") ? "Administrator" : "Employee"}</span>
             </div>
             <div className="admin-policy-copy">
-              {item.effectivePolicy ? <><strong>Version {item.effectivePolicy.version} assigned</strong><small>Immutable policy {item.effectivePolicy.documentHash.slice(0, 12)}…</small></> : <><strong>No active policy</strong><small>Workspace and agent authority is revoked.</small></>}
+              {item.effectivePolicy ? <>
+                <strong>Version {item.effectivePolicy.version} assigned</strong>
+                <small>Immutable policy {item.effectivePolicy.documentHash.slice(0, 12)}…</small>
+                <select aria-label={`Firewall for ${item.displayName}`} value={item.effectivePolicy.egressSecurityGroup?.id ?? ""} disabled={busyUserId === item.userId} onChange={(event) => onAttachEgress(item.userId, event.target.value)}>
+                  <option value="" disabled>Choose firewall</option>
+                  {egressVersions.map((version) => <option key={version.id} value={version.id}>{version.name} · v{version.version}</option>)}
+                </select>
+                <small>Stop the workspace before changing this attachment.</small>
+              </> : <><strong>No active policy</strong><small>Workspace and agent authority is revoked.</small></>}
             </div>
             {item.effectivePolicy
               ? <button className="secondary-button danger-button" type="button" disabled={busyUserId === item.userId} onClick={() => onRevoke(item.userId)}>Revoke</button>
@@ -498,6 +588,13 @@ function SandboxScreen({ settings, loading, saving, error, workspaceState, onSav
           <div className="sandbox-summary">
             <ShieldCheckmark24Regular aria-hidden="true" />
             <span><strong>Effective boundary</strong><small>Persistent home · gateway-only network · one workspace-scoped agent identity · no direct provider login</small></span>
+          </div>
+          <div className="sandbox-summary">
+            <ShieldCheckmark24Regular aria-hidden="true" />
+            <span>
+              <strong>Egress firewall</strong>
+              <small>{settings.egress ? `${settings.egress.name} · version ${settings.egress.version} · ${settings.egress.rules.length} approved ${settings.egress.rules.length === 1 ? "destination" : "destinations"} · all other public access denied` : "No public internet destinations are assigned."}</small>
+            </span>
           </div>
           {!workspaceStopped && <p className="sandbox-stop-note"><Info24Regular aria-hidden="true" />Stop the workspace before changing its profile or model route.</p>}
           <div className="sandbox-actions">
@@ -747,6 +844,8 @@ export function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminBusyUserId, setAdminBusyUserId] = useState("");
+  const [egressVersions, setEgressVersions] = useState([]);
+  const [egressSaving, setEgressSaving] = useState(false);
   const [mcpPolicy, setMcpPolicy] = useState(null);
   const [mcpPolicyLoading, setMcpPolicyLoading] = useState(false);
   const [mcpPolicySaving, setMcpPolicySaving] = useState(false);
@@ -820,8 +919,13 @@ export function App() {
   useEffect(() => {
     if (activeNav !== "Admin" || !session?.roles.includes("administrator")) return;
     setAdminLoading(true);
-    Promise.all([adminApi.users(), adminApi.mcpPolicy()])
-      .then(([users, policy]) => { setAdminUsers(users.users); setMcpPolicy(policy); })
+    adminApi.egressSecurityGroups()
+      .then(async (egress) => {
+        const [users, policy] = await Promise.all([adminApi.users(), adminApi.mcpPolicy()]);
+        setAdminUsers(users.users);
+        setMcpPolicy(policy);
+        setEgressVersions(egress.securityGroups);
+      })
       .catch(showApiError)
       .finally(() => setAdminLoading(false));
   }, [activeNav, session?.user.id]);
@@ -1087,6 +1191,7 @@ export function App() {
   };
 
   const refreshAdminUsers = () => adminApi.users().then((value) => setAdminUsers(value.users));
+  const refreshEgressGroups = () => adminApi.egressSecurityGroups().then((value) => setEgressVersions(value.securityGroups));
   const assignPolicy = async (userId) => {
     setAdminBusyUserId(userId);
     try { await adminApi.assignPolicy(userId); await refreshAdminUsers(); setToast("The MVP policy is assigned."); }
@@ -1105,6 +1210,24 @@ export function App() {
     if (!revisionNote) return;
     try { const version = await adminApi.createPolicyVersion(revisionNote); setToast(`Policy version ${version.version} created. Existing assignments remain pinned.`); }
     catch (error) { showApiError(error); }
+  };
+  const saveEgressSecurityGroup = async (document) => {
+    setEgressSaving(true);
+    try {
+      const saved = await adminApi.saveEgressSecurityGroup(document);
+      await refreshEgressGroups();
+      setToast(`${saved.name} version ${saved.version} is ready to attach.`);
+    } catch (error) { showApiError(error); }
+    finally { setEgressSaving(false); }
+  };
+  const attachEgressSecurityGroup = async (userId, securityGroupVersionId) => {
+    setAdminBusyUserId(userId);
+    try {
+      await adminApi.assignEgressSecurityGroup(userId, securityGroupVersionId);
+      await refreshAdminUsers();
+      setToast("The sandbox firewall assignment is pinned to that version.");
+    } catch (error) { showApiError(error); }
+    finally { setAdminBusyUserId(""); }
   };
   const changeMcpPolicy = (name, decision) => setMcpPolicy((current) => ({
     ...current,
@@ -1217,7 +1340,7 @@ export function App() {
             onPolicySave={saveMcpPolicy}
           />
         )}
-        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} onConfigureConnector={configureMicrosoft365} />}
+        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} onConfigureConnector={configureMicrosoft365} egressVersions={egressVersions} egressSaving={egressSaving} onSaveEgress={saveEgressSecurityGroup} onAttachEgress={attachEgressSecurityGroup} />}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 

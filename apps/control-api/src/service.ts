@@ -1,13 +1,52 @@
 import { OneComputerError, readinessFor, type IdentityContext, type Launch, type RuntimePolicy, type Sandbox, type WorkspaceView } from "@onecomputer/contracts";
+import { deriveEgressProxySecret, issueEgressProxyGrant } from "@onecomputer/egress-policy";
 import type { GatewayClient, GatewayGrant, GatewayReadiness } from "@onecomputer/litellm-adapter";
 import type { WorkspaceRecord, WorkspaceStore } from "@onecomputer/workspace-store";
 
 export interface ControllerClient {
-  create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant; agentBridge?: { baseUrl: string; token: string } }): Promise<Sandbox>;
+  create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant; agentBridge?: { baseUrl: string; token: string }; egressProxy?: EgressProxyGrant }): Promise<Sandbox>;
   status(providerId: string): Promise<Sandbox>;
   open(providerId: string): Promise<Launch>;
   destroy(providerId: string): Promise<void>;
   purgeWorkspace(workspaceId: string): Promise<void>;
+}
+
+export type EgressProxyGrant = {
+  token: string;
+  verificationSecret: string;
+  expiresAt: string;
+  expectedGrant: {
+    tenantId: string;
+    subjectId: string;
+    workspaceId: string;
+    agentId: string;
+    securityGroupVersionId: string;
+    policyHash: string;
+  };
+};
+
+export class EgressProxyGrantAuthority {
+  constructor(private readonly rootSecret: string) {}
+
+  issue(identity: IdentityContext, workspaceId: string, policy: RuntimePolicy): EgressProxyGrant | undefined {
+    if (!policy.egress) return undefined;
+    const verificationSecret = deriveEgressProxySecret(this.rootSecret, workspaceId);
+    const expectedGrant = {
+      tenantId: identity.tenantId,
+      subjectId: identity.subjectId,
+      workspaceId,
+      agentId: policy.agentId,
+      securityGroupVersionId: policy.egress.id,
+      policyHash: policy.policyHash,
+    };
+    const ttlSeconds = 24 * 60 * 60;
+    return {
+      token: issueEgressProxyGrant(verificationSecret, expectedGrant, new Date(), ttlSeconds),
+      verificationSecret,
+      expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+      expectedGrant,
+    };
+  }
 }
 
 export class HttpControllerClient implements ControllerClient {
@@ -25,7 +64,7 @@ export class HttpControllerClient implements ControllerClient {
     }
     return response.status === 204 ? {} : response.json();
   }
-  async create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant; agentBridge?: { baseUrl: string; token: string } }) {
+  async create(input: { workspaceId: string; correlationId: string; policy: RuntimePolicy; gateway?: GatewayGrant; agentBridge?: { baseUrl: string; token: string }; egressProxy?: EgressProxyGrant }) {
     return await this.call("/internal/v1/sandboxes", { method: "POST", body: JSON.stringify(input) }) as Sandbox;
   }
   async status(providerId: string) { return await this.call(`/internal/v1/sandboxes/${encodeURIComponent(providerId)}`) as Sandbox; }
@@ -62,6 +101,7 @@ export class WorkspaceService {
     private readonly controller: ControllerClient,
     private readonly gateway?: GatewayClient,
     private readonly agentBridge?: { baseUrl: string; issue: (identity: IdentityContext, workspaceId: string, policy: RuntimePolicy) => string },
+    private readonly egressProxyAuthority?: EgressProxyGrantAuthority,
   ) {}
 
   private bridgeGrant(identity: IdentityContext, workspaceId: string, policy: RuntimePolicy) {
@@ -105,7 +145,9 @@ export class WorkspaceService {
     if (!claimed) return this.view((await this.store.getOwned(identity, record.id))!, policy);
     try {
       const gateway = await this.gateway?.ensureGrant({ workspaceId: claimed.id, identity, agentId: policy.agentId, policy });
-      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway, agentBridge: this.bridgeGrant(identity, claimed.id, policy) });
+      const egressProxy = this.egressProxyAuthority?.issue(identity, claimed.id, policy);
+      if (policy.egress && !egressProxy) throw new OneComputerError("EGRESS_PROXY_NOT_CONFIGURED", "The assigned egress firewall cannot be provisioned", 503);
+      const sandbox = await this.controller.create({ workspaceId: claimed.id, correlationId, policy, gateway, agentBridge: this.bridgeGrant(identity, claimed.id, policy), egressProxy });
       record = await this.store.finish(claimed.id, claimed.operationToken!, { state: sandbox.state === "ready" ? "ready" : "provisioning", providerId: sandbox.providerId, failureCode: sandbox.failureCode });
       return this.view(record, policy);
     } catch (error) {

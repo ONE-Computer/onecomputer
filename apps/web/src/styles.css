@@ -1975,7 +1975,45 @@ summary:focus-visible {
   border-bottom: 1px solid #dededb;
 }
 .admin-user-copy span { width: fit-content; padding: 3px 8px; border-radius: 999px; background: #eef3f8; color: #244a73; font-size: 12px; }
+.admin-policy-copy select { min-height: 36px; max-width: 280px; padding: 0 34px 0 10px; border: 1px solid #a6b0ba; border-radius: 4px; background: #fff; color: #25374a; }
 .compact-button { min-width: 150px; min-height: 44px; }
+
+.egress-firewall-card { margin-top: 20px; padding: 26px 24px; border: 1px solid #dededb; border-radius: 8px; background: #fff; }
+.egress-firewall-heading,
+.egress-actions { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.egress-firewall-heading p,
+.egress-firewall-heading h2,
+.egress-firewall-heading span { margin: 0; }
+.egress-firewall-heading p { color: #68727d; font-size: 12px; }
+.egress-firewall-heading h2 { margin: 3px 0 5px; color: #172334; font-size: 22px; }
+.egress-firewall-heading span { color: #68727d; font-size: 13px; }
+.egress-group-picker { display: grid; grid-template-columns: 150px minmax(260px, 420px); align-items: center; gap: 16px; margin-top: 24px; padding-top: 22px; border-top: 1px solid #e2e2df; }
+.egress-group-picker > span,
+.egress-fields label > span,
+.egress-rule-builder label > span { color: #526170; font-size: 12px; font-weight: 600; }
+.egress-group-picker select,
+.egress-fields input,
+.egress-rule-builder input,
+.egress-rule-builder select { min-height: 42px; padding: 0 12px; border: 1px solid #9ba6b1; border-radius: 4px; background: #fff; color: #172334; font: inherit; }
+.egress-editor { margin-top: 22px; }
+.egress-fields { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr); gap: 16px; }
+.egress-fields label,
+.egress-rule-builder label { display: grid; gap: 7px; }
+.egress-rule-list { margin-top: 20px; overflow: hidden; border: 1px solid #e2e2df; border-radius: 8px; }
+.egress-rule-list:empty { display: none; }
+.egress-rule-list article { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 20px; min-height: 76px; padding: 0 16px; border-bottom: 1px solid #e2e2df; }
+.egress-rule-list article:last-child { border-bottom: 0; }
+.egress-rule-list article > div { display: grid; gap: 5px; }
+.egress-rule-list small { color: #68727d; }
+.egress-rule-list code { color: #39536e; font-size: 12px; }
+.egress-rule-list button { border: 0; background: transparent; color: #9b2c2c; cursor: pointer; font: inherit; font-size: 13px; }
+.egress-rule-builder { display: grid; grid-template-columns: minmax(190px, 1.4fr) 110px 90px minmax(150px, auto); align-items: end; gap: 12px; margin-top: 20px; padding: 18px; border-radius: 8px; background: #f7f8f8; }
+.egress-rule-builder .egress-purpose { grid-column: 1 / 4; }
+.egress-subdomains { display: flex !important; align-items: center; min-height: 42px; }
+.egress-subdomains input { min-height: 0; }
+.egress-actions { margin-top: 22px; padding-top: 20px; border-top: 1px solid #e2e2df; }
+.egress-actions > span { display: flex; align-items: center; gap: 9px; color: #526170; font-size: 13px; }
+.egress-actions svg { flex: 0 0 auto; color: #0b4a8f; }
 
 .tool-policy-card {
   margin-top: 28px;
@@ -2039,6 +2077,13 @@ summary:focus-visible {
   .admin-connector-summary { grid-template-columns: 52px minmax(0, 1fr); }
   .admin-connector-summary button { grid-column: 1 / -1; width: 100%; }
   .admin-user-list article { grid-template-columns: 1fr; gap: 14px; padding: 22px 0; }
+  .egress-firewall-heading,
+  .egress-actions { align-items: stretch; flex-direction: column; }
+  .egress-group-picker,
+  .egress-fields,
+  .egress-rule-builder,
+  .egress-rule-list article { grid-template-columns: 1fr; }
+  .egress-rule-builder .egress-purpose { grid-column: auto; }
   .tool-policy-card { padding: 22px 18px; }
   .tool-policy-heading,
   .tool-policy-actions { align-items: stretch; flex-direction: column; }

@@ -1,10 +1,16 @@
 # Issue 002 local gateway slice
 
 This stack extends the completed Kasm lifecycle with a pinned LiteLLM data
-plane, LiteLLM PostgreSQL, and a private model/MCP fixture. The database began
-as disposable qualification storage; Issue 008 moved it to the named
-`onecomputer-v4-litellm-postgres-data` volume because per-user OAuth credentials
-must survive service replacement and restart.
+plane, LiteLLM PostgreSQL, and a private model/MCP fixture. Its running Docker
+resources use stable service names such as `onecomputer-web`,
+`onecomputer-control-api`, and `onecomputer-litellm`; no branch or issue number
+is part of the runtime name.
+
+The database began as disposable qualification storage; Issue 008 moved it to
+the named `onecomputer-v4-litellm-postgres-data` volume because per-user OAuth
+credentials must survive service replacement and restart. That legacy volume
+name is intentionally retained during the runtime-name migration so local
+credentials and data are not silently replaced.
 
 The browser reaches only the Web proxy. Control owns the LiteLLM master key and
 derives a renewable short-lived key for each persistent workspace. A workspace

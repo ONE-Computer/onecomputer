@@ -37,7 +37,7 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
         State: { Running: true, ExitCode: 0 },
         Config: {
           Labels: {
-            "com.onecomputer.workspace-network": "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508",
+            "com.onecomputer.workspace-network": "onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508",
             "com.onecomputer.control-attached": "true",
           },
           Env: ["ONECOMPUTER_AGENT_BRIDGE_TOKEN=scoped-agent-bridge-token"],
@@ -45,11 +45,11 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
       }));
       return;
     }
-    if (request.method === "GET" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508" && workspaceNetworkExists) {
+    if (request.method === "GET" && path === "/networks/onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508" && workspaceNetworkExists) {
       response.end(JSON.stringify({
         Containers: {
-          ...(gatewayConnected ? { "gateway-container-id": { Name: "onecomputer-v4-litellm" } } : {}),
-          ...(controlConnected ? { "control-container-id": { Name: "onecomputer-v4-control-api" } } : {}),
+          ...(gatewayConnected ? { "gateway-container-id": { Name: "onecomputer-litellm" } } : {}),
+          ...(controlConnected ? { "control-container-id": { Name: "onecomputer-control-api" } } : {}),
         },
       }));
       return;
@@ -65,13 +65,13 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
       response.end(JSON.stringify({ Id: createCount === 1 ? "sandbox-id" : "relay-id" }));
       return;
     }
-    if (request.method === "POST" && path === "/networks/create" && body.Name === "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508") {
+    if (request.method === "POST" && path === "/networks/create" && body.Name === "onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508") {
       workspaceNetworkExists = true;
     }
-    if (request.method === "POST" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-v4-litellm") {
+    if (request.method === "POST" && path === "/networks/onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-litellm") {
       gatewayConnected = true;
     }
-    if (request.method === "POST" && path === "/networks/onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-v4-control-api") {
+    if (request.method === "POST" && path === "/networks/onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508/connect" && body.Container === "onecomputer-control-api") {
       controlConnected = true;
     }
     response.end(JSON.stringify({ ok: true }));
@@ -94,10 +94,10 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     const adapter = new KasmLocalAdapter({
       socketPath,
       image: "sha256:pinned-workspace",
-      networkPrefix: "onecomputer-v4-ws",
-      controlNetwork: "onecomputer-v4-control",
-      gatewayContainer: "onecomputer-v4-litellm",
-      controlContainer: "onecomputer-v4-control-api",
+      networkPrefix: "onecomputer-workspace",
+      controlNetwork: "onecomputer-control",
+      gatewayContainer: "onecomputer-litellm",
+      controlContainer: "onecomputer-control-api",
       relayImage: "sha256:pinned-relay",
       portStart: 16920,
       portEnd: 16920,
@@ -117,20 +117,20 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
         expiresAt: "2026-07-21T00:00:00.000Z",
       },
     });
-    const workspaceNetwork = "onecomputer-v4-ws-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508";
+    const workspaceNetwork = "onecomputer-workspace-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508";
     const networkCreate = requests.find((item) => item.path === "/networks/create" && item.body.Name === workspaceNetwork)!;
     assert.equal(networkCreate.body.Internal, true);
     assert.equal((networkCreate.body.Labels as Record<string, unknown>)["com.onecomputer.workspace-id"], "b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
-    const gatewayAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-litellm")!;
+    const gatewayAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-litellm")!;
     assert.deepEqual((gatewayAttach.body.EndpointConfig as Record<string, unknown>).Aliases, ["litellm"]);
-    const controlAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-control-api")!;
+    const controlAttach = requests.find((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-control-api")!;
     assert.deepEqual((controlAttach.body.EndpointConfig as Record<string, unknown>).Aliases, ["onecomputer-control"]);
-    const sandboxCreate = requests.find((item) => item.path.startsWith("/containers/create?name=onecomputer-v4-sandbox"))!;
+    const sandboxCreate = requests.find((item) => item.path.startsWith("/containers/create?name=onecomputer-sandbox"))!;
     const host = sandboxCreate.body.HostConfig as Record<string, unknown>;
     assert.equal(host.NetworkMode, workspaceNetwork);
     assert.deepEqual(host.CapDrop, ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]);
     assert.deepEqual(host.SecurityOpt, ["no-new-privileges"]);
-    const workspaceVolume = "onecomputer-v4-ws-home-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508";
+    const workspaceVolume = "onecomputer-workspace-home-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508";
     assert.deepEqual(host.Mounts, [{ Type: "volume", Source: workspaceVolume, Target: "/home/kasm-user" }]);
     const volumeCreate = requests.find((item) => item.path === "/volumes/create")!;
     assert.equal(volumeCreate.body.Name, workspaceVolume);
@@ -148,8 +148,8 @@ test("local Kasm creates a hardened internal network and reconciles governed ser
     // Simulate Compose replacing Control and dropping its dynamic endpoint.
     controlConnected = false;
     await adapter.status("sandbox-id");
-    assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-litellm").length, 1);
-    assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-v4-control-api").length, 2);
+    assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-litellm").length, 1);
+    assert.equal(requests.filter((item) => item.path === `/networks/${workspaceNetwork}/connect` && item.body.Container === "onecomputer-control-api").length, 2);
     await adapter.purgeWorkspace("b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508");
     assert.ok(requests.some((item) => item.method === "DELETE" && item.path === `/volumes/${workspaceVolume}?force=true`));
   } finally {

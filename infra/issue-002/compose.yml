@@ -1,7 +1,8 @@
-name: onecomputer-v4-issue-002
+name: onecomputer
 
 services:
   postgres:
+    container_name: onecomputer-postgres
     image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     environment:
       POSTGRES_DB: onecomputer
@@ -18,6 +19,7 @@ services:
     restart: unless-stopped
 
   litellm-postgres:
+    container_name: onecomputer-litellm-postgres
     image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     environment:
       POSTGRES_DB: litellm
@@ -35,6 +37,7 @@ services:
     restart: unless-stopped
 
   gateway-fixture:
+    container_name: onecomputer-gateway-fixture
     build:
       context: ../..
       dockerfile: infra/issue-001/Dockerfile.node
@@ -54,7 +57,7 @@ services:
     restart: unless-stopped
 
   litellm:
-    container_name: onecomputer-v4-litellm
+    container_name: onecomputer-litellm
     image: ghcr.io/berriai/litellm:v1.93.0@sha256:a1745e629abfb17d434426ff48b115f54f4f4c4a0f5af241de569e93c63c411e
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1", "--log_config", "/app/log-config.yaml"]
     environment:
@@ -86,6 +89,7 @@ services:
     restart: unless-stopped
 
   workspace-controller:
+    container_name: onecomputer-workspace-controller
     build:
       context: ../..
       dockerfile: infra/issue-001/Dockerfile.node
@@ -96,10 +100,10 @@ services:
       CONTROLLER_INTERNAL_TOKEN: ${ONECOMPUTER_CONTROLLER_TOKEN:?set ONECOMPUTER_CONTROLLER_TOKEN}
       SANDBOX_DRIVER: kasm-local
       DOCKER_SOCKET_PATH: /var/run/docker.sock
-      KASM_LOCAL_NETWORK_PREFIX: onecomputer-v4-ws
-      KASM_LOCAL_CONTROL_NETWORK: onecomputer-v4-control
-      KASM_LOCAL_GATEWAY_CONTAINER: onecomputer-v4-litellm
-      KASM_LOCAL_CONTROL_CONTAINER: onecomputer-v4-issue-002-control-api-1
+      KASM_LOCAL_NETWORK_PREFIX: onecomputer-workspace
+      KASM_LOCAL_CONTROL_NETWORK: onecomputer-control
+      KASM_LOCAL_GATEWAY_CONTAINER: onecomputer-litellm
+      KASM_LOCAL_CONTROL_CONTAINER: onecomputer-control-api
       KASM_LOCAL_IMAGE: ${ONECOMPUTER_WORKSPACE_IMAGE:?build infra/issue-010 and set ONECOMPUTER_WORKSPACE_IMAGE to its sha256 image id}
       KASM_LOCAL_RELAY_IMAGE: node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
       KASM_PUBLIC_HOST: 127.0.0.1
@@ -112,6 +116,7 @@ services:
     restart: unless-stopped
 
   control-api:
+    container_name: onecomputer-control-api
     build:
       context: ../..
       dockerfile: infra/issue-001/Dockerfile.node
@@ -151,6 +156,7 @@ services:
     restart: unless-stopped
 
   web:
+    container_name: onecomputer-web
     build:
       context: ../..
       dockerfile: infra/issue-001/Dockerfile.node
@@ -171,7 +177,7 @@ services:
 networks:
   web-edge: {}
   control-private:
-    name: onecomputer-v4-control
+    name: onecomputer-control
   gateway-private:
     internal: true
 volumes:

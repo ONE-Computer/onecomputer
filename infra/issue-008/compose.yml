@@ -20,6 +20,7 @@ services:
       VITE_LITELLM_ADMIN_URL: http://localhost:4000/ui
 
   ms365-mcp:
+    container_name: onecomputer-ms365-mcp
     image: onecomputer/softeria-ms365-mcp:0.131.2
     build:
       context: ../issue-008/softeria

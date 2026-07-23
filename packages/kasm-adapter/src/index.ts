@@ -139,13 +139,13 @@ export class KasmLocalAdapter implements SandboxAdapter {
 
   async create(input: SandboxCreateInput): Promise<Sandbox> {
     const workspaceNetwork = this.workspaceNetwork(input.workspaceId);
-    const workspaceVolume = this.workspaceVolume(input.workspaceId);
+    const workspaceVolume = await this.resolveWorkspaceVolume(input.workspaceId);
     await this.ensureNetwork(workspaceNetwork, true, input.workspaceId);
     await this.ensureVolume(workspaceVolume, input.workspaceId);
     await this.ensureNetwork(this.config.controlNetwork, false);
     if (input.gateway) await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
     if (input.agentBridge && this.config.controlContainer) await this.connectContainer(workspaceNetwork, this.config.controlContainer, ["onecomputer-control"]);
-    const name = `onecomputer-v4-sandbox-${input.workspaceId}`;
+    const name = `onecomputer-sandbox-${input.workspaceId}`;
     const existing = await this.inspectByName(name);
     if (existing?.running) {
       await this.ensureRelay(name, existing.id, existing.port ?? await this.allocatePort(), workspaceNetwork);
@@ -228,7 +228,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
       const environment = Array.isArray(containerConfig.Env) ? containerConfig.Env : [];
       const controlAttached = labels["com.onecomputer.control-attached"] === "true"
         || environment.some((entry) => typeof entry === "string" && entry.startsWith("ONECOMPUTER_AGENT_BRIDGE_TOKEN="));
-      if (running && typeof workspaceNetwork === "string" && workspaceNetwork.startsWith(`${this.config.networkPrefix}-`)) {
+      if (running && typeof workspaceNetwork === "string" && this.isWorkspaceNetwork(workspaceNetwork)) {
         await this.connectContainer(workspaceNetwork, this.config.gatewayContainer, ["litellm"]);
         if (controlAttached && this.config.controlContainer) {
           await this.connectContainer(workspaceNetwork, this.config.controlContainer, ["onecomputer-control"]);
@@ -270,7 +270,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
     }
     if (name) await this.removeContainer(`${name}-relay`);
     await this.removeContainer(providerId);
-    if (workspaceNetwork?.startsWith(`${this.config.networkPrefix}-`)) {
+    if (workspaceNetwork && this.isWorkspaceNetwork(workspaceNetwork)) {
       if (gatewayAttached) await this.disconnectContainer(workspaceNetwork, this.config.gatewayContainer);
       if (controlAttached && this.config.controlContainer) await this.disconnectContainer(workspaceNetwork, this.config.controlContainer);
       await this.removeNetwork(workspaceNetwork);
@@ -279,6 +279,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
 
   async purgeWorkspace(workspaceId: string) {
     await this.removeVolume(this.workspaceVolume(workspaceId));
+    await this.removeVolume(this.legacyWorkspaceVolume(workspaceId));
   }
 
   private async removeContainer(id: string) {
@@ -297,6 +298,21 @@ export class KasmLocalAdapter implements SandboxAdapter {
     return `${this.config.networkPrefix}-home-${workspaceId.toLowerCase()}`;
   }
 
+  private legacyWorkspaceVolume(workspaceId: string) {
+    return `onecomputer-v4-ws-home-${workspaceId.toLowerCase()}`;
+  }
+
+  private isWorkspaceNetwork(name: string) {
+    return name.startsWith(`${this.config.networkPrefix}-`) || name.startsWith("onecomputer-v4-ws-");
+  }
+
+  private async resolveWorkspaceVolume(workspaceId: string) {
+    const current = this.workspaceVolume(workspaceId);
+    if (await this.volumeExists(current)) return current;
+    const legacy = this.legacyWorkspaceVolume(workspaceId);
+    return await this.volumeExists(legacy) ? legacy : current;
+  }
+
   private async ensureNetwork(name: string, internal: boolean, workspaceId?: string) {
     const networks = await this.request("GET", `/networks/${encodeURIComponent(name)}`).catch(() => null);
     if (networks) return;
@@ -306,23 +322,26 @@ export class KasmLocalAdapter implements SandboxAdapter {
       Internal: internal,
       Attachable: true,
       Labels: {
-        "com.onecomputer.issue": "006",
+        "com.onecomputer.runtime": "workspace-network",
         ...(workspaceId ? { "com.onecomputer.workspace-id": workspaceId } : {}),
       },
     });
   }
 
   private async ensureVolume(name: string, workspaceId: string) {
-    const volume = await this.request("GET", `/volumes/${encodeURIComponent(name)}`).catch(() => null);
-    if (volume) return;
+    if (await this.volumeExists(name)) return;
     await this.request("POST", "/volumes/create", {
       Name: name,
       Driver: "local",
       Labels: {
-        "com.onecomputer.issue": "006",
+        "com.onecomputer.runtime": "workspace-home",
         "com.onecomputer.workspace-id": workspaceId,
       },
     });
+  }
+
+  private async volumeExists(name: string) {
+    return Boolean(await this.request("GET", `/volumes/${encodeURIComponent(name)}`).catch(() => null));
   }
 
   private async removeVolume(name: string) {

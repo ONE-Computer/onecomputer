@@ -242,6 +242,13 @@ if agent_enabled claude-desktop && { [[ ! -x "$claude_code_binary" ]] \
   chmod 0600 "$claude_code_marker"
 fi
 
+if agent_enabled hermes-claw; then
+  # Hermes creates runtime logs, sessions, and curator state beneath its home.
+  # Some imports initialize those paths while this management entrypoint is
+  # still root, so reconcile the complete tree before handing it to the user.
+  chown -R 1000:1000 /home/kasm-user/.hermes
+  find /home/kasm-user/.hermes -type d -exec chmod 0700 {} +
+fi
 chown -R 1000:1000 /home/kasm-user/.config /home/kasm-user/Desktop
 
 if agent_enabled claude-desktop; then

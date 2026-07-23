@@ -1,6 +1,6 @@
 # 003: ship policy-selected default agents
 
-Status: `verification`
+Status: `complete`
 
 Priority: P1
 Depends on: 002
@@ -54,25 +54,25 @@ network grants, without direct provider credentials or manual installation.
 
 ## Required verification
 
-- [ ] Claude-only, Hermes-Claw-only, and Claude-plus-Hermes-Claw policies provision
+- [x] Claude-only, Hermes-Claw-only, and Claude-plus-Hermes-Claw policies provision
       exactly the selected usable clients with no manual installation or
       provider login.
-- [ ] Each selected agent completes normal and streaming chat through only its
+- [x] Each selected agent completes normal and streaming chat through only its
       assigned model aliases and discovers only its assigned governed tools.
-- [ ] Disabled, unknown, tampered, unpinned, or policy-removed agents cannot
+- [x] Disabled, unknown, tampered, unpinned, or policy-removed agents cannot
       start with a valid grant or inherit another agent's identity.
-- [ ] Cross-user, cross-workspace, cross-agent, expired, revoked, wrong-model,
+- [x] Cross-user, cross-workspace, cross-agent, expired, revoked, wrong-model,
       wrong-tool, and wrong-audience credentials fail closed.
-- [ ] Changing either client's base URL or MCP settings cannot reach a direct
+- [x] Changing either client's base URL or MCP settings cannot reach a direct
       provider, Graph, upstream MCP, private network, or an undeclared public
       destination.
-- [ ] Both agents can run according to declared resource limits without
+- [x] Both agents can run according to declared resource limits without
       readiness races, port collisions, credential reuse, or ambiguous audit
       attribution.
-- [ ] Workspace stop/start, service restart, image rebuild, policy change, and
+- [x] Workspace stop/start, service restart, image rebuild, policy change, and
       agent removal preserve intended user data while reconciling the selected
       catalog safely.
-- [ ] Image and runtime inspection finds no prohibited credential, mutable
+- [x] Image and runtime inspection finds no prohibited credential, mutable
       dependency, unexpected listener, or agent traffic outside the governed
       routes.
 
@@ -96,9 +96,7 @@ lifecycle/upgrade/removal results, screenshots, and secret scan.
 
 ## Completion record
 
-Implementation is complete and automated/container qualification passes. Final
-completion is pending deployment inspection of the real LiteLLM/MCP routes and
-the user-facing Kasm launch.
+Implementation and deployed verification are complete.
 
 - Qualification record:
   `local-plans/v2/decisions/003-hermes-agent-qualification.md`
@@ -106,3 +104,14 @@ the user-facing Kasm launch.
 - Image qualification covered Claude-only, Hermes-only, and dual-agent startup,
   launcher removal, distinct broker ports, Hermes tool restriction, and pinned
   package/version inspection.
+- The existing workspace was stopped and rebuilt on immutable image
+  `sha256:b4515ed8af5c9551004b393bda4a692caab8ade9cc09021a1a9bd5326fd715ab`
+  while retaining its persistent home volume.
+- Deployed Hermes normal and streaming chat returned the expected canaries
+  through `onecomputer-glm`; governed discovery returned the assigned 38-tool
+  Microsoft 365 surface.
+- Control reports Claude Desktop and Hermes Claw plus identity, network, models,
+  and tools as ready. Runtime inspection found no provider, LiteLLM master,
+  database, Entra, or Microsoft client secrets.
+- The real Hermes desktop command reached the 0.19.0 interactive prompt under
+  `kasm-user` with the governed model and MCP server configured.

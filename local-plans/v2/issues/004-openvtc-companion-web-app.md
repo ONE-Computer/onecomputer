@@ -1,6 +1,6 @@
 # 004: add a push-capable OpenVTC companion web app
 
-Status: `blocked`
+Status: `ready`
 
 Priority: P2
 Depends on: 003

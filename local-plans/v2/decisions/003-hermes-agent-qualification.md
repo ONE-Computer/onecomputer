@@ -62,15 +62,30 @@ at the Issue 002 proxy boundary.
   and collision checks passed.
 - Hermes resolved exactly one toolset: `onecomputer_ms365`.
 
-## Remaining deployment verification
+## Deployment verification
 
 The local control runtime has been rebuilt, migration 011 is applied, and the
 controller now points at immutable workspace image
-`sha256:c64bfdd34d3cd7eea187bb19716f777ba9dee49aa76b86d341e4b4a6439e980e`.
-The existing active workspace was deliberately left running on its prior image
-to avoid interrupting the user.
+`sha256:b4515ed8af5c9551004b393bda4a692caab8ade9cc09021a1a9bd5326fd715ab`.
+After user approval, the existing workspace was stopped and rebuilt on that
+image while retaining persistent home volume
+`onecomputer-v4-ws-home-b4a2ea8c-cc94-46e3-b6c8-59ae4ebee508`.
 
-Before marking the issue complete, stop and rebuild that workspace, then inspect
-one real chat plus governed MCP discovery for each selected client. This
-validates the deployed LiteLLM and Control bindings without changing the
-firewall acceptance record.
+The deployed dual-agent workspace became healthy with both brokers ready:
+Claude on 4312 and Hermes on 4314. Hermes normal chat returned `HERMES_OK`,
+streaming chat returned `STREAM_OK` and a complete SSE terminator, and governed
+tool discovery returned the assigned 38-tool Microsoft 365 surface. Control
+reported both agents plus identity, network, models, and tools as ready.
+Runtime environment inspection found no provider, LiteLLM master, database,
+Entra, or Microsoft client secrets.
+
+The real Hermes CLI launcher reached the Hermes Agent 0.19.0 interactive prompt
+as `kasm-user`, showed `onecomputer-glm` and the configured
+`onecomputer_ms365` MCP server, and exited cleanly. A launcher qualification
+pass caught and corrected root ownership on import-created Hermes log paths;
+the final entrypoint recursively reconciles the managed Hermes home to the
+workspace user before Kasm starts.
+
+The product owner explicitly waived another firewall acceptance run before
+Issue 003. This record relies on the already completed Issue 002 boundary and
+does not expand its security claim.

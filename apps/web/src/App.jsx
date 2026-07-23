@@ -99,11 +99,17 @@ function ExternalNavLink({ icon: Icon, label, href }) {
 
 function Drawer({ title, children, onClose }) {
   const closeButtonRef = useRef(null);
+  const closeHandlerRef = useRef(onClose);
+
+  // The parent refreshes operation data while this panel is open. Keep the
+  // current close handler without re-running the focus setup on each refresh:
+  // focusing the close button causes the browser to scroll this panel to top.
+  closeHandlerRef.current = onClose;
 
   useEffect(() => {
     const previouslyFocused = document.activeElement;
     const onKeyDown = (event) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") closeHandlerRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
     closeButtonRef.current?.focus();
@@ -111,7 +117,7 @@ function Drawer({ title, children, onClose }) {
       window.removeEventListener("keydown", onKeyDown);
       previouslyFocused?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="drawer-layer" role="presentation" onMouseDown={onClose}>

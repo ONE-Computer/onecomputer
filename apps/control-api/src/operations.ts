@@ -43,6 +43,12 @@ export class FixtureApprovalAuthority {
   }
 }
 
+const actionFor = (record: GovernedOperationRecord) => (
+  record.toolName === "delete-onedrive-file" || record.toolName === "delete_file"
+    ? "Delete file"
+    : record.safeSummary
+);
+
 const toView = (record: GovernedOperationRecord): OperationView => ({
   id: record.id,
   workspaceId: record.workspaceId,
@@ -52,7 +58,7 @@ const toView = (record: GovernedOperationRecord): OperationView => ({
   serverName: record.serverName,
   toolName: record.toolName,
   state: record.state,
-  action: record.toolName === "delete-onedrive-file" || record.toolName === "delete_file" ? "Delete file" : record.safeSummary,
+  action: actionFor(record),
   resourceName: record.resourceName,
   resourceLocation: record.resourceLocation,
   safeSummary: record.safeSummary,
@@ -77,6 +83,68 @@ const toView = (record: GovernedOperationRecord): OperationView => ({
   } : null,
   failureCode: record.failureCode,
 });
+
+const toCompanionActivity = (record: GovernedOperationRecord) => ({
+  id: record.id,
+  action: actionFor(record),
+  resourceName: record.resourceName,
+  resourceLocation: record.resourceLocation,
+  requestedBy: record.agentId ? "Workspace agent" : "ONEComputer",
+  state: record.state,
+  requestedAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString(),
+  expiresAt: record.expiresAt.toISOString(),
+  decision: record.approval ? {
+    value: record.approval.decision,
+    decidedAt: record.approval.decidedAt.toISOString(),
+  } : null,
+  outcome: record.receipt ? {
+    status: "succeeded" as const,
+    completedAt: record.receipt.executedAt.toISOString(),
+  } : record.state === "failed" ? {
+    status: "failed" as const,
+    completedAt: record.updatedAt.toISOString(),
+  } : null,
+});
+
+type CompanionActivityCursor = {
+  version: 1;
+  createdAt: string;
+  id: string;
+};
+
+const encodeCompanionActivityCursor = (record: GovernedOperationRecord) => Buffer.from(JSON.stringify({
+  version: 1,
+  createdAt: record.createdAt.toISOString(),
+  id: record.id,
+} satisfies CompanionActivityCursor)).toString("base64url");
+
+const decodeCompanionActivityCursor = (value: string | undefined) => {
+  if (!value) return undefined;
+  try {
+    const cursor = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<CompanionActivityCursor>;
+    const createdAt = typeof cursor.createdAt === "string" ? new Date(cursor.createdAt) : null;
+    if (cursor.version !== 1 || !createdAt || !Number.isFinite(createdAt.getTime())
+      || typeof cursor.id !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor.id)) {
+      throw new Error("Invalid cursor");
+    }
+    return { createdAt, id: cursor.id };
+  } catch {
+    throw new OneComputerError("INVALID_ACTIVITY_CURSOR", "The activity page cursor is invalid", 400);
+  }
+};
+
+const activityEventLabel = (eventType: string) => ({
+  approval_required: "Approval requested",
+  approved: "Request approved",
+  denied: "Request denied",
+  executing: "Protected action started",
+  dispatch_started: "Action sent to the connected service",
+  succeeded: "Action completed",
+  failed: "Action could not be completed",
+  expired: "Request expired",
+}[eventType] ?? "Request updated");
 
 const shortIdentifier = (value: OwnedJson | undefined, fallback: string) => typeof value === "string"
   ? (value.length > 20 ? `${value.slice(0, 8)}…${value.slice(-8)}` : value)
@@ -311,6 +379,59 @@ export class GovernedOperationService {
     return Promise.all(records.map(async (record) => toView(
       await this.store.recoverOperation(identity, record.id, new Date(), "operation-history") ?? record,
     )));
+  }
+
+  async companionActivity(identity: IdentityContext, input: { cursor?: string; limit?: number } = {}) {
+    const limit = Math.max(1, Math.min(input.limit ?? 20, 50));
+    const before = decodeCompanionActivityCursor(input.cursor);
+    const records = this.store.listOwnedOperationsPage
+      ? await this.store.listOwnedOperationsPage(identity, { limit: limit + 1, before })
+      : this.store.listOwnedOperations
+        ? (await this.store.listOwnedOperations(identity, 50))
+          .filter((record) => !before
+            || record.createdAt.getTime() < before.createdAt.getTime()
+            || (record.createdAt.getTime() === before.createdAt.getTime() && record.id < before.id))
+          .slice(0, limit + 1)
+        : [];
+    const page = records.slice(0, limit);
+    const recovered = await Promise.all(page.map(async (record) => (
+      await this.store.recoverOperation(identity, record.id, new Date(), "companion-activity") ?? record
+    )));
+    return {
+      activities: recovered.map(toCompanionActivity),
+      nextCursor: records.length > limit && page.length
+        ? encodeCompanionActivityCursor(page[page.length - 1]!)
+        : null,
+    };
+  }
+
+  async companionActivityDetail(identity: IdentityContext, operationId: string) {
+    const operation = await this.requireOwned(identity, operationId);
+    const events = this.store.getOperationEvents ? await this.store.getOperationEvents(identity, operationId) : [];
+    const inferredTimeline = [
+      { label: "Approval requested", createdAt: operation.createdAt.toISOString() },
+      ...(operation.approval ? [{
+        label: operation.approval.decision === "approve" ? "Request approved" : "Request denied",
+        createdAt: operation.approval.decidedAt.toISOString(),
+      }] : []),
+      ...(operation.receipt ? [{
+        label: "Action completed",
+        createdAt: operation.receipt.executedAt.toISOString(),
+      }] : operation.state === "failed" ? [{
+        label: "Action could not be completed",
+        createdAt: operation.updatedAt.toISOString(),
+      }] : operation.state === "expired" ? [{
+        label: "Request expired",
+        createdAt: operation.updatedAt.toISOString(),
+      }] : []),
+    ];
+    return {
+      activity: toCompanionActivity(operation),
+      timeline: (events.length ? events.map((event) => ({
+        label: activityEventLabel(event.eventType),
+        createdAt: event.createdAt.toISOString(),
+      })) : inferredTimeline),
+    };
   }
 
   async audit(identity: IdentityContext, operationId: string) {

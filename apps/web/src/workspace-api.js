@@ -54,17 +54,32 @@ export const connectionApi = {
 };
 
 export const approvalApi = {
-  status: () => request("/api/v1/openvtc/approvers/current"),
+  status: (approverDid) => request(`/api/v1/openvtc/approvers/current${approverDid ? `?approverDid=${encodeURIComponent(approverDid)}` : ""}`),
   challenge: () => request("/api/v1/openvtc/enrollment-challenges", mutation()),
   enroll: (challengeId, document) => request("/api/v1/openvtc/approvers", mutation("POST", { challengeId, document })),
-  revoke: () => request("/api/v1/openvtc/approvers/current", mutation("DELETE")),
-  pending: () => request("/api/v1/openvtc/approvals/pending"),
+  revoke: (approverDid) => request(`/api/v1/openvtc/approvers/current${approverDid ? `?approverDid=${encodeURIComponent(approverDid)}` : ""}`, mutation("DELETE")),
+  pending: (approverDid) => request(`/api/v1/openvtc/approvals/pending${approverDid ? `?approverDid=${encodeURIComponent(approverDid)}` : ""}`),
   inbox: (transportToken) => request("/api/v1/openvtc/inbox", { headers: { authorization: `Bearer ${transportToken}` } }),
   decide: (transportToken, document) => request("/api/trust-tasks", {
     method: "POST",
     headers: { ...jsonHeaders, authorization: `Bearer ${transportToken}` },
     body: JSON.stringify(document),
   }),
+  companionConfig: () => request("/api/v1/openvtc/companion/config"),
+  companionActivity: (cursor, limit = 20) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request(`/api/v1/openvtc/companion/activity?${query}`);
+  },
+  companionActivityDetail: (id) => request(`/api/v1/openvtc/companion/activity/${encodeURIComponent(id)}`),
+  companions: () => request("/api/v1/openvtc/companions"),
+  subscribeCompanion: (input) => request("/api/v1/openvtc/companions/subscription", {
+    method: "PUT",
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
+  }),
+  revokeCompanion: (id) => request(`/api/v1/openvtc/companions/${encodeURIComponent(id)}`, mutation("DELETE")),
+  testCompanion: (id) => request(`/api/v1/openvtc/companions/${encodeURIComponent(id)}/test`, mutation()),
 };
 
 export const authApi = {

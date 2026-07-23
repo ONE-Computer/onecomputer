@@ -14,9 +14,15 @@ import type {
   GovernedOperationRecord,
   OpenVtcApprovalStore,
   OpenVtcApproverRecord,
+  OpenVtcCompanionSubscriptionRecord,
   OpenVtcConsentTaskRecord,
   WorkspaceStore,
 } from "@onecomputer/workspace-store";
+import {
+  COMPANION_PUSH_PROTOCOL,
+  type CompanionPushProvider,
+  type CompanionPushSubscription,
+} from "./web-push.js";
 
 const MICROSOFT365_TASK_TYPE = "https://onecomputer.dev/spec/microsoft365/tool-call/0.1";
 const ENROLLMENT_TTL_MS = 5 * 60 * 1000;
@@ -32,6 +38,23 @@ const publicApprover = (record: OpenVtcApproverRecord) => ({
   displayName: record.displayName,
   status: record.status,
   enrolledAt: record.enrolledAt.toISOString(),
+});
+
+const publicCompanion = (record: OpenVtcCompanionSubscriptionRecord, approver: OpenVtcApproverRecord | undefined) => ({
+  id: record.id,
+  approverId: record.approverId,
+  approverDid: approver?.approverDid ?? null,
+  displayName: approver?.displayName ?? "Companion browser",
+  installationId: record.installationId,
+  protocolVersion: record.protocolVersion,
+  browserFamily: record.browserFamily,
+  platform: record.platform,
+  status: record.status,
+  enrolledAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString(),
+  revokedAt: record.revokedAt?.toISOString() ?? null,
+  lastSuccessfulDeliveryAt: record.lastSuccessfulDeliveryAt?.toISOString() ?? null,
+  lastFailureCode: record.lastFailureCode,
 });
 
 const taskPayloadFor = (record: GovernedOperationRecord): OwnedJson => ({
@@ -65,6 +88,7 @@ export class OpenVtcApprovalCoordinator {
   constructor(
     private readonly store: ApprovalStore,
     readonly executor: Ed25519DidKeySigner,
+    private readonly pushProvider?: CompanionPushProvider,
   ) {}
 
   async createEnrollmentChallenge(identity: IdentityContext) {
@@ -125,22 +149,36 @@ export class OpenVtcApprovalCoordinator {
     return { approver: publicApprover(approver), transportToken };
   }
 
-  async status(identity: IdentityContext) {
-    const approver = await this.store.getActiveOpenVtcApprover(identity);
+  async status(identity: IdentityContext, approverDid?: string) {
+    const approver = approverDid
+      ? await this.store.getActiveOpenVtcApproverByDid(identity, approverDid)
+      : await this.store.getActiveOpenVtcApprover(identity);
     return { connected: Boolean(approver), approver: approver ? publicApprover(approver) : null, executorDid: this.executor.did };
   }
 
-  async revoke(identity: IdentityContext) {
-    const approver = await this.store.getActiveOpenVtcApprover(identity);
+  async revoke(identity: IdentityContext, approverDid?: string) {
+    const approver = approverDid
+      ? await this.store.getActiveOpenVtcApproverByDid(identity, approverDid)
+      : await this.store.getActiveOpenVtcApprover(identity);
     if (!approver) return false;
+    const subscription = await this.store.getOpenVtcCompanionSubscriptionForApprover(approver.id);
+    if (subscription) await this.store.revokeOpenVtcCompanionSubscription(identity, subscription.id, new Date());
     return this.store.revokeOpenVtcApprover(identity, approver.id, new Date());
   }
 
   async ensureTask(identity: IdentityContext, operation: GovernedOperationRecord) {
-    const existing = await this.store.getOpenVtcConsentTask(identity, operation.id);
-    const approver = await this.store.getActiveOpenVtcApprover(identity);
-    if (!approver || operation.state !== "approval_required" || operation.expiresAt <= new Date()) return null;
-    if (existing?.approverId === approver.id || existing && !["queued", "delivered"].includes(existing.state)) return existing;
+    const approvers = await this.store.listActiveOpenVtcApprovers(identity);
+    if (!approvers.length || operation.state !== "approval_required" || operation.expiresAt <= new Date()) return null;
+    const tasks = await Promise.all(approvers.map((approver) => this.ensureTaskForApprover(identity, operation, approver)));
+    return tasks.find(Boolean) ?? null;
+  }
+
+  private async ensureTaskForApprover(identity: IdentityContext, operation: GovernedOperationRecord, approver: OpenVtcApproverRecord) {
+    const existing = await this.store.getOpenVtcConsentTaskForApprover(identity, operation.id, approver.id);
+    if (existing) {
+      if (["queued", "delivered"].includes(existing.state)) await this.dispatchCompanionPush(existing, approver);
+      return existing;
+    }
     const createdAt = new Date();
     const challenge = randomBytes(24).toString("base64url");
     const taskPayload = taskPayloadFor(operation);
@@ -171,7 +209,7 @@ export class OpenVtcApprovalCoordinator {
       sign: (input) => this.executor.sign(input),
     });
     const payloadDigest = taskConsentPayloadDigest(MICROSOFT365_TASK_TYPE, taskPayload, challenge);
-    return this.store.createOpenVtcConsentTask({
+    const task = await this.store.createOpenVtcConsentTask({
       id: taskId,
       outboxId: randomUUID(),
       identity,
@@ -185,8 +223,9 @@ export class OpenVtcApprovalCoordinator {
       requestHash: sha256(jcsCanonicalize(request)),
       createdAt,
       expiresAt: operation.expiresAt,
-      replaceApprover: Boolean(existing && existing.approverId !== approver.id),
     });
+    if (task) await this.dispatchCompanionPush(task, approver);
+    return task;
   }
 
   async inbox(transportToken: string) {
@@ -195,13 +234,110 @@ export class OpenVtcApprovalCoordinator {
     return task?.requestDocument ?? null;
   }
 
-  async inboxForIdentity(identity: IdentityContext) {
-    const approver = await this.store.getActiveOpenVtcApprover(identity);
+  async inboxForIdentity(identity: IdentityContext, approverDid?: string) {
+    const approver = approverDid
+      ? await this.store.getActiveOpenVtcApproverByDid(identity, approverDid)
+      : await this.store.getActiveOpenVtcApprover(identity);
     if (!approver) return null;
     const recent = await this.store.getRecentOperation(identity);
     if (recent?.state === "approval_required") await this.ensureTask(identity, recent);
     const task = await this.store.deliverNextOpenVtcConsentTask(approver.id, new Date());
     return task?.requestDocument ?? null;
+  }
+
+  companionConfig() {
+    return {
+      enabled: Boolean(this.pushProvider),
+      protocolVersion: COMPANION_PUSH_PROTOCOL,
+      serviceWorkerVersion: "onecomputer-companion-sw-0.1",
+      vapidPublicKey: this.pushProvider?.publicKey ?? null,
+      notificationPayload: { version: "1", event: "approval-pending" },
+      support: [
+        { browser: "Chrome", platforms: ["Windows", "macOS", "Linux", "Android"], mode: "supported" },
+        { browser: "Edge", platforms: ["Windows", "macOS"], mode: "supported" },
+        { browser: "Safari", platforms: ["macOS", "iOS installed web app"], mode: "verification-required" },
+        { browser: "Firefox", platforms: ["Windows", "macOS", "Linux"], mode: "verification-required" },
+      ],
+    };
+  }
+
+  async companions(identity: IdentityContext) {
+    const [approvers, subscriptions] = await Promise.all([
+      this.store.listActiveOpenVtcApprovers(identity),
+      this.store.listOpenVtcCompanionSubscriptions(identity),
+    ]);
+    const approverById = new Map(approvers.map((approver) => [approver.id, approver]));
+    return { companions: subscriptions.map((subscription) => publicCompanion(subscription, approverById.get(subscription.approverId))) };
+  }
+
+  async subscribeCompanion(identity: IdentityContext, input: {
+    approverDid: string;
+    installationId: string;
+    browserFamily: OpenVtcCompanionSubscriptionRecord["browserFamily"];
+    platform: OpenVtcCompanionSubscriptionRecord["platform"];
+    subscription: CompanionPushSubscription;
+  }) {
+    if (!this.pushProvider) throw new OneComputerError("WEB_PUSH_NOT_CONFIGURED", "Companion push notifications are not configured", 503, true);
+    const approver = await this.store.getActiveOpenVtcApproverByDid(identity, input.approverDid);
+    if (!approver) throw new OneComputerError("OPENVTC_APPROVER_NOT_FOUND", "This browser approval key is not enrolled for the signed-in user", 404);
+    const protectedSubscription = this.pushProvider.protect(input.subscription);
+    const saved = await this.store.upsertOpenVtcCompanionSubscription({
+      id: randomUUID(),
+      identity,
+      approverId: approver.id,
+      installationId: input.installationId,
+      protocolVersion: COMPANION_PUSH_PROTOCOL,
+      browserFamily: input.browserFamily,
+      platform: input.platform,
+      endpointHash: protectedSubscription.endpointHash,
+      subscriptionCiphertext: protectedSubscription.ciphertext,
+      savedAt: new Date(),
+    });
+    const recent = await this.store.getRecentOperation(identity);
+    if (recent?.state === "approval_required") await this.ensureTask(identity, recent);
+    return publicCompanion(saved, approver);
+  }
+
+  async revokeCompanion(identity: IdentityContext, companionId: string) {
+    const subscriptions = await this.store.listOpenVtcCompanionSubscriptions(identity);
+    const subscription = subscriptions.find((item) => item.id === companionId);
+    if (!subscription) return false;
+    const revokedAt = new Date();
+    await this.store.revokeOpenVtcCompanionSubscription(identity, companionId, revokedAt);
+    return this.store.revokeOpenVtcApprover(identity, subscription.approverId, revokedAt);
+  }
+
+  async testCompanion(identity: IdentityContext, companionId: string) {
+    if (!this.pushProvider) throw new OneComputerError("WEB_PUSH_NOT_CONFIGURED", "Companion push notifications are not configured", 503, true);
+    const subscriptions = await this.store.listOpenVtcCompanionSubscriptions(identity);
+    const subscription = subscriptions.find((item) => item.id === companionId && item.status === "active");
+    if (!subscription) throw new OneComputerError("OPENVTC_COMPANION_NOT_FOUND", "Active companion browser not found", 404);
+    const result = await this.pushProvider.sendHint(subscription.subscriptionCiphertext);
+    if (!result.delivered) {
+      throw new OneComputerError(result.failureCode ?? "WEB_PUSH_PROVIDER_UNAVAILABLE",
+        result.terminal ? "This notification subscription is no longer valid; re-enable notifications on this browser." : "The push provider is temporarily unavailable.",
+        result.terminal ? 409 : 503,
+        !result.terminal);
+    }
+    return { delivered: true, deliveredAt: new Date().toISOString() };
+  }
+
+  async flushCompanionPushQueue(limit = 25) {
+    if (!this.pushProvider) return 0;
+    const due = await this.store.listDueOpenVtcCompanionPushDeliveries(new Date(), limit);
+    let attempted = 0;
+    for (const delivery of due) {
+      const claimedAt = new Date();
+      if (!await this.store.claimOpenVtcCompanionPushDelivery({
+        id: randomUUID(),
+        taskId: delivery.taskId,
+        subscriptionId: delivery.subscriptionId,
+        claimedAt,
+      })) continue;
+      attempted += 1;
+      await this.deliverClaimedCompanionPush(delivery.taskId, delivery.subscriptionId, delivery.subscriptionCiphertext);
+    }
+    return attempted;
   }
 
   async submitDecision(transportToken: string, document: unknown, correlationId: string) {
@@ -270,6 +406,34 @@ export class OpenVtcApprovalCoordinator {
     const approver = await this.store.getOpenVtcApproverByTransportTokenHash(sha256(transportToken));
     if (!approver) throw new OneComputerError("UNAUTHENTICATED", "Browser agent authentication is required", 401);
     return approver;
+  }
+
+  private async dispatchCompanionPush(task: OpenVtcConsentTaskRecord, approver: OpenVtcApproverRecord) {
+    if (!this.pushProvider) return;
+    const subscription = await this.store.getOpenVtcCompanionSubscriptionForApprover(approver.id);
+    if (!subscription) return;
+    const claimedAt = new Date();
+    if (!await this.store.claimOpenVtcCompanionPushDelivery({
+      id: randomUUID(),
+      taskId: task.id,
+      subscriptionId: subscription.id,
+      claimedAt,
+    })) return;
+    await this.deliverClaimedCompanionPush(task.id, subscription.id, subscription.subscriptionCiphertext);
+  }
+
+  private async deliverClaimedCompanionPush(taskId: string, subscriptionId: string, subscriptionCiphertext: string) {
+    if (!this.pushProvider) return;
+    const result = await this.pushProvider.sendHint(subscriptionCiphertext)
+      .catch(() => ({ delivered: false, terminal: false, failureCode: "WEB_PUSH_PROVIDER_UNAVAILABLE" }));
+    await this.store.recordOpenVtcCompanionPushDelivery({
+      taskId,
+      subscriptionId,
+      delivered: result.delivered,
+      terminal: result.terminal,
+      failureCode: result.failureCode,
+      attemptedAt: new Date(),
+    });
   }
 
   private assertStoredRequest(task: OpenVtcConsentTaskRecord, approver: OpenVtcApproverRecord, operation: GovernedOperationRecord) {

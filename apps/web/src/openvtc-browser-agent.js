@@ -122,10 +122,28 @@ const databaseOperation = async (mode, operation) => {
 
 const readRecord = () => databaseOperation("readonly", (store) => store.get(RECORD_KEY));
 const writeRecord = (record) => databaseOperation("readwrite", (store) => store.put(record, RECORD_KEY));
-export const clearBrowserApprover = () => databaseOperation("readwrite", (store) => store.delete(RECORD_KEY));
+export const clearBrowserApprover = async (expectedDid) => {
+  const record = await readRecord();
+  if (!record || (expectedDid && record.did !== expectedDid)) return false;
+  await databaseOperation("readwrite", (store) => store.delete(RECORD_KEY));
+  return true;
+};
 export const hasBrowserApprover = async (expectedDid) => {
   const record = await readRecord();
   return Boolean(record && (!expectedDid || record.did === expectedDid));
+};
+export const getBrowserApproverIdentity = async () => {
+  const record = await readRecord();
+  if (!record) return null;
+  if (!record.installationId) {
+    record.installationId = crypto.randomUUID();
+    await writeRecord(record);
+  }
+  return {
+    did: record.did,
+    verificationMethod: record.verificationMethod,
+    installationId: record.installationId,
+  };
 };
 
 const deriveWrapKey = async (prfOutput) => {
@@ -235,6 +253,7 @@ export async function enrollBrowserApprover(challenge, displayName, enroll, roll
   try {
     await writeRecord({
       version: 1,
+      installationId: crypto.randomUUID(),
       did: identifiers.did,
       verificationMethod: identifiers.verificationMethod,
       credentialId: bytesToBase64url(credential.credentialId),
@@ -242,10 +261,10 @@ export async function enrollBrowserApprover(challenge, displayName, enroll, roll
       ...wrapped,
     });
   } catch (error) {
-    await rollback?.().catch(() => undefined);
+    await rollback?.(identifiers.did).catch(() => undefined);
     throw new Error("The device key could not be saved in this browser profile. The incomplete enrollment was removed; check that persistent site storage is enabled and try again.", { cause: error });
   }
-  return { did: identifiers.did, displayName };
+  return { did: identifiers.did, displayName, ...(await getBrowserApproverIdentity()) };
 }
 
 const verifyRequest = async (request, record, executorDid) => {

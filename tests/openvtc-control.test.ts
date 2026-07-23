@@ -187,8 +187,8 @@ test("a protected Calendar write uses the generic redacted OpenVTC path and exec
   assert.ok(!JSON.stringify(audit).includes(sensitiveBody));
 });
 
-test("re-enrolling a browser rebinds a live request to the new device key", async () => {
-  const { store, workspace, executor, coordinator, transportToken: oldToken, service } = await setup();
+test("multiple browsers receive recipient-bound requests but converge on one legal decision path", async () => {
+  const { store, workspace, executor, coordinator, browser, transportToken: oldToken, service } = await setup();
   const pending = await service.createMicrosoft365Delete(
     identity,
     workspace.id,
@@ -221,13 +221,14 @@ test("re-enrolling a browser rebinds a live request to the new device key", asyn
   }, replacementBrowser, issuedAt);
   const replacement = await coordinator.enroll(identity, challenge.id, enrollment);
 
-  await assert.rejects(coordinator.inbox(oldToken), (error: unknown) => error instanceof Error && "code" in error && error.code === "UNAUTHENTICATED");
-  const request = await coordinator.inboxForIdentity(identity) as Record<string, unknown>;
+  const oldRequest = await coordinator.inbox(oldToken) as Record<string, unknown>;
+  assert.equal(oldRequest.recipient, browser.did);
+  const request = await coordinator.inboxForIdentity(identity, replacementBrowser.did) as Record<string, unknown>;
   assert.equal(request.recipient, replacementBrowser.did);
-  const reboundTask = await store.getOpenVtcConsentTask(identity, pending.id);
-  assert.ok(reboundTask);
-  assert.notEqual(reboundTask.id, priorTask.id);
-  assert.notEqual(reboundTask.payloadDigest, priorTask.payloadDigest);
+  const replacementTask = await store.getOpenVtcConsentTaskForApprover(identity, pending.id, replacement.approver.id);
+  assert.ok(replacementTask);
+  assert.notEqual(replacementTask.id, priorTask.id);
+  assert.notEqual(replacementTask.payloadDigest, priorTask.payloadDigest);
 
   const completed = await service.applyOpenVtcDecision(
     replacement.transportToken,
@@ -235,6 +236,10 @@ test("re-enrolling a browser rebinds a live request to the new device key", asyn
     "browser-rotate-decision",
   );
   assert.equal(completed.state, "succeeded");
+  await assert.rejects(
+    service.applyOpenVtcDecision(oldToken, signedDecision(oldRequest, browser, "approve"), "browser-old-late-decision"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "APPROVAL_STATE_INVALID",
+  );
   assert.equal(executor.calls.length, 1);
 });
 

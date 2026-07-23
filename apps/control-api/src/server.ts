@@ -12,6 +12,7 @@ import { EntraAuthenticationService, isAdministrator, testPrincipalFromHeaders }
 import { McpPolicyService, m365CapabilityDefinitions } from "./mcp-policy.js";
 import { OpenVtcApprovalCoordinator } from "./openvtc.js";
 import { AgentBridgeAuthority, type AgentBridgeIdentity } from "./agent-bridge.js";
+import { COMPANION_PUSH_PROTOCOL, WebPushProvider } from "./web-push.js";
 
 type AuthenticationBoundary = Pick<EntraAuthenticationService, "begin" | "complete" | "authenticate" | "logout">;
 
@@ -47,6 +48,11 @@ const sandboxModels = [
   { alias: "onecomputer-assistant", displayName: "Standard route (legacy)", provider: "OpenAI" },
 ] as const;
 
+const optionalEnvString = (minimum = 1) => z.preprocess(
+  (value) => value === "" ? undefined : value,
+  z.string().min(minimum).optional(),
+);
+
 const envSchema = z.object({
   CONTROL_HOST: z.string().default("127.0.0.1"),
   CONTROL_PORT: z.coerce.number().int().positive().default(4100),
@@ -63,6 +69,10 @@ const envSchema = z.object({
   AGENT_BRIDGE_URL: z.string().url().default("http://onecomputer-control:4100"),
   FIXTURE_APPROVAL_SECRET: z.string().min(32).default("local-disabled-fixture-approval-secret-32-chars"),
   OPENVTC_EXECUTOR_PRIVATE_KEY_B64: z.string().min(1).optional(),
+  WEB_PUSH_VAPID_SUBJECT: optionalEnvString(),
+  WEB_PUSH_VAPID_PUBLIC_KEY: optionalEnvString(),
+  WEB_PUSH_VAPID_PRIVATE_KEY: optionalEnvString(),
+  WEB_PUSH_SUBSCRIPTION_SECRET: optionalEnvString(32),
   ENTRA_TENANT_ID: z.string().min(1),
   ENTRA_CLIENT_ID: z.string().min(1),
   ENTRA_CLIENT_SECRET: z.string().min(1),
@@ -453,19 +463,68 @@ export function createControlServer(
     const input = z.object({ challengeId: z.uuid(), document: z.unknown() }).strict().parse(request.body ?? {});
     return reply.code(201).header("cache-control", "no-store").send(await security.openVtc.enroll(identity(request), input.challengeId, input.document));
   });
-  app.get("/v1/openvtc/approvers/current", async (request, reply) => {
+  app.get<{ Querystring: { approverDid?: string } }>("/v1/openvtc/approvers/current", async (request, reply) => {
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
-    return reply.header("cache-control", "no-store").send(await security.openVtc.status(identity(request)));
+    return reply.header("cache-control", "no-store").send(await security.openVtc.status(identity(request), request.query.approverDid));
   });
-  app.delete("/v1/openvtc/approvers/current", async (request, reply) => {
+  app.delete<{ Querystring: { approverDid?: string } }>("/v1/openvtc/approvers/current", async (request, reply) => {
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
-    return await security.openVtc.revoke(identity(request)) ? reply.code(204).send() : reply.code(404).send({ error: { code: "OPENVTC_APPROVER_NOT_FOUND", message: "No active browser approver is enrolled", correlationId: request.id, retryable: false } });
+    return await security.openVtc.revoke(identity(request), request.query.approverDid) ? reply.code(204).send() : reply.code(404).send({ error: { code: "OPENVTC_APPROVER_NOT_FOUND", message: "No active browser approver is enrolled", correlationId: request.id, retryable: false } });
   });
-  app.get("/v1/openvtc/approvals/pending", async (request, reply) => {
+  app.get<{ Querystring: { approverDid?: string } }>("/v1/openvtc/approvals/pending", async (request, reply) => {
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
-    const document = await security.openVtc.inboxForIdentity(identity(request));
+    const document = await security.openVtc.inboxForIdentity(identity(request), request.query.approverDid);
     reply.header("cache-control", "no-store");
     return document ? reply.send(document) : reply.code(204).send();
+  });
+  app.get("/v1/openvtc/companion/config", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return reply.header("cache-control", "no-store").send(security.openVtc.companionConfig());
+  });
+  app.get<{ Querystring: { cursor?: string; limit?: string } }>("/v1/openvtc/companion/activity", async (request, reply) => {
+    const query = z.object({
+      cursor: z.string().min(1).max(512).optional(),
+      limit: z.coerce.number().int().min(1).max(50).optional(),
+    }).strict().parse(request.query);
+    return reply.header("cache-control", "no-store").send(await operations.companionActivity(identity(request), query));
+  });
+  app.get<{ Params: { operationId: string } }>("/v1/openvtc/companion/activity/:operationId", async (request, reply) => {
+    const operationId = z.uuid().parse(request.params.operationId);
+    return reply.header("cache-control", "no-store").send(await operations.companionActivityDetail(identity(request), operationId));
+  });
+  app.get("/v1/openvtc/companions", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return reply.header("cache-control", "no-store").send(await security.openVtc.companions(identity(request)));
+  });
+  app.put("/v1/openvtc/companions/subscription", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    const input = z.object({
+      version: z.literal(COMPANION_PUSH_PROTOCOL),
+      approverDid: z.string().startsWith("did:key:z").max(200),
+      installationId: z.uuid(),
+      browserFamily: z.enum(["chrome", "edge", "firefox", "safari", "other"]),
+      platform: z.enum(["windows", "macos", "linux", "android", "ios", "other"]),
+      notificationPermission: z.literal("granted"),
+      subscription: z.object({
+        endpoint: z.url().refine((value) => value.startsWith("https://"), "Push endpoint must use HTTPS"),
+        expirationTime: z.number().int().positive().nullable(),
+        keys: z.object({
+          p256dh: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/),
+          auth: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+        }).strict(),
+      }).strict(),
+    }).strict().parse(request.body ?? {});
+    return reply.code(201).header("cache-control", "no-store").send(await security.openVtc.subscribeCompanion(identity(request), input));
+  });
+  app.delete<{ Params: { companionId: string } }>("/v1/openvtc/companions/:companionId", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return await security.openVtc.revokeCompanion(identity(request), request.params.companionId)
+      ? reply.code(204).send()
+      : reply.code(404).send({ error: { code: "OPENVTC_COMPANION_NOT_FOUND", message: "Companion browser not found", correlationId: request.id, retryable: false } });
+  });
+  app.post<{ Params: { companionId: string } }>("/v1/openvtc/companions/:companionId/test", async (request, reply) => {
+    if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
+    return reply.header("cache-control", "no-store").send(await security.openVtc.testCompanion(identity(request), request.params.companionId));
   });
   app.get("/v1/openvtc/inbox", async (request, reply) => {
     if (!security.openVtc) throw new OneComputerError("OPENVTC_NOT_CONFIGURED", "OpenVTC approvals are not configured", 503, true);
@@ -547,8 +606,19 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         credentialSecret: env.LITELLM_CREDENTIAL_SECRET,
       })
     : undefined;
+  const webPushValues = [env.WEB_PUSH_VAPID_SUBJECT, env.WEB_PUSH_VAPID_PUBLIC_KEY, env.WEB_PUSH_VAPID_PRIVATE_KEY, env.WEB_PUSH_SUBSCRIPTION_SECRET];
+  if (webPushValues.some(Boolean) && !webPushValues.every(Boolean)) throw new Error("All Web Push settings must be configured together");
+  const pushProvider = env.WEB_PUSH_VAPID_SUBJECT && env.WEB_PUSH_VAPID_PUBLIC_KEY
+    && env.WEB_PUSH_VAPID_PRIVATE_KEY && env.WEB_PUSH_SUBSCRIPTION_SECRET
+    ? new WebPushProvider({
+        subject: env.WEB_PUSH_VAPID_SUBJECT,
+        publicKey: env.WEB_PUSH_VAPID_PUBLIC_KEY,
+        privateKey: env.WEB_PUSH_VAPID_PRIVATE_KEY,
+        subscriptionSecret: env.WEB_PUSH_SUBSCRIPTION_SECRET,
+      })
+    : undefined;
   const openVtc = env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64
-    ? new OpenVtcApprovalCoordinator(store, Ed25519DidKeySigner.fromPkcs8Base64(env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64))
+    ? new OpenVtcApprovalCoordinator(store, Ed25519DidKeySigner.fromPkcs8Base64(env.OPENVTC_EXECUTOR_PRIVATE_KEY_B64), pushProvider)
     : undefined;
   const app = createControlServer(
     store,
@@ -575,6 +645,15 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       egressGrantSecret: env.EGRESS_GRANT_SECRET,
     },
   );
-  app.addHook("onClose", async () => { await store.close(); await identityPolicyStore.close(); });
+  const pushRetryTimer = pushProvider && openVtc
+    ? setInterval(() => { void openVtc.flushCompanionPushQueue().catch(() => undefined); }, 5_000)
+    : undefined;
+  pushRetryTimer?.unref();
+  if (openVtc) await openVtc.flushCompanionPushQueue().catch(() => undefined);
+  app.addHook("onClose", async () => {
+    if (pushRetryTimer) clearInterval(pushRetryTimer);
+    await store.close();
+    await identityPolicyStore.close();
+  });
   await app.listen({ host: env.CONTROL_HOST, port: env.CONTROL_PORT });
 }

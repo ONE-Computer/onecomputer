@@ -75,7 +75,7 @@ const createTask = async (
   });
 };
 
-test("OpenVTC enrollment maps a hashed transport token to one active approver", async () => {
+test("OpenVTC enrollment keeps independently hashed transport tokens for multiple active approvers", async () => {
   const store = new MemoryWorkspaceStore();
   const first = await enroll(store, "did:key:zFirstApprover", "first-secret-token");
 
@@ -84,7 +84,8 @@ test("OpenVTC enrollment maps a hashed transport token to one active approver", 
 
   const second = await enroll(store, "did:key:zSecondApprover", "second-secret-token", new Date(NOW.getTime() + 1_000));
   assert.equal((await store.getActiveOpenVtcApprover(identity))?.id, second.id);
-  assert.equal(await store.getOpenVtcApproverByTransportTokenHash(sha256("first-secret-token")), null);
+  assert.equal(await store.getOpenVtcApproverByTransportTokenHash(sha256("first-secret-token")), first);
+  assert.deepEqual((await store.listActiveOpenVtcApprovers(identity)).map((item) => item.id), [second.id, first.id]);
 });
 
 test("OpenVTC enrollment challenges are owner-bound, expiring, and single use", async () => {

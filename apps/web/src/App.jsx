@@ -417,7 +417,7 @@ function EgressFirewallCard({ versions, saving, onSave }) {
   );
 }
 
-function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, onConfigureConnector, egressVersions, egressSaving, onSaveEgress, onAttachEgress }) {
+function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion, mcpPolicy, onConfigureConnector }) {
   return (
     <div className="secondary-screen admin-screen">
       <header className="page-heading compact">
@@ -438,7 +438,6 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
         </div>
         <button className="secondary-button" type="button" onClick={onConfigureConnector}>Open connector settings<ChevronRight16Regular aria-hidden="true" /></button>
       </section>
-      <EgressFirewallCard versions={egressVersions} saving={egressSaving} onSave={onSaveEgress} />
       <section className="admin-user-list" aria-label="Organization users">
         {loading ? <p>Loading organization users…</p> : users.map((item) => (
           <article key={item.userId}>
@@ -450,11 +449,6 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
               {item.effectivePolicy ? <>
                 <strong>Version {item.effectivePolicy.version} assigned</strong>
                 <small>Immutable policy {item.effectivePolicy.documentHash.slice(0, 12)}…</small>
-                <select aria-label={`Firewall for ${item.displayName}`} value={item.effectivePolicy.egressSecurityGroup?.id ?? ""} disabled={busyUserId === item.userId} onChange={(event) => onAttachEgress(item.userId, event.target.value)}>
-                  <option value="" disabled>Choose firewall</option>
-                  {egressVersions.map((version) => <option key={version.id} value={version.id}>{version.name} · v{version.version}</option>)}
-                </select>
-                <small>Stop the workspace before changing this attachment.</small>
               </> : <><strong>No active policy</strong><small>Workspace and agent authority is revoked.</small></>}
             </div>
             {item.effectivePolicy
@@ -462,6 +456,48 @@ function AdminScreen({ users, loading, busyUserId, onAssign, onRevoke, onVersion
               : <button className="primary-button compact-button" type="button" disabled={busyUserId === item.userId} onClick={() => onAssign(item.userId)}>Assign policy</button>}
           </article>
         ))}
+      </section>
+    </div>
+  );
+}
+
+function FirewallScreen({ users, loading, busyUserId, versions, saving, onSave, onAttach }) {
+  return (
+    <div className="secondary-screen firewall-screen">
+      <header className="page-heading compact">
+        <p>Network control</p>
+        <h1>Egress firewall</h1>
+        <span>Create reusable security groups and attach one immutable version to each managed sandbox.</span>
+      </header>
+      <EgressFirewallCard versions={versions} saving={saving} onSave={onSave} />
+      <section className="firewall-attachments" aria-labelledby="firewall-attachments-heading">
+        <div className="firewall-attachments-heading">
+          <div>
+            <p>Assignments</p>
+            <h2 id="firewall-attachments-heading">Sandbox attachments</h2>
+          </div>
+          <span>Stop a running workspace before changing its firewall.</span>
+        </div>
+        <div className="admin-user-list">
+          {loading ? <p>Loading sandbox assignments…</p> : users.map((item) => (
+            <article key={item.userId}>
+              <div className="admin-user-copy">
+                <strong>{item.displayName}</strong><small>{item.email}</small>
+                <span>{item.roles.includes("administrator") ? "Administrator" : "Employee"}</span>
+              </div>
+              <div className="admin-policy-copy">
+                {item.effectivePolicy ? <>
+                  <strong>{item.effectivePolicy.egressSecurityGroup ? `${item.effectivePolicy.egressSecurityGroup.name} · v${item.effectivePolicy.egressSecurityGroup.version}` : "No firewall attached"}</strong>
+                  <small>One pinned security-group version per sandbox policy</small>
+                  <select aria-label={`Firewall for ${item.displayName}`} value={item.effectivePolicy.egressSecurityGroup?.id ?? ""} disabled={busyUserId === item.userId} onChange={(event) => onAttach(item.userId, event.target.value)}>
+                    <option value="" disabled>Choose firewall</option>
+                    {versions.map((version) => <option key={version.id} value={version.id}>{version.name} · v{version.version}</option>)}
+                  </select>
+                </> : <><strong>Policy required</strong><small>Assign a workspace policy in Admin before attaching a firewall.</small></>}
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -919,11 +955,22 @@ export function App() {
   useEffect(() => {
     if (activeNav !== "Admin" || !session?.roles.includes("administrator")) return;
     setAdminLoading(true);
-    adminApi.egressSecurityGroups()
-      .then(async (egress) => {
-        const [users, policy] = await Promise.all([adminApi.users(), adminApi.mcpPolicy()]);
+    Promise.all([adminApi.users(), adminApi.mcpPolicy()])
+      .then(([users, policy]) => {
         setAdminUsers(users.users);
         setMcpPolicy(policy);
+      })
+      .catch(showApiError)
+      .finally(() => setAdminLoading(false));
+  }, [activeNav, session?.user.id]);
+
+  useEffect(() => {
+    if (activeNav !== "Firewall" || !session?.roles.includes("administrator")) return;
+    setAdminLoading(true);
+    adminApi.egressSecurityGroups()
+      .then(async (egress) => {
+        const users = await adminApi.users();
+        setAdminUsers(users.users);
         setEgressVersions(egress.securityGroups);
       })
       .catch(showApiError)
@@ -1266,6 +1313,7 @@ export function App() {
           <NavButton active={activeNav === "Home"} icon={activeNav === "Home" ? Home24Filled : Home24Regular} label="Home" onClick={() => selectNav("Home")} />
           <NavButton active={activeNav === "Activity"} icon={Clock24Regular} label="Activity" onClick={() => selectNav("Activity")} />
           <NavButton active={activeNav === "Sandbox"} icon={Laptop24Regular} label="Sandbox" onClick={() => selectNav("Sandbox")} />
+          {session.roles.includes("administrator") && <NavButton active={activeNav === "Firewall"} icon={ShieldCheckmark24Regular} label="Firewall" onClick={() => selectNav("Firewall")} />}
           <NavButton active={activeNav === "Connections"} icon={PlugConnected24Regular} label="Connections" onClick={() => selectNav("Connections")} />
           {session.roles.includes("administrator") && <NavButton active={activeNav === "Admin"} icon={Settings24Regular} label="Admin" onClick={() => selectNav("Admin")} />}
           <ExternalNavLink icon={Bot24Regular} label="Gateway" href={gatewayAdminUrl} />
@@ -1340,7 +1388,8 @@ export function App() {
             onPolicySave={saveMcpPolicy}
           />
         )}
-        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} onConfigureConnector={configureMicrosoft365} egressVersions={egressVersions} egressSaving={egressSaving} onSaveEgress={saveEgressSecurityGroup} onAttachEgress={attachEgressSecurityGroup} />}
+        {activeNav === "Firewall" && session.roles.includes("administrator") && <FirewallScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} versions={egressVersions} saving={egressSaving} onSave={saveEgressSecurityGroup} onAttach={attachEgressSecurityGroup} />}
+        {activeNav === "Admin" && session.roles.includes("administrator") && <AdminScreen users={adminUsers} loading={adminLoading} busyUserId={adminBusyUserId} onAssign={assignPolicy} onRevoke={revokePolicy} onVersion={createPolicyVersion} mcpPolicy={mcpPolicy} onConfigureConnector={configureMicrosoft365} />}
         {activeNav === "Help" && <HelpScreen />}
       </main>
 

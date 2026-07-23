@@ -1979,6 +1979,14 @@ summary:focus-visible {
 .compact-button { min-width: 150px; min-height: 44px; }
 
 .egress-firewall-card { margin-top: 20px; padding: 26px 24px; border: 1px solid #dededb; border-radius: 8px; background: #fff; }
+.firewall-screen .egress-firewall-card { margin-top: 0; }
+.firewall-attachments { margin-top: 24px; padding: 26px 24px 0; border: 1px solid #dededb; border-radius: 8px; background: #fff; }
+.firewall-attachments-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.firewall-attachments-heading p { margin: 0 0 4px; color: #2453a6; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.firewall-attachments-heading h2 { margin: 0; font-size: 22px; }
+.firewall-attachments-heading > span { max-width: 340px; color: #68727d; font-size: 14px; text-align: right; }
+.firewall-attachments .admin-user-list { margin-top: 20px; }
+.firewall-attachments .admin-user-list article { grid-template-columns: minmax(180px, .7fr) minmax(280px, 1.3fr); }
 .egress-firewall-heading,
 .egress-actions { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .egress-firewall-heading p,
@@ -2077,6 +2085,9 @@ summary:focus-visible {
   .admin-connector-summary { grid-template-columns: 52px minmax(0, 1fr); }
   .admin-connector-summary button { grid-column: 1 / -1; width: 100%; }
   .admin-user-list article { grid-template-columns: 1fr; gap: 14px; padding: 22px 0; }
+  .firewall-attachments .admin-user-list article { grid-template-columns: 1fr; }
+  .firewall-attachments-heading { display: block; }
+  .firewall-attachments-heading > span { display: block; margin-top: 8px; max-width: none; text-align: left; }
   .egress-firewall-heading,
   .egress-actions { align-items: stretch; flex-direction: column; }
   .egress-group-picker,

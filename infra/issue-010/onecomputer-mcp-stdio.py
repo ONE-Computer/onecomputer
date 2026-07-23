@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
 
 
-BROKER = "http://127.0.0.1:4312"
+BROKER = os.environ.get("ONECOMPUTER_MCP_BROKER", "http://127.0.0.1:4312")
+if BROKER not in {"http://127.0.0.1:4312", "http://127.0.0.1:4314"}:
+    raise SystemExit("invalid ONEComputer MCP broker")
 PROTOCOL_VERSION = "2024-11-05"
 TOOLS: dict[str, dict] = {}
 WAIT_TOOL_NAME = "wait-for-governed-operation"

@@ -10,7 +10,7 @@ Base: `mike/greenfield-v1` at `37b9f50cb7f79481868be5129147fcbad51c4ae6`
 V2 polishes the accepted greenfield V1 product without weakening its trust
 model. It fixes the blocking Kasm clipboard experience, turns the workspace
 network boundary into an explicit egress-firewall product capability, adds
-NanoClaw as a policy-selected default agent, makes OpenVTC approval practical
+Hermes Claw as a policy-selected default agent, makes OpenVTC approval practical
 for headless workspaces through a push-capable companion web app, makes policy
 projection tamper-evident and externally enforced, and then refines the whole
 UI.
@@ -112,7 +112,7 @@ consistent, and the completion record points to the bundle.
 | --- | --- | --- | --- | --- |
 | 001 | P0 | complete | Make Kasm clipboard use native copy/paste | — |
 | 002 | P1 | complete | Enforce a workspace egress firewall at the proxy/network boundary | 001 |
-| 003 | P1 | ready | Ship NanoClaw and Claude Desktop as policy-selected default agents | 002 |
+| 003 | P1 | verification | Ship Hermes Claw and Claude Desktop as policy-selected default agents | 002 |
 | 004 | P2 | blocked | Add a push-capable OpenVTC companion web app | 003 |
 | 005 | P3 | blocked | Sign projected policy and verify it at enforcement points | 004 |
 | 006 | P3 | blocked | Refine the complete V2 UI and accessibility | 005 |

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import type { GovernedOperationState, IdentityContext, OwnedJson, SandboxModelAlias, SandboxProfileId, WorkspaceState } from "@onecomputer/contracts";
+import type { AgentCatalogId, GovernedOperationState, IdentityContext, OwnedJson, SandboxModelAlias, SandboxProfileId, WorkspaceState } from "@onecomputer/contracts";
 export * from "./identity-policy.js";
 
 export type WorkspaceRecord = {
@@ -24,6 +24,7 @@ export type SandboxSettingsRecord = {
   grantId: string;
   profileId: SandboxProfileId;
   modelAlias: SandboxModelAlias;
+  agentIds: AgentCatalogId[];
   updatedAt: Date;
 };
 
@@ -217,7 +218,7 @@ export interface WorkspaceStore {
   update(workspaceId: string, patch: Partial<Pick<WorkspaceRecord, "state" | "providerId" | "failureCode">>): Promise<WorkspaceRecord>;
   remove(identity: IdentityContext, workspaceId: string): Promise<boolean>;
   getSandboxSettings?(identity: IdentityContext, grantId: string): Promise<SandboxSettingsRecord | null>;
-  saveSandboxSettings?(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias }): Promise<SandboxSettingsRecord>;
+  saveSandboxSettings?(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias; agentIds: AgentCatalogId[] }): Promise<SandboxSettingsRecord>;
 }
 
 const mapRow = (row: Record<string, unknown>): WorkspaceRecord => ({
@@ -239,6 +240,7 @@ const mapSandboxSettingsRow = (row: Record<string, unknown>): SandboxSettingsRec
   grantId: String(row.grant_id),
   profileId: String(row.profile_id) as SandboxProfileId,
   modelAlias: String(row.model_alias) as SandboxModelAlias,
+  agentIds: (Array.isArray(row.agent_ids) ? row.agent_ids : ["claude-desktop", "hermes-claw"]) as AgentCatalogId[],
   updatedAt: new Date(String(row.updated_at)),
 });
 
@@ -344,7 +346,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
   }
 
   async migrate() {
-    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql", "009_operation_policy_binding.sql", "010_egress_security_groups.sql"]) {
+    for (const migration of ["001_workspaces.sql", "002_governed_operations.sql", "003_persistent_workspaces.sql", "004_identity_policy.sql", "005_mcp_policy.sql", "006_openvtc_approval.sql", "007_openvtc_browser_enrollment.sql", "008_sandbox_settings.sql", "009_operation_policy_binding.sql", "010_egress_security_groups.sql", "011_sandbox_agents.sql"]) {
       const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
       await this.pool.query(await readFile(migrationPath, "utf8"));
     }
@@ -438,14 +440,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore, GovernanceStore, 
     return result.rowCount ? mapSandboxSettingsRow(result.rows[0]) : null;
   }
 
-  async saveSandboxSettings(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias }) {
+  async saveSandboxSettings(identity: IdentityContext, input: { grantId: string; profileId: SandboxProfileId; modelAlias: SandboxModelAlias; agentIds: AgentCatalogId[] }) {
     const result = await this.pool.query(
-      `INSERT INTO sandbox_settings (tenant_id,subject_id,grant_id,profile_id,model_alias,updated_at)
-       VALUES ($1,$2,$3,$4,$5,now())
+      `INSERT INTO sandbox_settings (tenant_id,subject_id,grant_id,profile_id,model_alias,agent_ids,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,now())
        ON CONFLICT (tenant_id,subject_id,grant_id) DO UPDATE
-       SET profile_id=EXCLUDED.profile_id,model_alias=EXCLUDED.model_alias,updated_at=now()
+       SET profile_id=EXCLUDED.profile_id,model_alias=EXCLUDED.model_alias,agent_ids=EXCLUDED.agent_ids,updated_at=now()
        RETURNING *`,
-      [identity.tenantId, identity.subjectId, input.grantId, input.profileId, input.modelAlias],
+      [identity.tenantId, identity.subjectId, input.grantId, input.profileId, input.modelAlias, JSON.stringify(input.agentIds)],
     );
     return mapSandboxSettingsRow(result.rows[0]);
   }

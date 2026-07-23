@@ -31,10 +31,10 @@ export const workspaceApi = {
 
 export const sandboxApi = {
   settings: () => request("/api/v1/sandbox-settings"),
-  save: (profileId, modelAlias) => request("/api/v1/sandbox-settings", {
+  save: (profileId, modelAlias, agentIds) => request("/api/v1/sandbox-settings", {
     method: "PUT",
     headers: jsonHeaders,
-    body: JSON.stringify({ grantId: "personal", profileId, modelAlias }),
+    body: JSON.stringify({ grantId: "personal", profileId, modelAlias, agentIds }),
   }),
 };
 

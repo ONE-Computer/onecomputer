@@ -38,7 +38,7 @@ Kasm, proxy, LiteLLM, Web Push, or cryptographic implementation.
 ## Out of scope
 
 - Changing the V2 trust model, moving enforcement into the browser, redesigning
-  vendor-native Claude/NanoClaw/Kasm interfaces, hiding security failures to
+  vendor-native Claude/Hermes-Claw/Kasm interfaces, hiding security failures to
   simplify the UI, adding unrelated product features, or replacing functional
   backend contracts solely for visual consistency.
 

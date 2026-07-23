@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HERMES_HOME=/home/kasm-user/.hermes
+export OPENAI_API_KEY=onecomputer-loopback-broker
+export ONECOMPUTER_MCP_BROKER=http://127.0.0.1:4314
+
+exec /opt/onecomputer/hermes-venv/bin/hermes chat "$@"

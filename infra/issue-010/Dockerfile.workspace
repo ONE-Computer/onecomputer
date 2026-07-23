@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df22866bd7857e5d304b67a564f4feab6ac22044dde719b AS uv_source
+
 FROM kasmweb/ubuntu-jammy-desktop@sha256:58b0710b320b99ab7e352342d7ec3a25b09740c523b75d794c5f7476910da580
 
 USER root
@@ -8,6 +10,12 @@ ARG CLAUDE_CODE_VERSION=2.1.215
 ARG CLAUDE_CODE_SHA256=7ff9594e53cd89d1af9ceb3c18d3d70be1a5c6d27475e31ee2bed65d748f18c0
 ARG FIREFOX_VERSION=140.12.0esr
 ARG FIREFOX_SHA256=3323ee13ac6fe4877fa2e1f4a3aa6b8009f65a620c7bbca96fe86f1a6f433d92
+ARG HERMES_AGENT_VERSION=0.19.0
+ARG HERMES_AGENT_TAG=v2026.7.20
+ARG HERMES_AGENT_SHA256=285f3fc134ff466a90065e1517801a68993733b807158ee8f32aa01613786990
+ARG HERMES_PYTHON_VERSION=3.13.5
+
+COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get purge -y \
@@ -23,12 +31,22 @@ RUN export DEBIAN_FRONTEND=noninteractive \
       "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/linux-x64/claude.zst" \
     && curl -fsSLo /tmp/firefox.tar.xz \
       "https://ftp.mozilla.org/pub/firefox/releases/${FIREFOX_VERSION}/linux-x86_64/en-US/firefox-${FIREFOX_VERSION}.tar.xz" \
+    && curl -fsSLo /tmp/hermes-agent.tar.gz \
+      "https://github.com/NousResearch/hermes-agent/archive/refs/tags/${HERMES_AGENT_TAG}.tar.gz" \
     && echo "${CLAUDE_DESKTOP_SHA256}  /tmp/claude-desktop.deb" | sha256sum -c - \
     && echo "${CLAUDE_CODE_SHA256}  /tmp/claude-code.zst" | sha256sum -c - \
     && echo "${FIREFOX_SHA256}  /tmp/firefox.tar.xz" | sha256sum -c - \
+    && echo "${HERMES_AGENT_SHA256}  /tmp/hermes-agent.tar.gz" | sha256sum -c - \
     && apt-get update \
     && apt-get install -y --no-install-recommends mousepad zstd /tmp/claude-desktop.deb \
     && tar -xJf /tmp/firefox.tar.xz -C /opt \
+    && install -d -o root -g root -m 0755 /opt/onecomputer/hermes-agent \
+    && tar -xzf /tmp/hermes-agent.tar.gz -C /opt/onecomputer/hermes-agent --strip-components=1 \
+    && uv python install "${HERMES_PYTHON_VERSION}" --install-dir /opt/onecomputer/python --no-bin --no-progress \
+    && UV_PROJECT_ENVIRONMENT=/opt/onecomputer/hermes-venv \
+      uv sync --project /opt/onecomputer/hermes-agent --frozen --no-dev --no-editable \
+      --python "/opt/onecomputer/python/cpython-${HERMES_PYTHON_VERSION}-linux-x86_64-gnu/bin/python" \
+    && test "$(/opt/onecomputer/hermes-venv/bin/python -c 'from hermes_cli import __version__; print(__version__)')" = "${HERMES_AGENT_VERSION}" \
     && ln -s /opt/firefox/firefox /usr/local/bin/firefox \
     && install -d -o root -g root -m 0755 "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}" \
     && unzstd -c /tmp/claude-code.zst > "/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude" \
@@ -36,7 +54,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && test "$(/opt/onecomputer/claude-code/${CLAUDE_CODE_VERSION}/claude --version | awk '{print $1}')" = "${CLAUDE_CODE_VERSION}" \
     && test "$(/opt/firefox/firefox --version | awk '{print $3}')" = "${FIREFOX_VERSION}" \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/claude-desktop.deb /tmp/claude-code.zst /tmp/firefox.tar.xz /opt/Telegram \
+    && rm -rf /var/lib/apt/lists/* /root/.cache/uv /tmp/claude-desktop.deb /tmp/claude-code.zst /tmp/firefox.tar.xz /tmp/hermes-agent.tar.gz /opt/Telegram \
       /home/kasm-default-profile/Desktop/* \
       /home/kasm-default-profile/.mozilla \
       /home/kasm-default-profile/.local/share/remmina \
@@ -50,27 +68,24 @@ COPY infra/issue-010/onecomputer-workspace-entrypoint.sh /usr/local/sbin/onecomp
 COPY infra/issue-010/claude-desktop.desktop /usr/share/applications/onecomputer-claude-desktop.desktop
 COPY infra/issue-010/firefox.desktop /usr/share/applications/onecomputer-firefox.desktop
 COPY infra/issue-010/firefox-policies.json /opt/firefox/distribution/policies.json
-COPY infra/issue-010/claude-desktop.desktop /home/kasm-default-profile/Desktop/Claude-Desktop.desktop
-COPY infra/issue-010/firefox.desktop /home/kasm-default-profile/Desktop/Firefox.desktop
-COPY infra/issue-010/claude-desktop.desktop /home/kasm-default-profile/.config/autostart/claude-desktop.desktop
-
+COPY infra/issue-010/onecomputer-hermes /usr/local/bin/onecomputer-hermes
+COPY infra/issue-010/hermes-claw.desktop /usr/share/applications/onecomputer-hermes-claw.desktop
 RUN chmod 0755 \
       /usr/local/libexec/onecomputer-egress-broker \
       /usr/local/libexec/onecomputer-gateway-proxy \
       /usr/local/libexec/onecomputer-mcp-stdio \
       /usr/local/sbin/onecomputer-workspace-entrypoint \
+      /usr/local/bin/onecomputer-hermes \
       /usr/share/applications/onecomputer-claude-desktop.desktop \
       /usr/share/applications/onecomputer-firefox.desktop \
-      /home/kasm-default-profile/Desktop/Claude-Desktop.desktop \
-      /home/kasm-default-profile/Desktop/Firefox.desktop \
-      /home/kasm-default-profile/.config/autostart/claude-desktop.desktop \
+      /usr/share/applications/onecomputer-hermes-claw.desktop \
     && chmod 0644 /usr/share/kasmvnc/www/app/onecomputer-kasm-clipboard.js /opt/firefox/distribution/policies.json \
     && grep -q 'dist/style.bundle.js' /usr/share/kasmvnc/www/index.html \
     && printf '%s\n' '<script src="/app/onecomputer-kasm-clipboard.js"></script>' >> /usr/share/kasmvnc/www/index.html \
     && chown -R 1000:1000 /home/kasm-default-profile/Desktop /home/kasm-default-profile/.config
 
 HEALTHCHECK --interval=5s --timeout=2s --start-period=15s --retries=12 \
-  CMD curl -fsS http://127.0.0.1:4312/healthz || exit 1
+  CMD test -f /run/onecomputer/workspace-ready || exit 1
 
 USER root
 ENTRYPOINT ["/usr/local/sbin/onecomputer-workspace-entrypoint"]

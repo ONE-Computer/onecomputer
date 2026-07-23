@@ -208,6 +208,16 @@ function HomeScreen({ userName, workspace, workspaceState, apiError, operation, 
               </div>
             ))}
           </div>
+          {workspace?.agents?.length > 0 && (
+            <div className="workspace-agents" aria-label="Selected workspace agents">
+              {workspace.agents.map((agent) => (
+                <span key={agent.id}>
+                  <Bot24Regular aria-hidden="true" />
+                  <span><strong>{agent.displayName}</strong><small>{agent.state} · v{agent.clientVersion}</small></span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="workspace-actions">
           <button className="primary-button" type="button" onClick={onOpen} disabled={busy}>
@@ -563,15 +573,24 @@ function HelpScreen() {
 function SandboxScreen({ settings, loading, saving, error, workspaceState, onSave }) {
   const [profileId, setProfileId] = useState("");
   const [modelAlias, setModelAlias] = useState("");
+  const [agentIds, setAgentIds] = useState([]);
 
   useEffect(() => {
     if (!settings) return;
     setProfileId(settings.profileId);
     setModelAlias(settings.modelAlias);
-  }, [settings?.profileId, settings?.modelAlias]);
+    setAgentIds(settings.agentIds);
+  }, [settings?.profileId, settings?.modelAlias, settings?.agentIds]);
 
   const workspaceStopped = !["provisioning", "ready", "open", "restarting", "stopping"].includes(workspaceState);
-  const dirty = settings && (profileId !== settings.profileId || modelAlias !== settings.modelAlias);
+  const dirty = settings && (
+    profileId !== settings.profileId
+    || modelAlias !== settings.modelAlias
+    || agentIds.join(",") !== settings.agentIds.join(",")
+  );
+  const toggleAgent = (agentId) => setAgentIds((current) => (
+    current.includes(agentId) ? current.filter((id) => id !== agentId) : [...current, agentId]
+  ));
 
   return (
     <div className="secondary-screen sandbox-screen">
@@ -582,7 +601,7 @@ function SandboxScreen({ settings, loading, saving, error, workspaceState, onSav
       </header>
       {error && <div className="workspace-error" role="alert"><Info24Regular aria-hidden="true" /><span><strong>Sandbox settings unavailable</strong>{error}</span></div>}
       {loading || !settings ? <p className="sandbox-loading">Loading your assigned sandbox…</p> : (
-        <form className="sandbox-form" onSubmit={(event) => { event.preventDefault(); onSave(profileId, modelAlias); }}>
+        <form className="sandbox-form" onSubmit={(event) => { event.preventDefault(); onSave(profileId, modelAlias, agentIds); }}>
           <section className="sandbox-section" aria-labelledby="sandbox-profile-heading">
             <div className="sandbox-section-heading">
               <span className="sandbox-section-icon"><Laptop24Regular aria-hidden="true" /></span>
@@ -605,10 +624,32 @@ function SandboxScreen({ settings, loading, saving, error, workspaceState, onSav
             </fieldset>
           </section>
 
+          <section className="sandbox-section" aria-labelledby="sandbox-agents-heading">
+            <div className="sandbox-section-heading">
+              <span className="sandbox-section-icon"><Bot24Regular aria-hidden="true" /></span>
+              <span><h2 id="sandbox-agents-heading">Workspace agents</h2><p>Enable one or both approved clients. Each client receives its own revocable model and tool identity.</p></span>
+            </div>
+            <fieldset className="agent-options">
+              <legend className="sr-only">Workspace agents</legend>
+              {settings.availableAgents.map((agent) => (
+                <label className={`agent-option${agentIds.includes(agent.id) ? " selected" : ""}`} key={agent.id}>
+                  <input type="checkbox" value={agent.id} checked={agentIds.includes(agent.id)} onChange={() => toggleAgent(agent.id)} />
+                  <span className="agent-check" aria-hidden="true">{agentIds.includes(agent.id) ? "✓" : ""}</span>
+                  <span className="profile-copy">
+                    <strong>{agent.displayName}</strong>
+                    <small>{agent.description}</small>
+                    <span>Version {agent.clientVersion} · {agent.license} · {agent.resources.memoryMiB} MB declared memory</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            {!agentIds.length && <p className="sandbox-selection-error" role="alert">Select at least one workspace agent.</p>}
+          </section>
+
           <section className="sandbox-section" aria-labelledby="sandbox-model-heading">
             <div className="sandbox-section-heading">
               <span className="sandbox-section-icon"><Bot24Regular aria-hidden="true" /></span>
-              <span><h2 id="sandbox-model-heading">AI route</h2><p>Claude Desktop receives this alias. Provider credentials remain in LiteLLM and are never copied into the sandbox.</p></span>
+              <span><h2 id="sandbox-model-heading">AI route</h2><p>Each selected agent receives this alias through its own LiteLLM grant. Provider credentials remain outside the sandbox.</p></span>
             </div>
             <div className="model-options" role="radiogroup" aria-labelledby="sandbox-model-heading">
               {settings.availableModels.map((model) => (
@@ -623,7 +664,7 @@ function SandboxScreen({ settings, loading, saving, error, workspaceState, onSav
 
           <div className="sandbox-summary">
             <ShieldCheckmark24Regular aria-hidden="true" />
-            <span><strong>Effective boundary</strong><small>Persistent home · gateway-only network · one workspace-scoped agent identity · no direct provider login</small></span>
+            <span><strong>Effective boundary</strong><small>Persistent home · gateway-only network · {agentIds.length} distinct agent {agentIds.length === 1 ? "identity" : "identities"} · no direct provider login</small></span>
           </div>
           <div className="sandbox-summary">
             <ShieldCheckmark24Regular aria-hidden="true" />
@@ -632,9 +673,9 @@ function SandboxScreen({ settings, loading, saving, error, workspaceState, onSav
               <small>{settings.egress ? `${settings.egress.name} · version ${settings.egress.version} · ${settings.egress.rules.length} approved ${settings.egress.rules.length === 1 ? "destination" : "destinations"} · all other public access denied` : "No public internet destinations are assigned."}</small>
             </span>
           </div>
-          {!workspaceStopped && <p className="sandbox-stop-note"><Info24Regular aria-hidden="true" />Stop the workspace before changing its profile or model route.</p>}
+          {!workspaceStopped && <p className="sandbox-stop-note"><Info24Regular aria-hidden="true" />Stop the workspace before changing its profile, model route, or agents.</p>}
           <div className="sandbox-actions">
-            <button className="primary-button" type="submit" disabled={!dirty || saving || !workspaceStopped}>{saving ? "Saving settings" : "Save sandbox settings"}</button>
+            <button className="primary-button" type="submit" disabled={!dirty || saving || !workspaceStopped || !agentIds.length}>{saving ? "Saving settings" : "Save sandbox settings"}</button>
             <small>{settings.updatedAt ? `Last saved ${new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(settings.updatedAt))}` : "Using the policy default until you save."}</small>
           </div>
         </form>
@@ -1212,11 +1253,11 @@ export function App() {
     }
   };
 
-  const saveSandboxSettings = async (profileId, modelAlias) => {
+  const saveSandboxSettings = async (profileId, modelAlias, agentIds) => {
     setSandboxSaving(true);
     setSandboxError("");
     try {
-      const saved = await sandboxApi.save(profileId, modelAlias);
+      const saved = await sandboxApi.save(profileId, modelAlias, agentIds);
       setSandboxSettings(saved);
       setToast("Sandbox settings saved. Start the workspace to apply them.");
     } catch (error) {

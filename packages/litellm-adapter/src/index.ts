@@ -133,7 +133,7 @@ const desktopTransportAliases: Record<string, string> = {
 };
 
 const desktopModelAlias = (modelAlias: string, policy?: RuntimePolicy) => {
-  if (policy?.workspaceProfile !== "claude-desktop-standard-v1") return modelAlias;
+  if (policy?.agentProfile !== "claude-desktop-managed-v1") return modelAlias;
   const transportAlias = desktopTransportAliases[modelAlias];
   if (!transportAlias) throw new OneComputerError("DESKTOP_MODEL_ROUTE_INVALID", "The selected model has no Claude Desktop transport route", 500);
   return transportAlias;

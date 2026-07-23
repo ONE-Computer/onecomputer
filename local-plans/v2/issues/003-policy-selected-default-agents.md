@@ -1,6 +1,6 @@
 # 003: ship policy-selected default agents
 
-Status: `blocked`
+Status: `verification`
 
 Priority: P1
 Depends on: 002
@@ -8,7 +8,7 @@ Unblocks: 004
 
 ## Outcome
 
-An administrator can include Claude Desktop, NanoClaw, or both in a versioned
+An administrator can include Claude Desktop, Hermes Claw, or both in a versioned
 workspace policy. A newly provisioned sandbox contains the selected pinned
 agents, already configured for their own governed ONEComputer model, tool, and
 network grants, without direct provider credentials or manual installation.
@@ -17,7 +17,7 @@ network grants, without direct provider credentials or manual installation.
 
 - Add an owned agent catalog and agent-profile contract rather than hard-coding
   Claude Desktop as the only workspace client.
-- Qualify, pin, license-review, package, and preconfigure NanoClaw alongside the
+- Qualify, pin, license-review, package, and preconfigure Hermes Claw alongside the
   existing pinned Claude Desktop client.
 - Let policy select one or more approved default agents and project the
   selection into new and intentionally rebuilt workspaces.
@@ -54,7 +54,7 @@ network grants, without direct provider credentials or manual installation.
 
 ## Required verification
 
-- [ ] Claude-only, NanoClaw-only, and Claude-plus-NanoClaw policies provision
+- [ ] Claude-only, Hermes-Claw-only, and Claude-plus-Hermes-Claw policies provision
       exactly the selected usable clients with no manual installation or
       provider login.
 - [ ] Each selected agent completes normal and streaming chat through only its
@@ -78,7 +78,7 @@ network grants, without direct provider credentials or manual installation.
 
 ## Evidence required
 
-Include the agent decision/qualification record, exact NanoClaw and Claude
+Include the agent decision/qualification record, exact Hermes Claw and Claude
 Desktop source/artifact pins and licenses, SBOM or package inventory, profile
 and policy samples, reproducible build evidence, per-agent identity and route
 traces, single/dual-agent resource results, isolation and bypass matrix,
@@ -86,7 +86,7 @@ lifecycle/upgrade/removal results, screenshots, and secret scan.
 
 ## Stop conditions
 
-- NanoClaw cannot be pinned, redistributed, configured for the governed
+- Hermes Claw cannot be pinned, redistributed, configured for the governed
   LiteLLM/MCP routes, isolated with a distinct identity, or run within the
   declared workspace resource budget.
 - An agent requires a direct provider credential, unrestricted egress, shared
@@ -96,4 +96,13 @@ lifecycle/upgrade/removal results, screenshots, and secret scan.
 
 ## Completion record
 
-Not complete.
+Implementation is complete and automated/container qualification passes. Final
+completion is pending deployment inspection of the real LiteLLM/MCP routes and
+the user-facing Kasm launch.
+
+- Qualification record:
+  `local-plans/v2/decisions/003-hermes-agent-qualification.md`
+- Automated suite: 118 tests passed.
+- Image qualification covered Claude-only, Hermes-only, and dual-agent startup,
+  launcher removal, distinct broker ports, Hermes tool restriction, and pinned
+  package/version inspection.

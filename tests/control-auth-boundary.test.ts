@@ -195,9 +195,14 @@ test("only an administrator can assign and revoke the tenant policy through Cont
     assert.equal(savedPolicy.json().version, 2);
     assert.deepEqual(savedPolicy.json().workspaceGrants, { refreshed: 1, failed: 0 });
     assert.equal(savedToolPolicy?.["list-calendars"], "deny");
-    assert.equal(refreshedPolicies.length, 1);
-    assert.equal(refreshedPolicies[0]?.policyVersionId, "version-2");
-    assert.equal(refreshedPolicies[0]?.toolPolicies["list-calendars"], "deny");
+    assert.equal(refreshedPolicies.length, 2);
+    assert.deepEqual(refreshedPolicies.map((runtime) => runtime.agentProfile).sort(), [
+      "claude-desktop-managed-v1",
+      "hermes-claw-managed-v1",
+    ]);
+    assert.equal(new Set(refreshedPolicies.map((runtime) => runtime.agentId)).size, 2);
+    assert.ok(refreshedPolicies.every((runtime) => runtime.policyVersionId === "version-2"));
+    assert.ok(refreshedPolicies.every((runtime) => runtime.toolPolicies["list-calendars"] === "deny"));
 
     const firewalls = await app.inject({ method: "GET", url: "/v1/admin/egress-security-groups", headers });
     assert.equal(firewalls.statusCode, 200);

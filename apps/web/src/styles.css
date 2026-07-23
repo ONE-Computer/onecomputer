@@ -195,6 +195,39 @@ summary:focus-visible {
   color: var(--muted);
 }
 
+.workspace-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.workspace-agents > span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 11px;
+  border-radius: 7px;
+  background: #f2f5f9;
+  color: #20344f;
+}
+
+.workspace-agents > span > span {
+  display: grid;
+  gap: 1px;
+}
+
+.workspace-agents svg {
+  width: 20px;
+  height: 20px;
+}
+
+.workspace-agents small {
+  color: #657180;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
 .sandbox-form {
   display: grid;
   gap: 22px;
@@ -255,6 +288,72 @@ summary:focus-visible {
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.agent-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.agent-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 20px;
+  border: 1px solid #d4d4d1;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.agent-option:hover,
+.agent-option.selected {
+  border-color: var(--navy);
+}
+
+.agent-option.selected {
+  background: #f7faff;
+  box-shadow: inset 0 0 0 1px var(--navy);
+}
+
+.agent-option > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-option:has(input:focus-visible) {
+  outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.agent-check {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border: 2px solid #7a8088;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.agent-option.selected .agent-check {
+  border-color: var(--navy);
+  background: var(--navy);
+}
+
+.sandbox-selection-error {
+  margin: 12px 0 0;
+  color: #9e2f2f;
+  font-size: 13px;
 }
 
 .profile-option {
@@ -2112,6 +2211,10 @@ summary:focus-visible {
   }
 
   .model-options {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-options {
     grid-template-columns: 1fr;
   }
 

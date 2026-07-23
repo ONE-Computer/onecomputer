@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { LogController } from "fastify";
-import { assignEgressSecurityGroupSchema, OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, saveEgressSecurityGroupSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
+import { assignEgressSecurityGroupSchema, OneComputerError, createDeleteFileOperationSchema, createWorkspaceSchema, fixtureApprovalSchema, identityContextSchema, mcpPolicyRequestSchema, ownedAgentCatalog, saveEgressSecurityGroupSchema, saveMcpToolPolicySchema, sandboxProfileSchema, sandboxSettingsSchema, saveSandboxSettingsSchema, type AgentCatalogId, type RuntimePolicy, type SandboxModelAlias, type SandboxProfileId } from "@onecomputer/contracts";
 import { LiteLLMGatewayAdapter, type GatewayClient, type GovernedToolExecutor, type OAuthConnectionGateway } from "@onecomputer/litellm-adapter";
 import { Ed25519DidKeySigner } from "@onecomputer/openvtc-adapter";
 import { PostgresIdentityPolicyStore, PostgresWorkspaceStore, runtimePolicyFor, type GovernanceStore, type IdentityPolicyStore, type SessionPrincipal, type WorkspaceStore } from "@onecomputer/workspace-store";
@@ -200,7 +200,11 @@ export function createControlServer(
     const { principal: value, effective } = await assignedPolicy(request);
     if (!effective) return { principal: value, policy: testRuntimePolicy };
     const saved = await store.getSandboxSettings?.(value.identity, "personal");
-    return { principal: value, policy: runtimePolicyFor(effective, saved?.modelAlias, saved?.profileId) };
+    const document = effective.document as Record<string, unknown>;
+    const defaultAgentIds = Array.isArray(document.agents)
+      ? document.agents.filter((id): id is AgentCatalogId => typeof id === "string" && ownedAgentCatalog.some((agent) => agent.id === id))
+      : ownedAgentCatalog.map((agent) => agent.id);
+    return { principal: value, policy: runtimePolicyFor(effective, saved?.modelAlias, saved?.profileId, saved?.agentIds ?? defaultAgentIds) };
   };
   const idempotency = (headers: Record<string, unknown>) => {
     const key = headers["idempotency-key"];
@@ -358,9 +362,13 @@ export function createControlServer(
         audience: "onecomputer-control",
       });
       const settings = await store.getSandboxSettings?.(userIdentity, "personal");
+      const document = user.effectivePolicy.document as Record<string, unknown>;
+      const defaultAgentIds = Array.isArray(document.agents)
+        ? document.agents.filter((id): id is AgentCatalogId => typeof id === "string" && ownedAgentCatalog.some((agent) => agent.id === id))
+        : ownedAgentCatalog.map((agent) => agent.id);
       return service.refreshPolicyGrant(
         userIdentity,
-        runtimePolicyFor(user.effectivePolicy, settings?.modelAlias, settings?.profileId),
+        runtimePolicyFor(user.effectivePolicy, settings?.modelAlias, settings?.profileId, settings?.agentIds ?? defaultAgentIds),
       );
     }));
     return {
@@ -401,12 +409,17 @@ export function createControlServer(
     const assignedModels = Array.isArray(document.modelAliases)
       ? document.modelAliases.filter((item): item is string => typeof item === "string")
       : [testRuntimePolicy.modelAlias];
+    const assignedAgentIds = Array.isArray(document.agents)
+      ? document.agents.filter((item): item is AgentCatalogId => typeof item === "string" && ownedAgentCatalog.some((agent) => agent.id === item))
+      : ownedAgentCatalog.map((agent) => agent.id);
     const availableProfiles = sandboxProfiles.filter((profile) => assignedProfiles.includes(profile.id));
     const availableModels = sandboxModels.filter((model) => assignedModels.includes(model.alias));
-    if (!availableProfiles.length || !availableModels.length) throw new OneComputerError("POLICY_INVALID", "The active policy has no supported sandbox profile or model route", 500);
+    const availableAgents = ownedAgentCatalog.filter((agent) => assignedAgentIds.includes(agent.id));
+    if (!availableProfiles.length || !availableModels.length || !availableAgents.length) throw new OneComputerError("POLICY_INVALID", "The active policy has no supported sandbox profile, model route, or agent", 500);
     const saved = await store.getSandboxSettings?.(actor.identity, "personal");
     const profileId = saved && availableProfiles.some((profile) => profile.id === saved.profileId) ? saved.profileId : availableProfiles[0]!.id;
     const modelAlias = saved && availableModels.some((model) => model.alias === saved.modelAlias) ? saved.modelAlias : availableModels[0]!.alias;
+    const agentIds = saved?.agentIds?.filter((id) => availableAgents.some((agent) => agent.id === id));
     return sandboxSettingsSchema.parse({
       grantId: "personal",
       profileId,
@@ -414,7 +427,9 @@ export function createControlServer(
       profile: availableProfiles.find((profile) => profile.id === profileId),
       availableProfiles,
       availableModels,
-      ...(effective?.egressSecurityGroup ? { egress: runtimePolicyFor(effective, modelAlias, profileId).egress } : {}),
+      agentIds: agentIds?.length ? agentIds : assignedAgentIds,
+      availableAgents,
+      ...(effective?.egressSecurityGroup ? { egress: runtimePolicyFor(effective, modelAlias, profileId, agentIds?.length ? agentIds : assignedAgentIds).egress } : {}),
       updatedAt: saved?.updatedAt.toISOString() ?? null,
     });
   });
@@ -425,14 +440,17 @@ export function createControlServer(
     const document = (effective?.document ?? {}) as Record<string, unknown>;
     const profiles = Array.isArray(document.workspaceProfiles) ? document.workspaceProfiles : [document.workspaceProfile ?? testRuntimePolicy.workspaceProfile];
     const models = Array.isArray(document.modelAliases) ? document.modelAliases : [testRuntimePolicy.modelAlias];
+    const agents = Array.isArray(document.agents) ? document.agents : ownedAgentCatalog.map((agent) => agent.id);
     if (!profiles.includes(input.profileId)) throw new OneComputerError("PROFILE_NOT_ASSIGNED", "That sandbox profile is not assigned by your organization", 403);
     if (!models.includes(input.modelAlias)) throw new OneComputerError("MODEL_NOT_ASSIGNED", "That model route is not assigned by your organization", 403);
+    if (input.agentIds.some((id) => !agents.includes(id))) throw new OneComputerError("AGENT_NOT_ASSIGNED", "That workspace agent is not assigned by your organization", 403);
     const current = await store.getCurrent(actor.identity, input.grantId);
     if (current && !["not_created", "stopped", "failed"].includes(current.state)) throw new OneComputerError("WORKSPACE_MUST_BE_STOPPED", "Stop the workspace before changing its profile or model route", 409, true);
     await store.saveSandboxSettings(actor.identity, {
       grantId: input.grantId,
       profileId: input.profileId as SandboxProfileId,
       modelAlias: input.modelAlias as SandboxModelAlias,
+      agentIds: input.agentIds,
     });
     const profile = sandboxProfiles.find((item) => item.id === input.profileId)!;
     return sandboxSettingsSchema.parse({
@@ -440,7 +458,9 @@ export function createControlServer(
       profile,
       availableProfiles: sandboxProfiles.filter((item) => profiles.includes(item.id)),
       availableModels: sandboxModels.filter((item) => models.includes(item.alias)),
-      ...(effective?.egressSecurityGroup ? { egress: runtimePolicyFor(effective, input.modelAlias, input.profileId).egress } : {}),
+      agentIds: input.agentIds,
+      availableAgents: ownedAgentCatalog.filter((item) => agents.includes(item.id)),
+      ...(effective?.egressSecurityGroup ? { egress: runtimePolicyFor(effective, input.modelAlias, input.profileId, input.agentIds).egress } : {}),
       updatedAt: new Date().toISOString(),
     });
   });

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
-import { defaultClipboardPolicy, egressSecurityGroupVersionSchema, OneComputerError, m365ToolCatalog, runtimePolicySchema, type EgressSecurityGroupVersion, type EgressSecurityGroupRule, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
+import { defaultClipboardPolicy, egressSecurityGroupVersionSchema, OneComputerError, m365ToolCatalog, ownedAgentCatalog, runtimePolicySchema, type AgentCatalogId, type AgentProfile, type EgressSecurityGroupVersion, type EgressSecurityGroupRule, type IdentityContext, type McpToolPolicyDecision, type OwnedJson, type RuntimePolicy } from "@onecomputer/contracts";
 import { compileEgressSecurityGroup } from "@onecomputer/egress-policy";
 
 export type OneComputerRole = "employee" | "administrator";
@@ -37,7 +37,16 @@ export type EffectivePolicy = {
   egressSecurityGroup?: EgressSecurityGroupVersion | null;
 };
 
-export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: string, selectedWorkspaceProfile?: string): RuntimePolicy => {
+const agentProfileFor = (catalogId: AgentCatalogId): AgentProfile => catalogId === "hermes-claw"
+  ? "hermes-claw-managed-v1"
+  : "claude-desktop-managed-v1";
+
+export const runtimePolicyFor = (
+  policy: EffectivePolicy,
+  selectedModelAlias?: string,
+  selectedWorkspaceProfile?: string,
+  selectedAgentIds?: AgentCatalogId[],
+): RuntimePolicy => {
   const document = policy.document as Record<string, unknown>;
   const mcp = document.mcp as Record<string, unknown> | undefined;
   const servers = mcp?.servers as Record<string, unknown> | undefined;
@@ -62,6 +71,35 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
     : defaultClipboardPolicy;
   if (!modelAlias || !allowedModelAliases.includes(modelAlias)) throw new OneComputerError("MODEL_NOT_ASSIGNED", "The selected model route is not assigned by the active policy", 403);
   if (!workspaceProfile || !workspaceProfiles.includes(workspaceProfile)) throw new OneComputerError("PROFILE_NOT_ASSIGNED", "The selected sandbox profile is not assigned by the active policy", 403);
+  const hasAgentCatalog = Array.isArray(document.agents) || selectedAgentIds !== undefined;
+  const configuredAgentIds = Array.isArray(document.agents)
+    ? document.agents.filter((value): value is AgentCatalogId => typeof value === "string" && ownedAgentCatalog.some((agent) => agent.id === value))
+    : hasAgentCatalog
+      ? ownedAgentCatalog.map((agent) => agent.id)
+      : [document.agentProfile === "hermes-claw-managed-v1" ? "hermes-claw" : "claude-desktop"] as AgentCatalogId[];
+  const agentIds = hasAgentCatalog ? selectedAgentIds ?? configuredAgentIds : configuredAgentIds;
+  if (!agentIds.length || new Set(agentIds).size !== agentIds.length) {
+    throw new OneComputerError("AGENT_SELECTION_INVALID", "At least one unique workspace agent must be selected", 400);
+  }
+  if (agentIds.some((id) => !configuredAgentIds.includes(id))) {
+    throw new OneComputerError("AGENT_NOT_ASSIGNED", "A selected agent is not assigned by the active policy", 403);
+  }
+  const agents = hasAgentCatalog ? agentIds.map((catalogId) => {
+    const catalog = ownedAgentCatalog.find((entry) => entry.id === catalogId);
+    if (!catalog) throw new OneComputerError("AGENT_UNAVAILABLE", "A selected agent is unavailable in the owned catalog", 500);
+    return {
+      catalogId,
+      agentId: `${policy.agentId}:${catalogId}`,
+      agentProfile: agentProfileFor(catalogId),
+      displayName: catalog.displayName,
+      clientVersion: catalog.clientVersion,
+      modelAlias,
+      mcpServer,
+      allowedTools: tools as string[],
+      toolPolicies,
+    };
+  }) : undefined;
+  const primaryAgent = agents?.[0];
   const egress = policy.egressSecurityGroup ? {
     id: policy.egressSecurityGroup.id,
     securityGroupId: policy.egressSecurityGroup.securityGroupId,
@@ -78,8 +116,9 @@ export const runtimePolicyFor = (policy: EffectivePolicy, selectedModelAlias?: s
     policyVersion: policy.version,
     policyHash: policy.documentHash,
     workspaceProfile,
-    agentId: policy.agentId,
-    agentProfile: document.agentProfile,
+    agentId: primaryAgent?.agentId ?? policy.agentId,
+    agentProfile: primaryAgent?.agentProfile ?? document.agentProfile,
+    ...(agents ? { agents } : {}),
     networkProfile: document.networkProfile,
     ...(egress ? { egress } : {}),
     clipboard: {
@@ -140,6 +179,7 @@ const mvpPolicyDocument = (revisionNote = "Initial MVP policy") => ({
   workspaceProfile: "claude-desktop-standard-v1",
   workspaceProfiles: ["claude-desktop-standard-v1"],
   agentProfile: "claude-desktop-managed-v1",
+  agents: ["claude-desktop", "hermes-claw"],
   modelAliases: ["onecomputer-claude", "onecomputer-openai", "onecomputer-glm"],
   networkProfile: "controlled-egress-v1",
   clipboard: defaultClipboardPolicy,

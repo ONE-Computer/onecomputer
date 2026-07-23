@@ -64,6 +64,52 @@ export const sandboxProfileSchema = z.object({
 });
 export type SandboxProfile = z.infer<typeof sandboxProfileSchema>;
 
+export const agentCatalogIds = ["claude-desktop", "hermes-claw"] as const;
+export const agentCatalogIdSchema = z.enum(agentCatalogIds);
+export type AgentCatalogId = z.infer<typeof agentCatalogIdSchema>;
+
+export const agentProfileSchema = z.enum([
+  "onecomputer-default-agent",
+  "claude-desktop-managed-v1",
+  "hermes-claw-managed-v1",
+]);
+export type AgentProfile = z.infer<typeof agentProfileSchema>;
+
+export const agentCatalogEntrySchema = z.object({
+  id: agentCatalogIdSchema,
+  displayName: z.string().min(1),
+  clientVersion: z.string().min(1),
+  description: z.string().min(1),
+  license: z.string().min(1),
+  source: z.url(),
+  artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  resources: z.object({ memoryMiB: z.number().int().positive() }),
+}).strict();
+export type AgentCatalogEntry = z.infer<typeof agentCatalogEntrySchema>;
+
+export const ownedAgentCatalog: readonly AgentCatalogEntry[] = Object.freeze([
+  agentCatalogEntrySchema.parse({
+    id: "claude-desktop",
+    displayName: "Claude Desktop",
+    clientVersion: "1.22209.3",
+    description: "Managed desktop client routed through ONEComputer.",
+    license: "Anthropic commercial distribution",
+    source: "https://downloads.claude.ai/claude-desktop/apt/stable/",
+    artifactSha256: "d427f46ac9233dbc4d8a441a602f09f750b8a5f05d1fc7a00285d7a6ce07655c",
+    resources: { memoryMiB: 1536 },
+  }),
+  agentCatalogEntrySchema.parse({
+    id: "hermes-claw",
+    displayName: "Hermes Claw",
+    clientVersion: "0.19.0",
+    description: "Pinned Hermes Agent CLI configured as a governed ONEComputer client.",
+    license: "MIT",
+    source: "https://github.com/NousResearch/hermes-agent/releases/tag/v2026.7.20",
+    artifactSha256: "285f3fc134ff466a90065e1517801a68993733b807158ee8f32aa01613786990",
+    resources: { memoryMiB: 768 },
+  }),
+]);
+
 export const clipboardPolicySchema = z.object({
   enabled: z.boolean(),
   localToWorkspace: z.boolean(),
@@ -159,6 +205,8 @@ export const sandboxSettingsSchema = z.object({
   profile: sandboxProfileSchema,
   availableProfiles: z.array(sandboxProfileSchema).min(1),
   availableModels: z.array(z.object({ alias: sandboxModelAliasSchema, displayName: z.string().min(1), provider: z.string().min(1) })).min(1),
+  agentIds: z.array(agentCatalogIdSchema).min(1),
+  availableAgents: z.array(agentCatalogEntrySchema).min(1),
   egress: runtimeEgressPolicySchema.optional(),
   updatedAt: z.iso.datetime().nullable(),
 });
@@ -168,6 +216,10 @@ export const saveSandboxSettingsSchema = z.object({
   grantId: z.string().min(1).max(128).default("personal"),
   profileId: sandboxProfileIdSchema,
   modelAlias: sandboxModelAliasSchema,
+  agentIds: z.array(agentCatalogIdSchema).min(1).max(agentCatalogIds.length).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Agent selections must not contain duplicates",
+  ),
 }).strict();
 
 export const workspaceViewSchema = z.object({
@@ -176,6 +228,13 @@ export const workspaceViewSchema = z.object({
   state: workspaceStateSchema,
   readiness: readinessSchema,
   modelRoute: modelRouteSchema.optional(),
+  agents: z.array(z.object({
+    id: agentCatalogIdSchema,
+    displayName: z.string().min(1),
+    clientVersion: z.string().min(1),
+    agentId: z.string().min(1),
+    state: z.enum(["selected", "starting", "ready", "degraded", "unavailable"]),
+  }).strict()).min(1).optional(),
   profile: z.object({
     id: z.string().min(1),
     client: z.string().min(1),
@@ -201,6 +260,22 @@ export const identityContextSchema = z.object({
 });
 export type IdentityContext = z.infer<typeof identityContextSchema>;
 
+export const runtimeAgentPolicySchema = z.object({
+  catalogId: agentCatalogIdSchema,
+  agentId: z.string().min(1).max(128),
+  agentProfile: agentProfileSchema,
+  displayName: z.string().min(1),
+  clientVersion: z.string().min(1),
+  modelAlias: z.string().min(1).max(128),
+  mcpServer: z.string().min(1).max(128),
+  allowedTools: z.array(z.string().min(1).max(128)).min(1),
+  toolPolicies: z.record(
+    z.string().min(1).max(128),
+    z.enum(["allow", "approval_required", "deny"]),
+  ),
+}).strict();
+export type RuntimeAgentPolicy = z.infer<typeof runtimeAgentPolicySchema>;
+
 export const runtimePolicySchema = z.object({
   schemaVersion: z.literal(1),
   policyVersionId: z.string().min(1),
@@ -208,7 +283,8 @@ export const runtimePolicySchema = z.object({
   policyHash: z.string().regex(/^[a-f0-9]{64}$/),
   workspaceProfile: z.enum(["kasm-persistent-standard", "claude-desktop-standard-v1"]),
   agentId: z.string().min(1),
-  agentProfile: z.enum(["onecomputer-default-agent", "claude-desktop-managed-v1"]),
+  agentProfile: agentProfileSchema,
+  agents: z.array(runtimeAgentPolicySchema).min(1).max(agentCatalogIds.length).optional(),
   networkProfile: z.literal("controlled-egress-v1"),
   egress: runtimeEgressPolicySchema.optional(),
   clipboard: clipboardPolicySchema.optional(),
@@ -236,6 +312,20 @@ export const controllerCreateSchema = z.object({
     baseUrl: z.url(),
     token: z.string().min(24),
   }).optional(),
+  agentGrants: z.array(z.object({
+    catalogId: agentCatalogIdSchema,
+    agentId: z.string().min(1).max(128),
+    gateway: z.object({
+      baseUrl: z.url(),
+      credential: z.string().min(24),
+      modelAlias: z.string().min(1).max(128),
+      expiresAt: z.iso.datetime(),
+    }),
+    agentBridge: z.object({
+      baseUrl: z.url(),
+      token: z.string().min(24),
+    }),
+  }).strict()).min(1).max(agentCatalogIds.length).optional(),
   egressProxy: z.object({
     token: z.string().min(24),
     verificationSecret: z.string().min(32),

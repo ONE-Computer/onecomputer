@@ -73,3 +73,37 @@ test("an assigned sandbox selection can narrow a multi-model policy but cannot b
   assert.equal(selected.workspaceProfile, "claude-desktop-standard-v1");
   assert.throws(() => runtimePolicyFor(effective, "unassigned-model", "claude-desktop-standard-v1"), /not assigned/);
 });
+
+test("policy-selected Claude and Hermes clients receive distinct governed identities", () => {
+  const effective: EffectivePolicy = {
+    assignmentId: "assignment-3", policyBundleId: "bundle-1", policyVersionId: "version-3", version: 3,
+    documentHash: "e".repeat(64), assignedBy: "admin-1", assignedAt: "2026-07-23T00:00:00.000Z",
+    agentId: "agent-1", workspaceIdentityId: "workspace-identity-1", workspaceId: null, vendorUserId: "oc-user-1",
+    document: {
+      schemaVersion: 1,
+      workspaceProfile: "claude-desktop-standard-v1",
+      workspaceProfiles: ["claude-desktop-standard-v1"],
+      agentProfile: "claude-desktop-managed-v1",
+      agents: ["claude-desktop", "hermes-claw"],
+      modelAliases: ["onecomputer-claude"],
+      networkProfile: "controlled-egress-v1",
+      mcp: { servers: { onecomputer_ms365: { tools: ["list-mail-folders"] } } },
+    },
+  };
+
+  const both = runtimePolicyFor(effective);
+  assert.deepEqual(both.agents?.map((agent) => [agent.catalogId, agent.agentId, agent.agentProfile]), [
+    ["claude-desktop", "agent-1:claude-desktop", "claude-desktop-managed-v1"],
+    ["hermes-claw", "agent-1:hermes-claw", "hermes-claw-managed-v1"],
+  ]);
+  assert.equal(new Set(both.agents?.map((agent) => agent.agentId)).size, 2);
+
+  const hermesOnly = runtimePolicyFor(effective, undefined, undefined, ["hermes-claw"]);
+  assert.equal(hermesOnly.agentId, "agent-1:hermes-claw");
+  assert.equal(hermesOnly.agentProfile, "hermes-claw-managed-v1");
+  assert.deepEqual(hermesOnly.agents?.map((agent) => agent.catalogId), ["hermes-claw"]);
+  assert.throws(
+    () => runtimePolicyFor(effective, undefined, undefined, ["hermes-claw", "hermes-claw"]),
+    /unique workspace agent/,
+  );
+});

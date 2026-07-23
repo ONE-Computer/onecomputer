@@ -54,6 +54,7 @@ export function createControllerServer(adapter: SandboxAdapter, internalToken: s
       policy: input.policy,
       gateway: input.gateway,
       agentBridge: input.agentBridge,
+      agentGrants: input.agentGrants,
       egressProxy: input.egressProxy,
     }));
   });

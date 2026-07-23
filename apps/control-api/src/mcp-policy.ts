@@ -3,6 +3,7 @@ import {
   OneComputerError,
   canonicalJson,
   m365ToolCatalog,
+  ownedAgentCatalog,
   type IdentityContext,
   type McpPolicyDecision,
   type McpPolicyRequest,
@@ -210,7 +211,9 @@ export class McpPolicyService {
     if (!effectivePolicy || !workspace) return denied("MCP_POLICY_NOT_ASSIGNED", capability);
 
     const runtime = runtimePolicyFor(effectivePolicy);
-    const bindingMatches = runtime.agentId === request.agentId
+    const catalogRuntime = runtimePolicyFor(effectivePolicy, undefined, undefined, ownedAgentCatalog.map((agent) => agent.id));
+    const allowedAgentIds = new Set([runtime.agentId, ...(catalogRuntime.agents?.map((agent) => agent.agentId) ?? [])]);
+    const bindingMatches = allowedAgentIds.has(request.agentId)
       && runtime.policyVersionId === request.policyVersionId
       && runtime.policyHash === request.policyHash
       && effectivePolicy.workspaceId === request.workspaceId
@@ -299,7 +302,7 @@ export class McpPolicyService {
         arguments: executionArguments,
         displayName: capability.displayName,
       },
-      runtime.agentId,
+      request.agentId,
       { policyVersionId: runtime.policyVersionId, policyHash: runtime.policyHash },
       // Reuse one active approval for an identical action. The store replaces
       // this stable slot only after denial, failure, or expiry.

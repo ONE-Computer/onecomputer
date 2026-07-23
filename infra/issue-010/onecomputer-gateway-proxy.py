@@ -13,11 +13,13 @@ UPSTREAM = urlsplit(os.environ["ONECOMPUTER_GATEWAY_UPSTREAM"])
 CREDENTIAL = os.environ["ONECOMPUTER_GATEWAY_CREDENTIAL"]
 CONTROL = urlsplit(os.environ["ONECOMPUTER_CONTROL_UPSTREAM"])
 AGENT_BRIDGE_TOKEN = os.environ["ONECOMPUTER_AGENT_BRIDGE_TOKEN"]
-ALLOWED_PATHS = {"/v1/messages", "/v1/models", "/mcp-rest/tools/list", "/mcp-rest/tools/call"}
+LISTEN_PORT = int(os.environ.get("ONECOMPUTER_GATEWAY_LISTEN_PORT", "4312"))
+ALLOWED_PATHS = {"/v1/messages", "/v1/chat/completions", "/v1/models", "/mcp-rest/tools/list", "/mcp-rest/tools/call"}
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
 
 if (UPSTREAM.scheme not in {"http", "https"} or not UPSTREAM.hostname or len(CREDENTIAL) < 24
-        or CONTROL.scheme not in {"http", "https"} or not CONTROL.hostname or len(AGENT_BRIDGE_TOKEN) < 24):
+        or CONTROL.scheme not in {"http", "https"} or not CONTROL.hostname or len(AGENT_BRIDGE_TOKEN) < 24
+        or LISTEN_PORT not in {4312, 4314}):
     raise SystemExit("invalid gateway broker configuration")
 
 
@@ -86,4 +88,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 4312), Handler).serve_forever()
+    ThreadingHTTPServer(("127.0.0.1", LISTEN_PORT), Handler).serve_forever()

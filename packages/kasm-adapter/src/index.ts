@@ -29,6 +29,20 @@ export type SandboxCreateInput = {
     baseUrl: string;
     token: string;
   };
+  agentGrants?: Array<{
+    catalogId: "claude-desktop" | "hermes-claw";
+    agentId: string;
+    gateway: {
+      baseUrl: string;
+      credential: string;
+      modelAlias: string;
+      expiresAt: string;
+    };
+    agentBridge: {
+      baseUrl: string;
+      token: string;
+    };
+  }>;
   egressProxy?: {
     token: string;
     verificationSecret: string;
@@ -214,6 +228,10 @@ export class KasmLocalAdapter implements SandboxAdapter {
     }
     if (existing) await this.destroy(existing.id);
     const port = await this.allocatePort();
+    const claudeGrant = input.agentGrants?.find((grant) => grant.catalogId === "claude-desktop");
+    const hermesGrant = input.agentGrants?.find((grant) => grant.catalogId === "hermes-claw");
+    const enabledAgents = input.agentGrants?.map((grant) => grant.catalogId)
+      ?? (input.policy.agentProfile === "hermes-claw-managed-v1" ? ["hermes-claw"] : ["claude-desktop"]);
     const created = await this.request("POST", `/containers/create?name=${encodeURIComponent(name)}`, {
       Image: this.config.image,
       Labels: {
@@ -228,6 +246,7 @@ export class KasmLocalAdapter implements SandboxAdapter {
         "com.onecomputer.agent-id": input.policy.agentId,
         "com.onecomputer.sandbox-profile": input.policy.workspaceProfile,
         "com.onecomputer.model-alias": input.policy.modelAlias,
+        "com.onecomputer.enabled-agents": enabledAgents.join(","),
         "com.onecomputer.desktop-port": String(port),
         "com.onecomputer.clipboard-enabled": String(clipboard.enabled),
         "com.onecomputer.clipboard-local-to-workspace": String(clipboard.localToWorkspace),
@@ -247,7 +266,8 @@ export class KasmLocalAdapter implements SandboxAdapter {
         `ONECOMPUTER_CLIPBOARD_LOCAL_TO_WORKSPACE=${clipboard.localToWorkspace}`,
         `ONECOMPUTER_CLIPBOARD_WORKSPACE_TO_LOCAL=${clipboard.workspaceToLocal}`,
         `ONECOMPUTER_CLIPBOARD_MAX_BYTES=${clipboard.maxBytes}`,
-        ...(input.gateway ? [
+        `ONECOMPUTER_ENABLED_AGENTS=${enabledAgents.join(",")}`,
+        ...(!input.agentGrants && input.gateway ? [
           `ONECOMPUTER_GATEWAY_UPSTREAM=${input.gateway.baseUrl}`,
           `ONECOMPUTER_GATEWAY_CREDENTIAL=${input.gateway.credential}`,
           `ONECOMPUTER_MODEL_ALIAS=${input.gateway.modelAlias}`,
@@ -258,9 +278,33 @@ export class KasmLocalAdapter implements SandboxAdapter {
           `ONECOMPUTER_ALLOWED_TOOLS=${input.policy.allowedTools.join(",")}`,
           `ONECOMPUTER_TOOL_POLICIES=${JSON.stringify(input.policy.toolPolicies)}`,
         ] : []),
-        ...(input.agentBridge ? [
+        ...(!input.agentGrants && input.agentBridge ? [
           `ONECOMPUTER_CONTROL_UPSTREAM=${input.agentBridge.baseUrl}`,
           `ONECOMPUTER_AGENT_BRIDGE_TOKEN=${input.agentBridge.token}`,
+        ] : []),
+        ...(claudeGrant ? [
+          `ONECOMPUTER_GATEWAY_UPSTREAM=${claudeGrant.gateway.baseUrl}`,
+          `ONECOMPUTER_GATEWAY_CREDENTIAL=${claudeGrant.gateway.credential}`,
+          `ONECOMPUTER_MODEL_ALIAS=${claudeGrant.gateway.modelAlias}`,
+          `ONECOMPUTER_AGENT_ID=${claudeGrant.agentId}`,
+          `ONECOMPUTER_CONTROL_UPSTREAM=${claudeGrant.agentBridge.baseUrl}`,
+          `ONECOMPUTER_AGENT_BRIDGE_TOKEN=${claudeGrant.agentBridge.token}`,
+          `ONECOMPUTER_POLICY_VERSION=${input.policy.policyVersion}`,
+          `ONECOMPUTER_POLICY_HASH=${input.policy.policyHash}`,
+          `ONECOMPUTER_MCP_SERVER=${input.policy.mcpServer}`,
+          `ONECOMPUTER_ALLOWED_TOOLS=${input.policy.allowedTools.join(",")}`,
+          `ONECOMPUTER_TOOL_POLICIES=${JSON.stringify(input.policy.toolPolicies)}`,
+        ] : []),
+        ...(hermesGrant ? [
+          `ONECOMPUTER_HERMES_GATEWAY_UPSTREAM=${hermesGrant.gateway.baseUrl}`,
+          `ONECOMPUTER_HERMES_GATEWAY_CREDENTIAL=${hermesGrant.gateway.credential}`,
+          `ONECOMPUTER_HERMES_MODEL_ALIAS=${hermesGrant.gateway.modelAlias}`,
+          `ONECOMPUTER_HERMES_AGENT_ID=${hermesGrant.agentId}`,
+          `ONECOMPUTER_HERMES_CONTROL_UPSTREAM=${hermesGrant.agentBridge.baseUrl}`,
+          `ONECOMPUTER_HERMES_AGENT_BRIDGE_TOKEN=${hermesGrant.agentBridge.token}`,
+          `ONECOMPUTER_HERMES_MCP_SERVER=${input.policy.mcpServer}`,
+          `ONECOMPUTER_HERMES_ALLOWED_TOOLS=${input.policy.allowedTools.join(",")}`,
+          `ONECOMPUTER_HERMES_TOOL_POLICIES=${JSON.stringify(input.policy.toolPolicies)}`,
         ] : []),
         ...(input.policy.egress && input.egressProxy ? [
           `HTTP_PROXY=http://onecomputer:${encodeURIComponent(input.egressProxy.token)}@onecomputer-egress-proxy:3128`,

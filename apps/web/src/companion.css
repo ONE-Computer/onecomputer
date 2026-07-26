@@ -222,6 +222,8 @@
 .companion-chat-shell .companion-chat-composer textarea {
   min-height: 46px;
   padding: 5px 7px 2px;
+  /* iOS Safari zooms focused editable controls below 16px. */
+  font-size: 16px;
 }
 
 .companion-chat-composer-row {
@@ -1181,8 +1183,29 @@
 }
 
 @media (max-width: 600px) {
+  /*
+   * Keep chat in a single visual viewport. iOS can report a shorter dynamic
+   * viewport than the Home Screen canvas, so letting the header and a
+   * separately calculated chat height stack leaves a visible dead area.
+   */
+  html:has(.companion-chat-main),
+  body:has(.companion-chat-main) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   .companion-root {
     padding-bottom: 0;
+  }
+
+  .companion-root:has(.companion-chat-main) {
+    display: grid;
+    height: 100dvh;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
   }
 
   .companion-topbar {
@@ -1234,8 +1257,10 @@
 
   .companion-chat-main {
     width: 100%;
+    min-height: 0;
     padding: 0;
-    height: calc(100dvh - 64px - env(safe-area-inset-top));
+    height: auto;
+    overflow: hidden;
   }
 
   .companion-chat-shell {
@@ -1264,6 +1289,8 @@
 
   .companion-chat-shell .chat-transcript {
     padding: 24px 0 14px;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .companion-chat-shell .chat-conversation {

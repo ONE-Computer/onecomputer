@@ -311,17 +311,12 @@ export function CompanionApp() {
 
   useEffect(() => {
     document.title = "ONEComputer Companion";
-    const manifest = document.createElement("link");
-    manifest.rel = "manifest";
-    manifest.href = "/companion.webmanifest";
-    document.head.append(manifest);
     const onInstallPrompt = (event) => {
       event.preventDefault();
       setInstallPrompt(event);
     };
     window.addEventListener("beforeinstallprompt", onInstallPrompt);
     return () => {
-      manifest.remove();
       window.removeEventListener("beforeinstallprompt", onInstallPrompt);
     };
   }, []);

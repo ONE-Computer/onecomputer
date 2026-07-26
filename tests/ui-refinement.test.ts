@@ -110,11 +110,12 @@ test("critical UI paths use owned accessible dialogs, skip targets, live state, 
 });
 
 test("Companion exposes Chat and approvals through the compact top-bar switch", async () => {
-  const [app, companion, companionStyles, manifest] = await Promise.all([
+  const [app, companion, companionStyles, manifest, html] = await Promise.all([
     source("apps/web/src/App.jsx"),
     source("apps/web/src/CompanionApp.jsx"),
     source("apps/web/src/companion.css"),
     source("apps/web/public/companion.webmanifest"),
+    source("apps/web/index.html"),
   ]);
   assert.match(app, /export function ChatScreen/);
   assert.match(companion, /import \{ ChatScreen \} from "\.\/App\.jsx"/);
@@ -135,8 +136,13 @@ test("Companion exposes Chat and approvals through the compact top-bar switch", 
   assert.match(app, /ariaLabel="Choose workspace"/);
   assert.match(companionStyles, /\.companion-mode-switch\s*\{/);
   assert.match(companionStyles, /\.companion-chat-composer\s*\{/);
+  assert.match(companionStyles, /\.companion-chat-composer textarea\s*\{[\s\S]*font-size:\s*16px/);
+  assert.match(companionStyles, /\.companion-root:has\(\.companion-chat-main\)\s*\{[\s\S]*grid-template-rows:\s*auto minmax\(0, 1fr\)/);
+  assert.match(companionStyles, /\.companion-chat-shell \.chat-transcript\s*\{[\s\S]*overscroll-behavior-y:\s*contain/);
   assert.doesNotMatch(companionStyles, /\.companion-destinations/);
   assert.match(manifest, /Chat with workspace agents and review protected ONEComputer actions/);
+  assert.match(html, /rel="manifest" href="\/companion\.webmanifest"/);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
 });
 
 test("workspace options are editable, opt-in, and explain the required restart after save", async () => {
